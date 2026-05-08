@@ -26,6 +26,10 @@ A compact dashboard widget that replaces Unraid's default per-pool disk widgets 
 - Performance Friendly: Per-request memoisation, request-frame-throttled drag, CSS containment on the tile, lightweight polling
 - Settings Page: Standalone settings at Settings > Disk Viewer Settings with browser-native form submission for instant Apply
 
+**Dashboard Widget**
+
+![Dashboard](screenshots/pc/widget1.png)
+
 ## Requirements
 
 - Unraid 7.2.0 or later (the widget uses the responsive tile registration API). Earlier versions render a legacy fallback.
@@ -71,9 +75,17 @@ Open the dashboard. You can hide the default per-pool disk widgets from the dash
 - Default expanded rows (default 0)
 - Section order
 
+**Settings Page**
+
+![Settings](screenshots/pc/settings1.png)
+
 **Header bar indicator**
 - Enable indicator
 - Click action: Open Main, Open Dashboard, or Open Settings
+
+**Header Badge**
+
+![Settings](screenshots/pc/header-badge.png)
 
 ## How it works
 
