@@ -4,7 +4,7 @@
   <PluginURL>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/diskviewer.plg</PluginURL>
   <PluginAuthor>Lazaros Chalkidis</PluginAuthor>
   <Beta>false</Beta>
-  <Category>Status:Disk Utility Tools:System</Category>
+  <Category>Tools:Utilities Tools:System</Category>
   <Name>Disk Viewer</Name>
   <Description><![CDATA[A compact dashboard widget that replaces Unraid's default per-pool disk widgets with a single, scannable grid showing all array disks, pool disks, and unassigned devices. Designed for servers with many disks where the stock widgets consume too much screen space.]]></Description>
   <Project>https://github.com/Lazaros-Chalkidis/unraid-diskviewer</Project>
