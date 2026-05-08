@@ -366,7 +366,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
 <!-- ============================================================================ -->
 
 <div class="dv-footer-row">
-  <a href="https://forums.unraid.net/topic/diskviewer/" id="dvSupportLink" class="dv-support-link" target="_blank" rel="noopener">Support</a>
+  <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" id="dvSupportLink" class="dv-support-link" target="_blank" rel="noopener">Support</a>
   <span class="dv-version-badge">v<?= htmlspecialchars((string)$plugin_version) ?></span>
 </div>
 
@@ -388,7 +388,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         </tr>
       </table>
       <div class="dv-credits-copy">Copyright © 2026 Disk Viewer Plugin</div>
-      <div style="margin-bottom:1.1rem;"><a href="https://forums.unraid.net/topic/diskviewer/" target="_blank" rel="noopener" style="color:#4a90e2;text-decoration:none;font-size:0.9em;">Plugin Support Thread</a></div>
+      <div style="margin-bottom:1.1rem;"><a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" target="_blank" rel="noopener" style="color:#4a90e2;text-decoration:none;font-size:0.9em;">Plugin Support Thread</a></div>
     </div>
     <div class="dv-credits-footer">
       <button type="button" id="dvCreditsOkBtn" style="background:#f47d42;border:1px solid #f47d42;color:#fff;padding:0.5rem 2.5rem;font-size:0.9em;font-weight:500;border-radius:4px;cursor:pointer;">OK</button>

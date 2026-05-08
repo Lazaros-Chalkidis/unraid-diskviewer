@@ -225,7 +225,7 @@ if [[ "$LOCAL_INSTALL" == "local" ]]; then
         pluginURL="&selfURL;" launch="&launch;"
         icon="img/diskviewerplugin.png"
         min="7.2.0"
-        support="https://forums.unraid.net/topic/diskviewer/">
+        support="https://forums.unraid.net/topic/198667-plugin-disk-viewer/">
 
 <DESCRIPTION>
 <![CDATA[
@@ -302,7 +302,7 @@ else
         pluginURL="&selfURL;" launch="&launch;"
         icon="img/diskviewerplugin.png"
         min="7.2.0"
-        support="https://forums.unraid.net/topic/diskviewer/">
+        support="https://forums.unraid.net/topic/198667-plugin-disk-viewer/">
 
 <DESCRIPTION>
 <![CDATA[

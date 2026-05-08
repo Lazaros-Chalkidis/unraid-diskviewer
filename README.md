@@ -81,20 +81,6 @@ Disk Viewer reads `/var/local/emhttp/disks.ini` (Unraid's live disk state) and `
 
 The widget polls the backend at the configured interval. The backend also writes a small cache file under `/tmp/diskviewer_cache/` that the header-bar button reads on its own schedule, so the header icon is responsive without depending on the widget being open.
 
-## Screenshots
-
-**Dashboard Widget**
-
-![Dashboard](screenshots/pc/widget1.png)
-
-**Header Badge**
-
-![Dashboard](screenshots/pc/header-badge.png)
-
-**Settings Page**
-
-![Settings](screenshots/pc/settings1.png)
-
 ## Development
 
 ### Requirements
@@ -145,7 +131,7 @@ unraid-diskviewer/
 ## Issues and support
 
 - GitHub Issues: https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues
-- Unraid Forum: https://forums.unraid.net/topic/diskviewer/
+- Unraid Forum: https://forums.unraid.net/topic/198667-plugin-disk-viewer/
 
 ## Author
 

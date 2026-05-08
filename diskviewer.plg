@@ -7,7 +7,7 @@
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "d708cb40a11ddb72d9343dcbdecd485b">
+ <!ENTITY md5       "09ce15882fe261f5208135612c5fb993">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -15,7 +15,7 @@
         pluginURL="&selfURL;" launch="&launch;"
         icon="img/diskviewerplugin.png"
         min="7.2.0"
-        support="https://forums.unraid.net/topic/diskviewer/">
+        support="https://forums.unraid.net/topic/198667-plugin-disk-viewer/">
 
 <DESCRIPTION>
 <![CDATA[
