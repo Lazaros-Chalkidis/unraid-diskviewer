@@ -1,0 +1,153 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+ <!ENTITY name      "diskviewer">
+ <!ENTITY author    "Lazaros Chalkidis">
+ <!ENTITY version   "2026.05.08">
+ <!ENTITY branch    "main">
+ <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
+ <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
+ <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
+ <!ENTITY md5       "d708cb40a11ddb72d9343dcbdecd485b">
+ <!ENTITY launch    "Settings/DiskViewerSettings">
+]>
+
+<PLUGIN name="&name;" Title="Disk Viewer" author="&author;" version="&version;"
+        pluginURL="&selfURL;" launch="&launch;"
+        icon="img/diskviewerplugin.png"
+        min="7.2.0"
+        support="https://forums.unraid.net/topic/diskviewer/">
+
+<DESCRIPTION>
+<![CDATA[
+A compact dashboard widget that replaces Unraid's default per-pool disk widgets with a single grid showing all array disks, pool disks, and unassigned devices. Designed for servers with many disks where the stock widgets consume too much screen space.
+]]>
+</DESCRIPTION>
+
+<CHANGES>
+<![CDATA[
+
+# Disk Viewer
+
+## Version 2026.05.08
+
+### First release
+- Dashboard Widget: Monitor every disk on your Unraid server in real-time from the dashboard
+- Section Organisation: Disks grouped under ARRAY, CACHE, POOLS, and UNASSIGNED with independent show/hide toggles
+- At-a-Glance Stats: Capacity, free space, used percentage, temperature, current read/write speed, and SMART health per disk
+- Drag-to-Resize: Footer handle to reveal more rows or shrink the widget back down without leaving the dashboard
+- Manual Spin Control: Per-disk bolt button to spin up or spin down on demand, with bulk controls at section headers for groups
+- Spindown Respect: Skips waking disks to read temperature or SMART when they are asleep, configurable
+- Header Bar Indicator: Thumb-up icon in the WebGUI top bar showing worst current state across all disks, click-action configurable
+- Severity Highlighting: Used percentage and temperature colour-shift to warning or critical based on Unraid's native Display thresholds
+- Auto Refresh: Configurable polling interval from 5 to 300 seconds for live disk state updates
+- Theme-Aware: Inherits the active Unraid theme (black, white, azure, gray) without override hacks
+- Mobile Responsive: Works on all screen sizes including the Unraid 7.2+ responsive WebGUI
+- Performance Friendly: Per-request memoisation, request-frame-throttled drag, CSS containment on the tile, lightweight polling
+- Settings Page: Standalone settings at Settings > Disk Viewer Settings with browser-native form submission for instant Apply
+]]>
+</CHANGES>
+
+<FILE Name="/boot/config/plugins/&name;/&name;-&version;.txz" Run="upgradepkg --install-new">
+  <URL>&pluginURL;</URL>
+  <MD5>&md5;</MD5>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+if [[ -f /boot/config/plugins/&name;/&name;.cfg ]]; then cp /boot/config/plugins/&name;/&name;.cfg /boot/config/plugins/&name;/&name;.cfg.bak; fi
+</INLINE>
+</FILE>
+
+<FILE Name="/boot/config/plugins/&name;/&name;.cfg" Mode="0644">
+  <INLINE>
+REFRESH_ENABLED="1"
+REFRESH_INTERVAL="30"
+RESPECT_SPINDOWN="1"
+DRAG_STEP_ROWS="1"
+SHOW_UNASSIGNED="1"
+SHOW_ARRAY="1"
+SHOW_CACHE="1"
+DEFAULT_EXPAND_ROWS="0"
+HEADER_SHOW_BADGE="1"
+HEADER_CLICK_ACTION="main"
+ENABLE_SPIN_BUTTON="1"
+  </INLINE>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+# Fix ownership and permissions
+chown -R root:root /usr/local/emhttp/plugins/&name;
+find /usr/local/emhttp/plugins/&name; -type d -exec chmod 755 {} \;
+find /usr/local/emhttp/plugins/&name; -type f -exec chmod 644 {} \;
+find /usr/local/emhttp/plugins/&name; -name "*.sh"   -exec chmod 755 {} \;
+find /usr/local/emhttp/plugins/&name;/event -type f -exec chmod 755 {} \; 2>/dev/null
+
+# Init cache dir. The web API runs as root under emhttpd, so 755 (root
+# write, world read) is enough - this lets diagnostic tools tail the
+# spin.log without root, while keeping unrelated processes from writing
+# to it. Was 1777 (world-writable with sticky bit) which violated the
+# least-privilege principle: any other plugin or user-script could have
+# clobbered our cache files.
+mkdir -p /tmp/diskviewer_cache
+chmod 755 /tmp/diskviewer_cache
+
+# diskviewer.cfg lives at /boot/config/plugins/&name;/&name;.cfg. The file
+# holds user-facing preferences only (no credentials), so 0644 is the
+# correct mode per the plugin-docs guidance for non-sensitive config. An
+# earlier 0600 attempt caused the settings page to display defaults after
+# every Apply on systems where the PHP request handler ran with an
+# effective uid that was not root: the read-back of the freshly written
+# cfg returned an empty array because a user-mode process cannot open a
+# root-only-readable file. Network-edge defence is the CSRF token;
+# OS-edge defence is that /boot/config is only writable by root. So
+# world-readable here is acceptable.
+if [[ -f /boot/config/plugins/&name;/&name;.cfg ]]; then
+    chmod 644 /boot/config/plugins/&name;/&name;.cfg
+fi
+
+# Reset PHP opcache so the upgraded PHP files are picked up immediately
+# instead of being served from the previous compiled bytecode.
+php -r "if (function_exists(\"opcache_reset\")) opcache_reset();" >/dev/null 2>/dev/null
+
+# Merge existing user config with new defaults. New keys stay at default,
+# existing keys preserve user values. Done via an external script to keep
+# special characters (ampersands, redirects) out of the PLG XML body.
+CFG=/boot/config/plugins/&name;/&name;.cfg
+BAK=/boot/config/plugins/&name;/&name;.cfg.bak
+if [[ -f "$BAK" ]]; then
+    /usr/local/emhttp/plugins/&name;/scripts/merge_cfg.sh "$CFG" "$BAK"
+    rm -f "$BAK"
+fi
+
+# Warm cache so the header badge has something to show
+if mountpoint -q /mnt/user 2>/dev/null; then
+    php -r "require_once '/usr/local/emhttp/plugins/&name;/include/diskviewer_api.php'; DiskViewerEndpoint::writeHeaderCache(DiskViewerEndpoint::buildModel());" >/dev/null 2>/dev/null
+fi
+
+echo ""
+echo "----------------------------------------------------"
+echo " &name; (&branch; build) installed successfully."
+echo " Version : &version;"
+echo " Settings: Settings > Disk Viewer"
+echo "----------------------------------------------------"
+echo ""
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+removepkg &name;-&version;
+rm -rf /usr/local/emhttp/plugins/&name;
+rm -rf /boot/config/plugins/&name;
+rm -rf /tmp/diskviewer_cache
+
+echo ""
+echo "----------------------------------------------------"
+echo " &name; has been removed."
+echo "----------------------------------------------------"
+echo ""
+</INLINE>
+</FILE>
+
+</PLUGIN>

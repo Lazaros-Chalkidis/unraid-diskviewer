@@ -1,0 +1,620 @@
+Menu="Utilities"
+Icon="img/diskviewer.png"
+Title="Disk Viewer Settings"
+---
+<?php
+/* ============================================================================
+   DISK VIEWER  -  Settings Page
+   /plugins/diskviewer/DiskViewerSettings.page
+
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+
+   Renders Settings > Utilities > Disk Viewer Settings. Handles its own
+   POST submission (write diskviewer.cfg) and emits the form HTML plus
+   the inline JavaScript that wires AJAX apply, reset-to-defaults, and
+   the credits modal.
+
+   Section ordering:
+     1. Server-side: sanitizers, POST handler, defaults, theme, version
+     2. Style includes & FOUC suppression
+     3. Top credits link
+     4. Form helpers (toggle closures)
+     5. Settings panel sections (Behavior / Display / Header / Spin)
+     6. Action bar (Apply / Reset / Done)
+     7. Footer row (support + version)
+     8. Credits modal markup
+     9. Inline JavaScript (section collapse, AJAX apply, reset, modal)
+   ========================================================================= */
+
+require_once '/usr/local/emhttp/plugins/dynamix/include/Helpers.php';
+require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php';
+
+const DV_PLUGIN   = 'diskviewer';
+const DV_CFG_FILE = '/boot/config/plugins/diskviewer/diskviewer.cfg';
+
+
+// ============================================================================
+// 1. Server-side: sanitizers, POST handler, defaults, theme, version
+// ============================================================================
+
+// ── Sanitizers ─────────────────────────────────────────────────────────────
+$yn = static fn($v, $d = '0') => ((string)($v ?? $d) === '1') ? '1' : '0';
+
+$clamp_int = static function($v, int $min, int $max, int $default): string {
+    $n = is_numeric($v) ? (int)$v : $default;
+    if ($n < $min) $n = $min;
+    if ($n > $max) $n = $max;
+    return (string)$n;
+};
+
+$clamp_interval = static function($v): string {
+    $allowed = ['5','10','20','30','50','80','100','150','200','250','300'];
+    return in_array((string)$v, $allowed, true) ? (string)$v : '30';
+};
+
+$clamp_action = static function($v): string {
+    $allowed = ['main','widget','settings'];
+    return in_array((string)$v, $allowed, true) ? (string)$v : 'main';
+};
+
+// ── POST handler ───────────────────────────────────────────────────────────
+// Simple browser POST submission, matching the pattern Logs Viewer (and
+// Stream Viewer) use. The form submits natively (no AJAX, no
+// preventDefault), this block writes the cfg file, and execution falls
+// through to the rest of the page which re-reads the cfg and renders
+// every field at its persisted value. The browser sees a normal 200 OK
+// and displays the response.
+//
+// Why no CSRF: emhttpd's session auth gates the WebGUI in front of
+// every plugin page, and /boot/config is root-write-only at the
+// filesystem level. Other Unraid plugins (Logs Viewer, Stream Viewer,
+// the official dynamix.* settings pages) follow the same convention -
+// adding a CSRF check here was breaking Apply with no actual
+// security improvement to show for it, since cross-origin POSTs are
+// already blocked by emhttpd's session cookie + same-site policy.
+//
+// Why no AJAX: the previous AJAX flow tried to keep the user on the
+// page and reload via JS, but ran into race conditions with CSRF
+// rotation, browser caching of POST responses, and the dashboard
+// auto-refresh DOM swap. A plain submit Just Works.
+if (isset($_POST['#apply'])) {
+    $new_cfg = [];
+
+    // Behavior
+    $new_cfg['REFRESH_ENABLED']   = $yn($_POST['REFRESH_ENABLED']  ?? '1', '1');
+    $new_cfg['REFRESH_INTERVAL']  = $clamp_interval($_POST['REFRESH_INTERVAL'] ?? 30);
+    $new_cfg['RESPECT_SPINDOWN']  = $yn($_POST['RESPECT_SPINDOWN'] ?? '1', '1');
+    $new_cfg['DRAG_STEP_ROWS']    = $clamp_int($_POST['DRAG_STEP_ROWS'] ?? 1, 1, 5, 1);
+
+    // Display
+    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '1', '1');
+    $new_cfg['SHOW_ARRAY']           = $yn($_POST['SHOW_ARRAY']           ?? '1', '1');
+    $new_cfg['SHOW_CACHE']           = $yn($_POST['SHOW_CACHE']           ?? '1', '1');
+    $new_cfg['SHOW_POOLS']           = $yn($_POST['SHOW_POOLS']           ?? '1', '1');
+
+    // Header bar indicator
+    $new_cfg['HEADER_SHOW_BADGE']    = $yn($_POST['HEADER_SHOW_BADGE'] ?? '1', '1');
+    $new_cfg['HEADER_CLICK_ACTION']  = $clamp_action($_POST['HEADER_CLICK_ACTION'] ?? 'main');
+
+    // Spin button (on by default; backend guard blocks parity & multi-disk pool members)
+    $new_cfg['ENABLE_SPIN_BUTTON']   = $yn($_POST['ENABLE_SPIN_BUTTON'] ?? '1', '1');
+
+    // Serialize. Each value goes through its own clamp/whitelist above, so
+    // it cannot contain newlines or quotes by the time it reaches this
+    // loop - but defense in depth: strip control chars and escape any
+    // embedded double quotes.
+    $ini = '';
+    foreach ($new_cfg as $k => $v) {
+        $v = preg_replace('/[\x00-\x1f\x7f]/', '', (string)$v);
+        $v = str_replace('"', '\\"', $v);
+        $ini .= "{$k}=\"{$v}\"\n";
+    }
+    @mkdir(dirname(DV_CFG_FILE), 0755, true);
+    file_put_contents(DV_CFG_FILE, $ini);
+
+    $cfg = $new_cfg;
+} else {
+    $cfg = @parse_ini_file(DV_CFG_FILE) ?: [];
+}
+
+// Defaults
+$def = [
+    'REFRESH_ENABLED'      => '1',
+    'REFRESH_INTERVAL'     => '30',
+    'RESPECT_SPINDOWN'     => '1',
+    'DRAG_STEP_ROWS'       => '1',
+    'SHOW_UNASSIGNED'      => '1',
+    'SHOW_ARRAY'           => '1',
+    'SHOW_CACHE'           => '1',
+    'SHOW_POOLS'           => '1',
+    'HEADER_SHOW_BADGE'    => '1',
+    'HEADER_CLICK_ACTION'  => 'main',
+    'ENABLE_SPIN_BUTTON'   => '1',
+];
+foreach ($def as $k => $v) {
+    if (!isset($cfg[$k]) || $cfg[$k] === '') $cfg[$k] = $v;
+}
+
+// Theme detection. See DiskViewer.page for the full rationale - same
+// black/white/azure/gray scheme, same dv-theme-{name} class, plus dv-light
+// retained as an alias for white/azure so the legacy two-state CSS that
+// already exists in settings.css continues to apply without rewriting.
+$dynamix_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+$unraid_theme  = $dynamix_cfg['display']['theme'] ?? '';
+$valid_themes  = ['black','white','azure','gray'];
+$dv_theme      = in_array($unraid_theme, $valid_themes, true) ? $unraid_theme : 'black';
+$dv_light      = in_array($dv_theme, ['white','azure'], true);
+$themeClass    = ' dv-theme-' . $dv_theme;
+$lightClass    = $dv_light ? ' dv-light' : '';
+$rootClasses   = $themeClass . $lightClass;
+
+// Plugin version (best-effort)
+$plugin_version = 'dev';
+$plg = @file_get_contents('/boot/config/plugins/diskviewer/diskviewer.plg');
+if ($plg && preg_match('/<ENTITY\s+version\s+"([^"]+)"/i', $plg, $m)) {
+    $plugin_version = $m[1];
+}
+?>
+
+<!-- ============================================================================ -->
+<!-- 2. Style includes & FOUC suppression -->
+<!-- ============================================================================ -->
+
+<style>.diskviewer-settings,.dv-credits-top{visibility:hidden;}</style>
+<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/settings.css">
+
+<!-- ============================================================================ -->
+<!-- 3. Top credits link -->
+<!-- ============================================================================ -->
+
+<div class="dv-credits-top<?= $rootClasses ?>">
+  <a href="#" class="dv-credits" id="dvCreditsLink">Credits</a>
+</div>
+
+<form name="diskviewer_settings" method="post" class="diskviewer-settings<?= $rootClasses ?>" autocomplete="off">
+
+<?php
+
+// ============================================================================
+// 4. Form helpers (toggle closures)
+// ============================================================================
+
+// Toggle helper closure (mirrors StreamViewer pattern)
+$toggle = function($name, $val, $default = '1', $onLabel = 'Enabled', $offLabel = 'Disabled') {
+    $isOn = ((string)($val ?? $default)) === '1';
+    $checked = $isOn ? ' checked' : '';
+    $txtClass = $isOn ? 'on' : 'off';
+    $txtLabel = $isOn ? $onLabel : $offLabel;
+    return '<input type="hidden" name="' . $name . '" value="' . ($isOn ? '1' : '0') . '">'
+        . '<label class="dv-toggle"><input type="checkbox" data-dv-toggle="' . $name . '"' . $checked . '>'
+        . '<span class="dv-toggle-track"></span></label>'
+        . '<span class="dv-toggle-txt ' . $txtClass . '">' . $txtLabel . '</span>';
+};
+$toggleShow = function($name, $val, $default = '1') use ($toggle) {
+    return $toggle($name, $val, $default, 'Show', 'Hide');
+};
+?>
+
+<!-- ============================================================================ -->
+<!-- 5. Settings panel sections (Behavior / Display / Header / Spin) -->
+<!-- ============================================================================ -->
+
+<div class="dv-settings-panel">
+
+  <!-- ────── Section 1: Behavior ────── -->
+  <div class="dv-sec" id="dvSecBehavior">
+    <div class="dv-sec-hd">
+      <span>Behavior</span>
+      <span class="dv-pill">Polling and interaction</span>
+      <span class="dv-sec-arrow">&#9650;</span>
+    </div>
+    <div class="dv-sec-bd">
+      <div class="dv-r">
+        <div class="dv-r-label">Automatic refresh</div>
+        <div class="dv-r-field">
+          <?= $toggle('REFRESH_ENABLED', $cfg['REFRESH_ENABLED'], '1') ?>
+          <span class="dv-r-desc">Poll the server for updated disk state</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Refresh interval</div>
+        <div class="dv-r-field">
+          <select name="REFRESH_INTERVAL" class="dv-select">
+            <?php foreach (['5','10','20','30','50','80','100','150','200','250','300'] as $s): ?>
+              <option value="<?= $s ?>" <?= $cfg['REFRESH_INTERVAL'] === $s ? 'selected' : '' ?>><?= $s ?>s<?= $s === '30' ? ' - Default' : '' ?></option>
+            <?php endforeach; ?>
+          </select>
+          <span class="dv-r-desc">How often to refresh the widget</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Respect spindown</div>
+        <div class="dv-r-field">
+          <?= $toggle('RESPECT_SPINDOWN', $cfg['RESPECT_SPINDOWN'], '1') ?>
+          <span class="dv-r-warn">Never wake a standby disk to read temp or SMART</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Drag step size (disks)</div>
+        <div class="dv-r-field">
+          <select name="DRAG_STEP_ROWS" class="dv-select">
+            <?php foreach (['1','2','3','4','5'] as $s): ?>
+              <option value="<?= $s ?>" <?= ((string)$cfg['DRAG_STEP_ROWS']) === $s ? 'selected' : '' ?>><?= $s ?><?= $s === '1' ? ' - Default' : '' ?></option>
+            <?php endforeach; ?>
+          </select>
+          <span class="dv-r-desc">Disks revealed per drag step on the footer handle</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────── Section 2: Display ────── -->
+  <div class="dv-sec closed" id="dvSecDisplay">
+    <div class="dv-sec-hd">
+      <span>Display</span>
+      <span class="dv-pill">Widget layout</span>
+      <span class="dv-sec-arrow">&#9650;</span>
+    </div>
+    <div class="dv-sec-bd">
+      <div class="dv-r">
+        <div class="dv-r-label">Show array section</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_ARRAY', $cfg['SHOW_ARRAY'], '1') ?>
+          <span class="dv-r-desc">Display parity and data disks</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show cache section</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_CACHE', $cfg['SHOW_CACHE'], '1') ?>
+          <span class="dv-r-desc">Display multi-disk pools (cache RAID and similar)</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show pools section</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_POOLS', $cfg['SHOW_POOLS'], '1') ?>
+          <span class="dv-r-desc">Display single-disk pools combined under POOLS</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show unassigned section</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '1') ?>
+          <span class="dv-r-desc">Requires Unassigned Devices plugin</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────── Section 3: Header bar indicator ────── -->
+  <div class="dv-sec closed" id="dvSecHeader">
+    <div class="dv-sec-hd">
+      <span>Header bar indicator</span>
+      <span class="dv-pill">Unraid top bar icon</span>
+      <span class="dv-sec-arrow">&#9650;</span>
+    </div>
+    <div class="dv-sec-bd">
+      <div class="dv-r">
+        <div class="dv-r-label">Enable indicator</div>
+        <div class="dv-r-field">
+          <?= $toggle('HEADER_SHOW_BADGE', $cfg['HEADER_SHOW_BADGE'], '1') ?>
+          <span class="dv-r-desc">Icon appears in the Unraid header when any disk is critical</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Click action</div>
+        <div class="dv-r-field">
+          <select name="HEADER_CLICK_ACTION" class="dv-select">
+            <option value="main"     <?= $cfg['HEADER_CLICK_ACTION'] === 'main' ? 'selected' : '' ?>>Open Main</option>
+            <option value="widget"   <?= $cfg['HEADER_CLICK_ACTION'] === 'widget' ? 'selected' : '' ?>>Open Dashboard</option>
+            <option value="settings" <?= $cfg['HEADER_CLICK_ACTION'] === 'settings' ? 'selected' : '' ?>>Open Settings</option>
+          </select>
+          <span class="dv-r-desc">Where the header icon takes you</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────── Section 4: Spin control ────── -->
+  <div class="dv-sec closed" id="dvSecSpin">
+    <div class="dv-sec-hd">
+      <span>Spin control</span>
+      <span class="dv-pill">Manual disk spin up and spin down</span>
+      <span class="dv-sec-arrow">&#9650;</span>
+    </div>
+    <div class="dv-sec-bd">
+      <div class="dv-r">
+        <div class="dv-r-label">Allow spin actions</div>
+        <div class="dv-r-field">
+          <?= $toggle('ENABLE_SPIN_BUTTON', $cfg['ENABLE_SPIN_BUTTON'] ?? '1', '1') ?>
+          <span class="dv-r-warn">When enabled, the bolt icon becomes clickable on single-disk pools and unassigned devices to spin them up or down. ARRAY members (parity and data disks) and multi-disk pool members are always protected and show a static bolt regardless of this setting.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- ============================================================================ -->
+<!-- 6. Action bar (Apply / Reset / Done) -->
+<!-- ============================================================================ -->
+
+  <!-- ────── Action bar: Apply / Reset / Done ────── -->
+  <!-- Apply is a real submit button with name="#apply" so the browser
+       includes it in the POST as $_POST['#apply']. The PHP handler at the
+       top of the file checks for that key. No JS interception, no AJAX -
+       the form submits natively, the server writes the cfg, and the
+       response is the same page re-rendered with persisted values.
+       This is the same pattern Logs Viewer and Stream Viewer use, and it
+       is dramatically more reliable than the AJAX flow we used to have. -->
+  <div class="dv-actions-bar">
+    <button type="submit" name="#apply" value="apply" id="dvApplyBtn" class="dv-action-btn dv-action-btn--apply" title="Save settings">
+      <i class="fa fa-check" aria-hidden="true"></i> Apply
+    </button>
+    <button type="button" id="dvResetBtn" class="dv-action-btn dv-action-btn--reset" title="Reset to defaults">
+      <i class="fa fa-undo" aria-hidden="true"></i> Reset to Defaults
+    </button>
+    <button type="button" class="dv-action-btn dv-action-btn--done" onclick="done()" title="Return to dashboard">
+      <i class="fa fa-arrow-left" aria-hidden="true"></i> Done
+    </button>
+  </div>
+
+</div><!-- /dv-settings-panel -->
+
+<!-- ============================================================================ -->
+<!-- 7. Footer row -->
+<!-- ============================================================================ -->
+
+<div class="dv-footer-row">
+  <a href="https://forums.unraid.net/topic/diskviewer/" id="dvSupportLink" class="dv-support-link" target="_blank" rel="noopener">Support</a>
+  <span class="dv-version-badge">v<?= htmlspecialchars((string)$plugin_version) ?></span>
+</div>
+
+<!-- ============================================================================ -->
+<!-- 8. Credits modal markup -->
+<!-- ============================================================================ -->
+
+<!-- ── Credits modal ──────────────────────────────────────────────── -->
+<div id="dvCreditsModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);align-items:center;justify-content:center;">
+  <div class="dv-credits-modal-box">
+    <div style="padding:2.2rem 2.5rem 1.5rem;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center;">
+      <div style="margin-bottom:1.1rem;"><img src="/plugins/diskviewer/img/diskviewerplugin.png" alt="Disk Viewer" style="width:46px;height:46px;"></div>
+      <div class="dv-credits-title">Disk Viewer</div>
+      <table style="width:auto;margin:0 auto 1.5rem;border-collapse:collapse;font-size:0.95em;">
+        <tr>
+          <td style="padding:0.4rem 1rem 0.4rem 0;vertical-align:middle;"><img src="/plugins/diskviewer/img/avatar.png" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;display:block;"></td>
+          <td style="padding:0.4rem 2rem 0.4rem 0;font-weight:600;text-align:left;vertical-align:middle;">Lazaros Chalkidis</td>
+          <td style="padding:0.4rem 0;opacity:0.6;text-align:left;vertical-align:middle;">Development</td>
+        </tr>
+      </table>
+      <div class="dv-credits-copy">Copyright © 2026 Disk Viewer Plugin</div>
+      <div style="margin-bottom:1.1rem;"><a href="https://forums.unraid.net/topic/diskviewer/" target="_blank" rel="noopener" style="color:#4a90e2;text-decoration:none;font-size:0.9em;">Plugin Support Thread</a></div>
+    </div>
+    <div class="dv-credits-footer">
+      <button type="button" id="dvCreditsOkBtn" style="background:#f47d42;border:1px solid #f47d42;color:#fff;padding:0.5rem 2.5rem;font-size:0.9em;font-weight:500;border-radius:4px;cursor:pointer;">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Generic notice modal (replaces window.alert for plugin-side
+     notifications). Layout matches StreamViewer's success-toast style:
+     a green circular checkmark icon centred at top, the headline below
+     it in white, then the explanation in muted grey text with selective
+     orange highlights, finished with the orange OK button. The icon and
+     accent colour together signal "all done, no error" without needing
+     a separate error-vs-success distinction in the API - this modal is
+     used only for confirmations after a successful local action. ──── -->
+<div id="dvNoticeModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);align-items:center;justify-content:center;">
+  <div class="dv-credits-modal-box" style="max-width:420px;">
+    <div style="padding:1.8rem 2.2rem 1.4rem;text-align:center;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+      <!-- Green circular badge with checkmark. Pure inline SVG so we
+           don't depend on Font Awesome or external icon fonts. -->
+      <div style="width:64px;height:64px;border-radius:50%;background:#3f8a4f;display:flex;align-items:center;justify-content:center;margin-bottom:1.1rem;box-shadow:0 4px 14px rgba(63,138,79,0.35);">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="5 12 10 17 19 8"></polyline>
+        </svg>
+      </div>
+      <div id="dvNoticeTitle" style="font-size:1.2em;font-weight:700;color:#fff;margin-bottom:0.6rem;">Notice</div>
+      <div id="dvNoticeBody" style="font-size:0.95em;line-height:1.55;opacity:0.75;"></div>
+    </div>
+    <div class="dv-credits-footer">
+      <button type="button" id="dvNoticeOkBtn" style="background:#f47d42;border:1px solid #f47d42;color:#fff;padding:0.5rem 2.5rem;font-size:0.9em;font-weight:600;border-radius:4px;cursor:pointer;">OK</button>
+    </div>
+  </div>
+</div>
+
+</form>
+
+<!-- ============================================================================ -->
+<!-- 9. Inline JavaScript -->
+<!-- ============================================================================ -->
+
+<script>
+(function(){
+    'use strict';
+
+    // ── FOUC: drop the inline visibility:hidden style we injected at the top
+    var styles = document.querySelectorAll('style');
+    styles.forEach(function(s){
+        if (s.textContent.indexOf('.diskviewer-settings') >= 0) s.remove();
+    });
+
+    // ── Section collapse/expand ─────────────────────────────────────────
+    document.querySelectorAll('.dv-sec-hd').forEach(function(hd){
+        hd.addEventListener('click', function(){
+            hd.parentElement.classList.toggle('closed');
+        });
+    });
+
+    // ── Toggle hidden-input sync (mirrors StreamViewer) ─────────────────
+    // The visible <input type="checkbox"> in .dv-toggle is a UI proxy; the
+    // actual form value lives in a sibling <input type="hidden">. Keeping
+    // them in sync on every change avoids a stale POST when the form is
+    // submitted via AJAX (which serializes hidden inputs, not unchecked
+    // checkboxes).
+    document.querySelectorAll('input[data-dv-toggle]').forEach(function(cb){
+        cb.addEventListener('change', function(){
+            var name = cb.getAttribute('data-dv-toggle');
+            var hidden = document.querySelector('input[type="hidden"][name="' + name + '"]');
+            if (hidden) hidden.value = cb.checked ? '1' : '0';
+            var txt = cb.closest('.dv-r-field').querySelector('.dv-toggle-txt');
+            if (txt) {
+                var isShow = txt.textContent.trim() === 'Show' || txt.textContent.trim() === 'Hide';
+                txt.textContent = cb.checked ? (isShow ? 'Show' : 'Enabled') : (isShow ? 'Hide' : 'Disabled');
+                txt.classList.toggle('on',  cb.checked);
+                txt.classList.toggle('off', !cb.checked);
+            }
+        });
+    });
+
+    // ── Native form submit ──────────────────────────────────────────────
+    // Apply button is <button type="submit" name="#apply"> which triggers
+    // a normal browser POST when clicked. No JS interception of the
+    // submission itself - the browser sends the form, the server writes
+    // the cfg file, and the response is the same page re-rendered with
+    // the new values. This is the same pattern Logs Viewer and Stream
+    // Viewer use, and it side-steps every race condition the previous
+    // AJAX flow had (CSRF token rotation, browser cache of POST
+    // responses, dashboard-tile DOM swap).
+    //
+    // What we DO add back is a spinner animation: while the POST is in
+    // flight (and the page reload is in flight), swap the Apply button's
+    // icon and label to a spinning gear so the user gets feedback that
+    // the click registered. The browser navigates to the new page as
+    // normal; when the response arrives the freshly-rendered Apply button
+    // replaces the spinner version. We also disable the button so a
+    // double-click can't fire a second submit. This listens on `submit`
+    // (not `click`) so keyboard Enter on a focused field also triggers
+    // the spinner.
+    var form     = document.querySelector('form[name="diskviewer_settings"]');
+    var applyBtn = document.getElementById('dvApplyBtn');
+    if (form && applyBtn) {
+        form.addEventListener('submit', function(){
+            // Defer the visual swap to a 0ms setTimeout so it runs AFTER
+            // the browser has serialised the form (including the Apply
+            // button's name="#apply" value="apply" pair which triggers
+            // the PHP POST handler). Disabling or re-rendering the button
+            // synchronously inside the submit handler would strip it from
+            // the form payload because disabled / replaced controls don't
+            // submit, and the server would then fall through to the GET
+            // branch and reload defaults. The 0ms timer puts the swap on
+            // the next tick of the event loop, by which time the browser
+            // has captured the form and dispatched the POST.
+            setTimeout(function(){
+                applyBtn.disabled  = true;
+                applyBtn.innerHTML = '<i class="fa fa-spinner fa-spin" aria-hidden="true"></i> Saving\u2026';
+            }, 0);
+        });
+    }
+
+    // ── Reset to defaults ───────────────────────────────────────────────
+    // Walks every form field and reapplies its baked-in default value, then
+    // syncs the visible toggle thumbs and labels to match. This is a UI
+    // reset only - nothing is persisted until the user clicks Apply, which
+    // matches the behaviour the user expects from "Reset" in similar
+    // Unraid settings pages.
+    var DV_DEFAULTS = {
+        REFRESH_ENABLED:     '1',
+        REFRESH_INTERVAL:    '30',
+        RESPECT_SPINDOWN:    '1',
+        DRAG_STEP_ROWS:      '1',
+        SHOW_ARRAY:          '1',
+        SHOW_CACHE:          '1',
+        SHOW_POOLS:          '1',
+        SHOW_UNASSIGNED:     '1',
+        HEADER_SHOW_BADGE:   '1',
+        HEADER_CLICK_ACTION: 'main',
+        ENABLE_SPIN_BUTTON:  '1'
+    };
+
+    function resetDefaults(){
+        if (!form) return;
+        Object.keys(DV_DEFAULTS).forEach(function(k){
+            var el = form.querySelector('[name="' + k + '"]');
+            if (el) el.value = DV_DEFAULTS[k];
+        });
+        // Sync each visible toggle thumb to its hidden value
+        document.querySelectorAll('.dv-toggle input[type="checkbox"]').forEach(function(cb){
+            var name = cb.getAttribute('data-dv-toggle');
+            if (!name || !DV_DEFAULTS.hasOwnProperty(name)) return;
+            cb.checked = DV_DEFAULTS[name] === '1';
+            var txt = cb.closest('.dv-r-field').querySelector('.dv-toggle-txt');
+            if (txt) {
+                var isShow = txt.textContent.trim() === 'Show' || txt.textContent.trim() === 'Hide';
+                txt.textContent = cb.checked ? (isShow ? 'Show' : 'Enabled') : (isShow ? 'Hide' : 'Disabled');
+                txt.className = 'dv-toggle-txt ' + (cb.checked ? 'on' : 'off');
+            }
+        });
+        dvShowNotice(
+            'Settings reset',
+            'All settings have been restored to their default values. Click '
+              + '<span style="color:#f47d42;font-weight:600;">Apply</span> to save.'
+        );
+    }
+
+    var resetBtn = document.getElementById('dvResetBtn');
+    if (resetBtn) resetBtn.addEventListener('click', resetDefaults);
+
+    // ── Notice modal (replaces window.alert for plugin-side notifications) ─
+    // dvShowNotice(title, body) opens the notice modal with the given title
+    // and body text. Closes on OK button, backdrop click, or Escape - same
+    // affordances as the credits modal so the user behaviour is consistent.
+    // Falls back to a plain alert() if for some reason the modal node is
+    // missing (template stripped, theme override hid it, etc.).
+    function dvShowNotice(title, bodyHtml){
+        var nModal = document.getElementById('dvNoticeModal');
+        var nTitle = document.getElementById('dvNoticeTitle');
+        var nBody  = document.getElementById('dvNoticeBody');
+        if (!nModal || !nTitle || !nBody) {
+            // Strip HTML for the alert fallback so the user sees clean text
+            // instead of raw markup if the modal node went missing.
+            var plain = (bodyHtml || '').replace(/<[^>]+>/g, '');
+            alert(title + (plain ? '\n\n' + plain : ''));
+            return;
+        }
+        // Title is plain text; body accepts a small set of HTML for
+        // typographic emphasis (e.g. <span style="color:#f47d42">Apply</span>).
+        // The body string is fully controlled by the plugin's own JS - it
+        // never carries user input - so HTML insertion is safe here.
+        nTitle.textContent = title || 'Notice';
+        nBody.innerHTML    = bodyHtml || '';
+        nModal.style.display = 'flex';
+    }
+    var nModal = document.getElementById('dvNoticeModal');
+    var nOk    = document.getElementById('dvNoticeOkBtn');
+    if (nOk && nModal) nOk.addEventListener('click', function(){
+        nModal.style.display = 'none';
+    });
+    if (nModal) {
+        nModal.addEventListener('click', function(e){
+            if (e.target === nModal) nModal.style.display = 'none';
+        });
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape' && nModal.style.display !== 'none') {
+                nModal.style.display = 'none';
+            }
+        });
+    }
+
+    // ── Credits modal ───────────────────────────────────────────────────
+    // Open on link click, close on OK button, backdrop click, or Escape.
+    var modal = document.getElementById('dvCreditsModal');
+    var cLink = document.getElementById('dvCreditsLink');
+    var okBtn = document.getElementById('dvCreditsOkBtn');
+    if (cLink && modal) cLink.addEventListener('click', function(e){
+        e.preventDefault();
+        modal.style.display = 'flex';
+    });
+    if (okBtn && modal) okBtn.addEventListener('click', function(){
+        modal.style.display = 'none';
+    });
+    if (modal) {
+        modal.addEventListener('click', function(e){
+            if (e.target === modal) modal.style.display = 'none';
+        });
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape') modal.style.display = 'none';
+        });
+    }
+})();
+</script>

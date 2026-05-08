@@ -1,0 +1,5 @@
+Menu="Buttons:0"
+Title="Disk Viewer"
+Icon="hdd.svg"
+---
+<script src="/plugins/diskviewer/js/diskviewer-header.js"></script>

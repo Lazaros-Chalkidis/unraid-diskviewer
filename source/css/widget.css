@@ -1,0 +1,1104 @@
+/* ============================================================================
+   DISK VIEWER  -  Widget Stylesheet
+   /plugins/diskviewer/css/widget.css
+
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+
+   Section ordering follows the rendering order of the widget itself: tokens
+   first, then the wrapper, header, badges, body, sections, rows, cells,
+   drag handle, empty state, and finally responsive overrides at the bottom.
+   Each section is delimited by a banner comment so jumping between them
+   in an editor is fast (search for the section number).
+   ========================================================================= */
+
+/* ==============================================================================
+   1. CSS Custom Properties
+   ============================================================================== */
+
+/* ==========================================================================
+   DISK VIEWER - Widget Styles
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+   /plugins/diskviewer/css/widget.css
+
+   SECTIONS
+    1. CSS Custom Properties
+    2. Widget wrapper
+    3. Header (responsive 7.2+)
+    4. Header (legacy)
+    5. Subtitle and critical badge
+    6. Body
+    7. Section headers
+    8. Tile grid
+    9. Tile internals (name, gear, value, temp, heart, fill)
+   10. Drag handle
+   11. Empty state
+   12. Light theme overrides
+   ========================================================================== */
+
+/* TABLE OF CONTENTS:
+      1. FOUNDATION — variables, themes
+      2. WRAPPER
+      3. HEADER & DEVICE COUNT BADGE
+      4. BODY & SCROLL HINT
+      5. SECTION HEADERS & BULK ACTIONS
+      6. DATA DISPLAY — column header, rows, cells, bars
+      7. BOLT BUTTON (per-row spin control)
+      8. DRAG HANDLE
+      9. REFRESH BUTTON
+     10. EMPTY STATE
+     11. RESPONSIVE — media queries
+   ──────────────────────────────────────────────────────────────────────── */
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   1. FOUNDATION — variables, themes
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. CSS CUSTOM PROPERTIES ─────────────────────────────────────────────── */
+:root {
+  --dv-c-text:          rgba(255,255,255,.87);
+  --dv-c-text-mid:      rgba(255,255,255,.65);
+  --dv-c-text-muted:    rgba(255,255,255,.45);
+  --dv-c-text-faint:    rgba(255,255,255,.30);
+
+  --dv-c-border:        rgba(255,255,255,.12);
+  --dv-c-border-strong: rgba(255,255,255,.22);
+  --dv-c-border-subtle: rgba(255,255,255,.06);
+
+  --dv-c-bg:            rgba(255,255,255,.03);
+  --dv-c-bg-summary:    rgba(255,255,255,.055);
+  --dv-c-bg-track:      rgba(255,255,255,.10);
+  --dv-c-bg-sticky:     #1c1c1c;
+
+  --dv-ok:              #4caf50;
+  --dv-ok-text:         #4caf50;
+
+  --dv-warn:            #ef9f27;
+  --dv-warn-text:       #ffb443;
+
+  --dv-crit:            #e24b4a;
+  --dv-crit-text:       #ff6a6a;
+
+  --dv-member:          #42a5f5;
+}
+
+.dv-light {
+  --dv-c-text:          rgba(0,0,0,.85);
+  --dv-c-text-mid:      rgba(0,0,0,.60);
+  --dv-c-text-muted:    rgba(0,0,0,.45);
+  --dv-c-text-faint:    rgba(0,0,0,.28);
+
+  --dv-c-border:        rgba(0,0,0,.10);
+  --dv-c-border-strong: rgba(0,0,0,.22);
+  --dv-c-border-subtle: rgba(0,0,0,.06);
+
+  --dv-c-bg:            rgba(0,0,0,.02);
+  --dv-c-bg-summary:    rgba(0,0,0,.05);
+  --dv-c-bg-track:      rgba(0,0,0,.10);
+  --dv-c-bg-sticky:     #f8f8f8;
+
+  --dv-ok-text:         #2e7d32;
+  --dv-warn-text:       #b35e00;
+  --dv-crit-text:       #c62828;
+
+  --dv-member:          #1976d2;
+}
+
+
+/* ==============================================================================
+   2. Per-Theme Tuning
+   ============================================================================== */
+
+/* ── PER-THEME TUNING ─────────────────────────────────────────────────────
+   Unraid ships four official themes. The :root block above and the
+   .dv-light block above it cover the two extremes (pure dark and pure
+   light). Black and white themes inherit those directly; azure and gray
+   need additional tuning, applied here.
+
+   The PHP layer attaches dv-theme-{name} to the widget wrapper for all
+   four themes, plus dv-light for white/azure (preserving the legacy
+   two-state CSS without churn). So the rule order is:
+     1. :root defaults                       (black, default)
+     2. .dv-light overrides                  (white + azure shared light base)
+     3. .dv-theme-azure tweaks the .dv-light base toward cool/azure
+     4. .dv-theme-gray overrides :root with medium-dark surfaces
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Azure: light theme with cool blue accents. Inherits .dv-light first.
+   Sticky column header takes a faint azure tint so the widget reads as
+   "in the same family" as the Azure theme background instead of looking
+   like a plain white widget pasted on a blue page. The member highlight
+   shifts slightly bluer to harmonise with the cooler palette. */
+.dv-theme-azure {
+  --dv-c-bg-sticky:     #eef3f8;
+  --dv-member:          #1565c0;
+}
+
+/* Gray: medium-dark theme. The Unraid Gray theme has a system background
+   in the #3b3b3b range, somewhere between the pure black bg of the Dark
+   theme and the off-white of the Light theme. The default :root values
+   are tuned for pure black and look like a darker island stamped on the
+   gray desktop. Lifting solid-coloured surfaces (the sticky column header)
+   and warming up the text/border tones a notch keeps the widget visually
+   embedded rather than floating. */
+.dv-theme-gray {
+  --dv-c-text:          rgba(255,255,255,.92);
+  --dv-c-text-mid:      rgba(255,255,255,.70);
+  --dv-c-text-muted:    rgba(255,255,255,.50);
+  --dv-c-text-faint:    rgba(255,255,255,.32);
+
+  --dv-c-border:        rgba(255,255,255,.13);
+  --dv-c-border-strong: rgba(255,255,255,.25);
+  --dv-c-border-subtle: rgba(255,255,255,.07);
+
+  --dv-c-bg:            rgba(255,255,255,.04);
+  --dv-c-bg-summary:    rgba(255,255,255,.07);
+  --dv-c-bg-track:      rgba(255,255,255,.12);
+  --dv-c-bg-sticky:     #2e2e2e;
+}
+
+
+/* ==============================================================================
+   3. Widget Wrapper
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   2. WRAPPER
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 2. WIDGET WRAPPER ─────────────────────────────────────────────────── */
+.dv-widget-wrap {
+  color: var(--dv-c-text);
+  font-size: 13px;
+  line-height: 1.3;
+  /* CSS containment lets the browser skip work outside the widget when
+     something inside it changes. `layout` means a child's size change won't
+     trigger a layout pass on the rest of the page (e.g. the dashboard
+     surrounding tiles), `paint` means painting outside the widget's box
+     can be skipped when only the widget needs repainting, `style` means
+     style invalidation stays scoped. The drag handle resizing the
+     container is the most frequent invalidator and the change it triggers
+     is purely internal to this widget, so containing it here is a
+     measurable win on busy dashboards with many tiles. */
+  contain: layout paint style;
+}
+
+.dv-widget-wrap * { box-sizing: border-box; }
+
+
+/* ==============================================================================
+   4. Header (Responsive + Legacy)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   3. HEADER & DEVICE COUNT BADGE
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 3. HEADER (Unraid 7.2+ responsive) ───────────────────────────────── */
+.dv-header { align-items: flex-start; }
+
+.dv-header__left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+.dv-header__top { display: flex; gap: 1rem; }
+
+.dv-header__icon { flex-shrink: 0; }
+
+.dv-header__title {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-header__right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.dv-header__controls { display: inline-flex; gap: 4px; align-items: center; }
+
+/* ── 4. HEADER (legacy / pre-7.2) ─────────────────────────────────────── */
+.dv-legacy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 8px 10px;
+  gap: 12px;
+}
+
+.dv-legacy-header__left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+.dv-legacy-header__top { display: flex; align-items: center; gap: 10px; }
+
+.dv-legacy-icon { color: var(--dv-c-text-mid); }
+
+.dv-legacy-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.dv-legacy-controls { display: inline-flex; gap: 4px; }
+
+
+/* ==============================================================================
+   5. Header Badges (Device Count, Settings Cog)
+   ============================================================================== */
+
+/* ── 5. HEADER META (device count badge - mirrors StreamViewer style) ── */
+.dv-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -16px;
+  padding-left: calc(32px + 1rem);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.dv-badge-devices {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .7em;
+  color: var(--dv-c-text-mid);
+}
+
+#dv-device-count {
+  font-weight: 700;
+  font-size: .99em;
+  color: var(--dv-c-text);
+}
+
+.dv-badge-label { opacity: .6; }
+
+
+/* ==============================================================================
+   6. Body & Sections Container
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   4. BODY & SCROLL HINT
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 6. BODY ──────────────────────────────────────────────────────────── */
+.dv-body {
+  padding: 4px 0 0;
+  min-height: 0;
+}
+
+.dv-sections {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  min-height: 0;
+  position: relative;
+  /* Hide native scrollbar across browsers. Scroll still works via mouse
+     wheel, keyboard, touch, and the drag handle that resizes the panel.
+     The dv-scroll-hint badge below provides discoverability when content
+     overflows. */
+  scrollbar-width: none;             /* Firefox */
+  -ms-overflow-style: none;          /* legacy Edge */
+}
+
+.dv-sections::-webkit-scrollbar {    /* Chromium / WebKit */
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   6. DATA DISPLAY — column header, rows, cells, bars
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 9. ROW LAYOUT ────────────────────────────────────────────────── */
+.dv-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+
+/* ==============================================================================
+   7. Scroll Hint Tooltip
+   ============================================================================== */
+
+.dv-light .dv-scroll-hint {
+  background: rgba(245,245,245,.95);
+  border-color: rgba(0,0,0,.18);
+  color: #444;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18);
+}
+
+/* ── Scroll hint badge ────────────────────────────────────────────────────
+   Tiny floating indicator that follows the cursor for 2 seconds when the
+   user enters a scrollable .dv-sections panel. Tells them content can be
+   scrolled (since the scrollbar itself is hidden). The element is created
+   and positioned by JS; CSS only owns appearance and the show/hide
+   transition. */
+.dv-scroll-hint {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 5px;
+  background: rgba(20,20,20,.92);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 4px;
+  color: #d0d0d0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,.35);
+}
+
+.dv-scroll-hint--show { opacity: 1; }
+
+.dv-scroll-hint svg {
+  width: 9px;
+  height: 9px;
+  display: block;
+}
+
+
+/* ==============================================================================
+   8. Section Headers (ARRAY / CACHE / POOLS / etc.)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   5. SECTION HEADERS & BULK ACTIONS
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 7. SECTION HEADERS ──────────────────────────────────────────────── */
+.dv-section {
+  padding: 2px 4px 0;
+}
+
+.dv-section:first-child { padding-top: 6px; }
+
+.dv-section-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 4px;
+  font-size: 10px;
+  letter-spacing: .08em;
+  font-weight: 500;
+  color: var(--dv-c-text-muted);
+}
+
+.dv-section-lbl { text-transform: uppercase; }
+
+.dv-section-count {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--dv-c-text-faint);
+}
+
+.dv-section-count::before { content: "· "; opacity: .6; }
+
+/* Bulk action group on the right side of a section header (POOLS only).
+   Mirrors the Aegis-style compact action button look. */
+.dv-section-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+/* Hover toast for the bulk-spin buttons. Reuses the .dv-row-toast color
+   scheme but is repositioned to sit above the buttons inside the section
+   header. z-index 4 keeps it above the sticky column header (z-index 3). */
+.dv-section-actions .dv-row-toast {
+  top: -28px;
+  left: auto;
+  right: 0;
+  z-index: 4;
+}
+
+
+/* ==============================================================================
+   9. Bulk Spin Buttons (POOLS section header)
+   ============================================================================== */
+
+.dv-bulk-spin {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 1px !important;
+  line-height: 0 !important;
+  padding: 2px 5px !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  background: transparent !important;
+  border: 1px solid var(--dv-c-border-strong) !important;
+  border-radius: 3px !important;
+  cursor: pointer !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-family: inherit !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  color: var(--dv-c-text-faint) !important;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.dv-bulk-spin::-moz-focus-inner { border: 0 !important; padding: 0 !important; }
+
+.dv-bulk-spin svg { width: 11px !important; height: 11px !important; }
+
+.dv-bulk-spin .dv-bulk-arrow {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.dv-bulk-spin .dv-bulk-arrow svg { width: 8px !important; height: 8px !important; }
+
+.dv-bulk-spin[data-dv-bulk="up"]:hover {
+  color: var(--dv-ok) !important;
+  background: color-mix(in srgb, var(--dv-ok) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dv-ok) 55%, transparent) !important;
+}
+
+.dv-bulk-spin[data-dv-bulk="down"]:hover {
+  color: var(--dv-crit) !important;
+  background: color-mix(in srgb, var(--dv-crit) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dv-crit) 55%, transparent) !important;
+}
+
+.dv-bulk-spin:disabled,
+.dv-bulk-spin.dv-bolt--busy {
+  opacity: .5 !important;
+  cursor: wait !important;
+}
+
+
+/* ==============================================================================
+   10. Column Header Row (DISK SIZE FREE USED ...)
+   ============================================================================== */
+
+/* Column grid shared by colhd + rows (10 columns) */
+.dv-colhd,
+.dv-row {
+  display: grid;
+  grid-template-columns:
+    26px                      /* bolt        */
+    minmax(110px, 1.4fr)      /* name        */
+    62px                      /* size        */
+    62px                      /* free        */
+    46px                      /* %           */
+    minmax(52px, 1.6fr)       /* mini-bar    */
+    68px                      /* speed       */
+    38px                      /* temp        */
+    19px                      /* thumb       */
+    21px;                     /* gear        */
+  gap: 8px;
+  align-items: center;
+}
+
+.dv-colhd {
+  padding: 4px 6px 3px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  color: var(--dv-c-text-faint);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--dv-c-border-subtle);
+  margin-bottom: 2px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--dv-c-bg-sticky);
+}
+
+.dv-colhd > span { white-space: nowrap; }
+
+.dv-colhd-pct      { text-align: right; }
+
+.dv-colhd-speed    { text-align: right; }
+
+.dv-colhd-temp     { text-align: right; }
+
+.dv-colhd-health   { text-align: center; opacity: .7; }
+
+.dv-colhd-settings { text-align: center; opacity: .7; }
+
+/* Severity-driven coloring for the three "stateful" column headers.
+   When any tile under a column is in warning or critical state, the
+   header lights up using the same amber/red tokens the row cells use.
+   On the ok state all three stay neutral grey - a green H affirmation
+   was tried but pulled the eye away from real warnings, and users
+   expect coloured text to mean "look here". `opacity: 1` overrides the
+   .7 dim baked into health (and would also apply to settings if it
+   ever needed this). `font-weight: 600` lifts the lit-up header above
+   the neutral siblings since the small caps colhd font (10px) loses
+   some legibility at lower opacity. */
+.dv-colhd-pct--warn,
+.dv-colhd-temp--warn,
+.dv-colhd-health--warn {
+  color: var(--dv-warn-text) !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+
+.dv-colhd-pct--crit,
+.dv-colhd-temp--crit,
+.dv-colhd-health--crit {
+  color: var(--dv-crit-text) !important;
+  opacity: 1 !important;
+  font-weight: 600 !important;
+}
+
+
+/* ==============================================================================
+   11. Row Layout
+   ============================================================================== */
+
+.dv-row {
+  padding: 5px 6px;
+  font-size: 13px;
+  position: relative;
+  border-bottom: 1px solid var(--dv-c-border-subtle);
+  transition: background .12s ease;
+}
+
+.dv-row:last-child { border-bottom: none; }
+
+.dv-row:hover { background: var(--dv-c-bg); }
+
+.dv-row--summary { background: var(--dv-c-bg-summary); }
+
+.dv-row--summary:hover { background: var(--dv-c-bg-summary); }
+
+.dv-row--warn   { background: color-mix(in srgb, var(--dv-warn)   14%, transparent); }
+
+.dv-row--crit   { background: color-mix(in srgb, var(--dv-crit)   14%, transparent); }
+
+.dv-row--member { background: color-mix(in srgb, var(--dv-member)  10%, transparent); }
+
+/* Kill any ambient outline/button styling from the Unraid dashboard wrapper.
+   Some Unraid versions auto-decorate spans that look like disk names with
+   an orange click-affordance outline, which conflicts with our own layout. */
+.dv-row,
+.dv-row * {
+  outline: none !important;
+  box-shadow: none !important;
+  text-decoration: none !important;
+}
+
+.dv-row button,
+.dv-row a,
+.dv-row span {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dv-row button::-moz-focus-inner { border: 0 !important; }
+
+/* Scale SVG icons inside rows by ~20% (override JS hardcoded width/height
+   without touching the markup). Applies to bolt, gear, thumb. */
+.dv-row .dv-bolt svg,
+.dv-row .dv-col-gear svg,
+.dv-row .dv-thumb svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+
+/* ==============================================================================
+   12. Row Toast (bolt hover label)
+   ============================================================================== */
+
+/* Spin-button hover toast */
+.dv-row-toast {
+  display: none;
+  position: absolute;
+  top: -32px;
+  left: 28px;
+  padding: 5px 9px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.dv-row-toast--show { display: block; }
+
+.dv-row-toast--crit {
+  background: color-mix(in srgb, var(--dv-crit) 35%, #000);
+  border: 1px solid color-mix(in srgb, var(--dv-crit) 60%, transparent);
+  color: var(--dv-crit-text);
+}
+
+.dv-row-toast--ok {
+  background: color-mix(in srgb, var(--dv-ok) 30%, #000);
+  border: 1px solid color-mix(in srgb, var(--dv-ok) 55%, transparent);
+  color: var(--dv-ok-text);
+}
+
+
+/* ==============================================================================
+   13. Bolt Button (per-row spin control)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   7. BOLT BUTTON (per-row spin control)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Unified bolt (state + optional action)
+   IMPORTANT: Unraid has a global rule in default-base.css:184 that styles
+   every <button> element with min-width:86px, padding:8px, margin, border,
+   font-family:clear-sans and text-transform:uppercase. That would turn our
+   small icon button into a large UPPERCASE button and push every other
+   column to the right. We override all of those here. */
+.dv-bolt {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 0 !important;
+  padding: 1px 3px !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 3px !important;
+  cursor: pointer !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+.dv-bolt::-moz-focus-inner { border: 0 !important; padding: 0 !important; }
+
+.dv-bolt--static { cursor: default !important; pointer-events: none; }
+
+.dv-bolt--on  { color: var(--dv-ok) !important; }
+
+.dv-bolt--off { color: var(--dv-c-text-faint) !important; }
+
+.dv-bolt--on:not(.dv-bolt--static):hover {
+  background: color-mix(in srgb, var(--dv-crit) 15%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dv-crit) 55%, transparent) !important;
+}
+
+.dv-bolt--off:not(.dv-bolt--static):hover {
+  background: color-mix(in srgb, var(--dv-ok) 15%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dv-ok) 55%, transparent) !important;
+}
+
+.dv-bolt--busy { opacity: .5 !important; cursor: wait !important; }
+
+
+/* ==============================================================================
+   14. Row Cells (size / free / used / bar / speed / temp / health / gear)
+   ============================================================================== */
+
+.dv-col-bolt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.dv-col-name {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dv-c-text);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dv-col-size,
+.dv-col-free {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: 12.5px;
+  color: var(--dv-c-text-mid);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dv-col-free { color: var(--dv-c-text); }
+
+.dv-col-pct {
+  text-align: right;
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  color: var(--dv-c-text);
+  line-height: 1;
+}
+
+.dv-col-pct--warn { color: var(--dv-warn-text); }
+
+.dv-col-pct--crit { color: var(--dv-crit-text); }
+
+/* Mini progress bar in its own column */
+.dv-col-bar {
+  height: 5px;
+  background: var(--dv-c-bg-track);
+  border-radius: 2.5px;
+  overflow: hidden;
+}
+
+.dv-col-bar--empty { background: transparent; }
+
+.dv-bar-fill {
+  height: 100%;
+  transition: width .3s ease;
+  border-radius: 2.5px;
+}
+
+.dv-bar-fill--ok   { background: var(--dv-ok);   }
+
+.dv-bar-fill--warn { background: var(--dv-warn); }
+
+.dv-bar-fill--crit { background: var(--dv-crit); }
+
+.dv-col-speed-wrap {
+  text-align: right;
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: 12px;
+  color: var(--dv-c-text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dv-col-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--dv-c-text-mid);
+}
+
+/* Direction-specific arrow colour: green for reads, red for writes.
+   Default rule below acts as a fallback for older markup that lacks
+   the modifier class. */
+.dv-col-speed svg              { color: var(--dv-ok); }
+
+.dv-col-speed--r svg           { color: var(--dv-ok); }
+
+.dv-col-speed--w svg           { color: var(--dv-crit); }
+
+.dv-col-speed-na { color: var(--dv-c-text-faint); }
+
+.dv-col-err { color: var(--dv-crit-text); font-weight: 600; }
+
+.dv-col-temp {
+  text-align: right;
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: 12px;
+  letter-spacing: .02em;
+}
+
+.dv-temp-ok   { color: var(--dv-ok-text); }
+
+.dv-temp-warn { color: var(--dv-warn-text); }
+
+.dv-temp-crit { color: var(--dv-crit-text); font-weight: 700; }
+
+.dv-temp-na   { color: var(--dv-c-text-faint); }
+
+.dv-col-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dv-thumb {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.dv-thumb--down svg { transform: rotate(180deg); }
+
+.dv-thumb--ok   { color: var(--dv-ok); }
+
+.dv-thumb--warn { color: var(--dv-warn); }
+
+.dv-thumb--crit { color: var(--dv-crit); }
+
+.dv-thumb--na   { color: var(--dv-c-text-faint); }
+
+/* Also override default-base styling on the gear link (a.button pattern) */
+.dv-col-gear {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  color: var(--dv-c-text-faint);
+  text-decoration: none !important;
+  transition: color .15s ease;
+}
+
+.dv-col-gear:hover {
+  color: var(--dv-c-text);
+  text-decoration: none !important;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   9. REFRESH BUTTON
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Refresh button busy state: hourglass swap + suppress hover/click while
+   the request is in flight so users get clear feedback. */
+#dv-manual-refresh.dv-busy {
+  pointer-events: none;
+  opacity: .6;
+}
+
+
+/* ==============================================================================
+   15. Drag Handle (resize footer)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   8. DRAG HANDLE
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 10. DRAG HANDLE ─────────────────────────────────────────────────── */
+.dv-drag-handle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  /* 8px on top gives the grip breathing room from the last data row;
+     1px on bottom keeps the internal handle padding minimal. The
+     widget's tile container (Unraid <td> in legacy layout, <section>
+     in responsive layout) provides whatever footer space Unraid gives
+     every other widget - we don't fight it, matching Logs Viewer and
+     every other dashboard plugin. The total visible footer space is
+     therefore identical to other tiles on the same dashboard. */
+  padding: 8px 0 1px;
+  cursor: ns-resize;
+  user-select: none;
+  -webkit-user-select: none;
+  border-top: 1px solid var(--dv-c-border-subtle);
+  margin-top: 4px;
+}
+
+.dv-drag-handle:focus { outline: none; }
+
+.dv-drag-handle:focus-visible .dv-drag-bar { background: var(--dv-c-text-mid); }
+
+.dv-drag-grip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  padding: 2px 28px;
+  border-radius: 4px;
+  transition: background .15s ease;
+}
+
+.dv-drag-handle--active .dv-drag-grip {
+  background: var(--dv-c-bg);
+  /* During an active drag we mutate the widget's container max-height
+     ~60 times per second (rAF-throttled). will-change tells the browser
+     to promote the grip to its own composite layer so the per-frame
+     style change here doesn't repaint the surrounding rows. The hint
+     is scoped to the --active state so we don't keep an idle layer
+     pinned in memory when the user isn't dragging. */
+  will-change: background;
+}
+
+.dv-drag-handle:hover .dv-drag-grip {
+  background: var(--dv-c-bg);
+}
+
+.dv-drag-bar {
+  width: 32px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dv-c-border-strong);
+  transition: background .15s ease;
+}
+
+.dv-drag-handle:hover .dv-drag-bar,
+.dv-drag-handle--active .dv-drag-bar {
+  background: var(--dv-c-text-mid);
+}
+
+
+/* ==============================================================================
+   16. Empty State
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   10. EMPTY STATE
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 11. EMPTY STATE ─────────────────────────────────────────────────── */
+.dv-empty-state {
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--dv-c-text-muted);
+  font-size: 12px;
+}
+
+
+/* ==============================================================================
+   17. Responsive Breakpoints
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   11. RESPONSIVE — media queries
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 12. RESPONSIVE TWEAKS ─────────────────────────────────────────────────
+   Layered breakpoints for the widget:
+     - 1024px: tablet landscape - widget gets a touch-friendly column drop
+     - 720px:  tablet portrait - drop SPEED column to free space
+     - 560px:  large phones    - drop TEMP and the mini progress bar
+     - 420px:  small phones    - drop FREE/H/gear, keep core columns only
+   The grid template columns are recomputed at each breakpoint to match
+   the surviving columns, otherwise the dropped columns leave gap holes
+   in the layout that misalign the row contents.
+   ──────────────────────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .dv-header-meta { flex-wrap: wrap; }
+  /* Slightly larger tap targets even before we hit phone widths, since
+     1024px-and-down is where touch-only devices (iPad, Galaxy Tab) typically
+     land. */
+  .dv-row { padding: 6px 6px; }
+}
+
+@media (max-width: 720px) {
+  .dv-header-meta { flex-wrap: wrap; }
+  .dv-colhd,
+  .dv-row {
+    grid-template-columns:
+      22px minmax(80px, 110px) 60px 60px 46px 52px 38px 16px 18px;
+  }
+  .dv-colhd-speed,
+  .dv-col-speed-wrap { display: none; }
+}
+
+@media (max-width: 560px) {
+  .dv-colhd,
+  .dv-row {
+    grid-template-columns:
+      20px minmax(70px, 100px) 60px 60px 42px 16px 18px;
+  }
+  .dv-colhd-temp,
+  .dv-col-temp,
+  .dv-col-bar,
+  .dv-colhd span:nth-child(6) { display: none; }
+  /* Smaller font in headers and rows reclaims a few horizontal pixels. */
+  .dv-colhd { font-size: 9px; }
+  .dv-row   { font-size: 12px; }
+}
+
+@media (max-width: 420px) {
+  .dv-colhd,
+  .dv-row {
+    grid-template-columns:
+      20px minmax(60px, 90px) 1fr 44px;
+  }
+  .dv-col-free,
+  .dv-col-thumb,
+  .dv-col-gear,
+  .dv-colhd-free,
+  .dv-colhd-health { display: none; }
+  /* Tighten the inner padding of the section header rows so the disk list
+     gets every available pixel on small phones. */
+  .dv-section-hd { padding: 5px 4px 3px; }
+}
+
+
+/* ==============================================================================
+   18. Touch Input Tuning
+   ============================================================================== */
+
+/* Touch-input devices regardless of screen size. Bumps interactive
+   element hit areas to ~32px-36px (still smaller than the 44px Apple HIG
+   recommends, but the disk widget is intentionally compact and bigger
+   targets would push the row count too far down; this is a compromise
+   that keeps density while reliably tappable on iOS/Android). The selectors
+   match across mouse + touch hybrid devices (Surface, iPad with mouse) so
+   the bigger targets only kick in when the primary input is a finger. */
+@media (hover: none) and (pointer: coarse) {
+  .dv-bolt {
+    padding: 5px 7px !important;
+    border-radius: 4px !important;
+  }
+  .dv-row .dv-bolt svg,
+  .dv-row .dv-col-gear svg,
+  .dv-row .dv-thumb svg {
+    width: 14px !important;
+    height: 14px !important;
+  }
+  .dv-col-gear {
+    padding: 5px;
+  }
+  .dv-thumb {
+    padding: 4px;
+  }
+  /* Drag handle: thicker hit area + thicker visual bar so it shows up under
+     a finger without the user having to hunt for it. */
+  .dv-drag-handle {
+    padding: 12px 0 14px;
+  }
+  .dv-drag-bar {
+    width: 40px;
+    height: 3px;
+    border-radius: 2px;
+  }
+  .dv-drag-grip {
+    padding: 4px 36px;
+  }
+  /* Bulk-spin buttons in section headers (POOLS bulk control). Bigger tap
+     target without inflating the visible chrome too much. */
+  .dv-bulk-spin {
+    padding: 5px 8px !important;
+  }
+  /* Settings cog in the widget header - same touch bump. */
+  #dv-settings-icon {
+    padding: 6px;
+    margin: -6px;
+  }
+}
+
+

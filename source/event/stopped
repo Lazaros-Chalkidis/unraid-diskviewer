@@ -1,0 +1,4 @@
+#!/bin/bash
+# DiskViewer - Copyright (C) 2026 Lazaros Chalkidis - License: GPLv3
+# Clear the cache on array stop.
+rm -f /tmp/diskviewer_cache/state.json /tmp/diskviewer_cache/header_count /tmp/diskviewer_cache/header_names 2>/dev/null

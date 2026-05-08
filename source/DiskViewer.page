@@ -1,0 +1,330 @@
+Menu="Dashboard:0"
+Icon="img/diskviewer.png"
+---
+<?php
+/* ============================================================================
+   DISK VIEWER  -  Dashboard Widget Page
+   /plugins/diskviewer/DiskViewer.page
+
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+
+   Renders the disk widget tile on the Unraid Dashboard. The actual data
+   loading and per-poll updates happen client-side in js/diskviewer.js;
+   this page just emits the initial chrome and shoves a config blob
+   into window.diskviewerConfig for the JS to pick up.
+
+   Section ordering:
+     1. Configuration & Environment    (cfg, theme, version, CSRF)
+     2. Tile config payload            (data passed to JS)
+     3. Render helpers                 (closures returning HTML fragments)
+     4. Header layout variants         (responsive vs legacy)
+     5. Fallback markup                (when register_dashboard_tile is absent)
+     6. Composition & registration     (root classes, tile register or echo)
+   ========================================================================= */
+
+require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php';
+require_once '/usr/local/emhttp/plugins/dynamix/include/Helpers.php';
+
+
+// ============================================================================
+// 1. Configuration & Environment
+// ============================================================================
+
+// ── Config ─────────────────────────────────────────────────────────────────
+$cfg = DiskViewerEndpoint::config();
+
+// ── Theme detection ───────────────────────────────────────────────────────
+// Unraid ships four official themes (Settings > Display Settings > Dynamix
+// color theme): black, white, azure, gray. The plugin renders root-level
+// classes for each so per-theme tuning is possible in CSS:
+//   dv-theme-black  → dark default (no extra class needed visually)
+//   dv-theme-white  → bright light, also gets dv-light for legacy rules
+//   dv-theme-azure  → light with cool blue accents, also gets dv-light
+//   dv-theme-gray   → medium-dark; not "light" but background tones differ
+//                      enough from black that solid panel colours need to
+//                      shift up a notch to avoid the widget looking like a
+//                      darker island stamped on a lighter desktop.
+// Unrecognised or empty theme values fall back to dv-theme-black so first-
+// run installs (no dynamix.cfg yet) match the most common Unraid default.
+$dynamix_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+$unraid_theme  = $dynamix_cfg['display']['theme'] ?? '';
+$valid_themes  = ['black','white','azure','gray'];
+$dv_theme      = in_array($unraid_theme, $valid_themes, true) ? $unraid_theme : 'black';
+$dv_light      = in_array($dv_theme, ['white','azure'], true);
+
+// ── Unraid version detection ──────────────────────────────────────────────
+$version_data        = @parse_ini_file('/etc/unraid-version');
+$webgui_version      = $version_data['version'] ?? '0.0.0';
+$isResponsiveWebgui  = version_compare($webgui_version, '7.2.0-beta', '>=');
+
+// ── Read CSRF token from Unraid's var.ini so AJAX POSTs pass protection ──
+$var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
+$csrf_token = (string)($var['csrf_token'] ?? '');
+
+// ============================================================================
+// 2. Tile Config Payload (data sent to JS via window.diskviewerConfig)
+// ============================================================================
+
+// ── Tile config passed to JS ──────────────────────────────────────────────
+// Includes an `initialModel` snapshot built server-side at render time.
+// This is the same shape buildModel() returns to a fetchState AJAX call,
+// embedded directly into the page so the JS can render() instantly on
+// init() without waiting for the first XHR round-trip. Two real wins:
+//   1. Dashboard auto-refresh (the user-visible "empty for a few seconds"
+//      bug): when Unraid reloads the tile fragment, the new HTML now
+//      arrives with rows already populated server-side instead of an
+//      empty placeholder waiting for fetchState() to come back.
+//   2. First-ever page load: same instant paint, no Loading flash.
+// buildModel() runs once per request (cached internally), so embedding it
+// here doesn't cost us a second invocation when the same page also makes
+// an immediate fetchState - that fetch hits the request-scoped cache.
+$initial_model = DiskViewerEndpoint::buildModel();
+
+$tile_config = [
+    'dvToken'             => DiskViewerEndpoint::generateNonce(),
+    'csrfToken'           => $csrf_token,
+    'refreshEnabled'      => $cfg['refresh_enabled'],
+    'refreshInterval'     => $cfg['refresh_interval'] * 1000,
+    'dragStepRows'        => $cfg['drag_step_rows'],
+    'defaultExpandRows'   => $cfg['default_expand_rows'],
+    'warningPct'          => $cfg['warning_pct'],
+    'criticalPct'         => $cfg['critical_pct'],
+    'tempWarning'         => $cfg['temp_warning'],
+    'tempCritical'        => $cfg['temp_critical'],
+    'enableSpinButton'    => $cfg['enable_spin_button'],
+    'isResponsive'        => $isResponsiveWebgui,
+    'initialModel'        => $initial_model,
+];
+$tile_config_json = json_encode($tile_config, JSON_UNESCAPED_SLASHES);
+
+// ── String constants ──────────────────────────────────────────────────────
+$tile_title = htmlspecialchars(_('Disk Viewer'), ENT_QUOTES, 'UTF-8');
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Render helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ============================================================================
+// 3. Render Helpers (closures returning HTML fragments)
+// ============================================================================
+
+// ── Icon row (top right of header) ────────────────────────────────────────
+$render_controls = static function(bool $responsive): string {
+    $wrapOpen  = $responsive ? '<span class="tile-header-right-controls">' : '';
+    $wrapClose = $responsive ? '</span>' : '';
+
+    return $wrapOpen . <<<HTML
+<a id="dv-manual-refresh" href="#" title="Refresh" aria-label="Refresh">
+    <i class="fa fa-fw fa-refresh control" aria-hidden="true"></i>
+</a>
+<a id="dv-settings-icon" href="/Settings/DiskViewerSettings" title="Disk Viewer Settings" aria-label="Disk Viewer Settings">
+    <i class="fa fa-fw fa-cog control" aria-hidden="true"></i>
+</a>
+HTML . $wrapClose;
+};
+
+// ── Subtitle row (total device count) ────────────────────────────────────
+$render_subtitle = static function(): string {
+    return <<<HTML
+<div class="dv-header-meta">
+    <span class="dv-badge-devices" id="dv-badge-devices" title="Total devices">
+        <span id="dv-device-count">0</span>
+        <span class="dv-badge-label">devices</span>
+    </span>
+</div>
+HTML;
+};
+
+// ── (Critical badge is reported via Unraid's system notifications instead
+//     of a widget-header badge, per design decision.) ─────────────────────
+
+// ── Body panel: sections + drag handle ────────────────────────────────────
+$render_body = static function(): string {
+    return <<<HTML
+<div class="dv-body">
+    <div id="dv-sections" class="dv-sections" role="list" aria-live="polite" aria-label="Disks">
+        <div class="dv-empty-state" id="dv-empty-state">
+            <span>Loading disks…</span>
+        </div>
+    </div>
+    <div class="dv-drag-handle" id="dv-drag-handle" role="separator" aria-orientation="horizontal" aria-label="Resize disk list" tabindex="0" title="Drag to reveal more rows">
+        <div class="dv-drag-grip">
+            <div class="dv-drag-bar"></div>
+            <div class="dv-drag-bar"></div>
+        </div>
+    </div>
+</div>
+HTML;
+};
+
+// ── Config script ─────────────────────────────────────────────────────────
+// Emits two things into the tile HTML:
+//   1. window.diskviewerConfig with the full payload (initialModel included)
+//   2. A direct call to window.diskviewerRepaint() if it's already defined
+//
+// Why the repaint call: on a hard page load, the JS module loads after this
+// script and runs init() which paints from cfg.initialModel. But on a
+// Dashboard auto-refresh (and on navigate-away-and-back to the same tab),
+// Unraid swaps the tile content via AJAX and re-executes inline scripts,
+// but it does NOT re-execute the loaded JS module - that already ran once.
+// Without a repaint hook, the new empty <div id="dv-sections"> would sit
+// blank until the next 30-second polling tick filled it in. The hook
+// lets the freshly-injected config script signal "repaint with this new
+// model now" without waiting for AJAX.
+$render_config = static function(string $json): string {
+    return <<<HTML
+<script>
+window.diskviewerConfig = {$json};
+if (typeof window.diskviewerRepaint === 'function') {
+    try { window.diskviewerRepaint(); } catch(e) {}
+}
+</script>
+HTML;
+};
+
+// ============================================================================
+// 4. Header Layout Variants
+// ============================================================================
+
+// ── Header: Unraid 7.2+ responsive ────────────────────────────────────────
+$render_header_responsive = static function(
+    string $tile_title,
+    string $subtitle_html,
+    string $controls_html
+): string {
+    return <<<HTML
+<span class="tile-header dv-header">
+    <span class="tile-header-left dv-header__left">
+        <div class="dv-header__top">
+            <img src="/plugins/diskviewer/img/diskviewer.png"
+                 class="dv-header__icon" alt="Disk Viewer"
+                 style="width:32px;height:32px;object-fit:contain;">
+            <h3 class="tile-header-main dv-header__title">{$tile_title}</h3>
+        </div>
+        {$subtitle_html}
+    </span>
+    <span class="tile-header-right dv-header__right">
+        <div class="dv-header__controls">{$controls_html}</div>
+    </span>
+</span>
+HTML;
+};
+
+// ── Header: legacy (pre-7.2) ──────────────────────────────────────────────
+$render_header_legacy = static function(
+    string $tile_title,
+    string $subtitle_html,
+    string $controls_html
+): string {
+    return <<<HTML
+<div class="dv-legacy-header">
+    <div class="dv-legacy-header__left">
+        <div class="dv-legacy-header__top">
+            <i class="fa fa-hdd-o f32 dv-legacy-icon" aria-hidden="true"></i>
+            <span class="dv-legacy-title">{$tile_title}</span>
+        </div>
+        {$subtitle_html}
+    </div>
+    <span class="dv-legacy-controls">{$controls_html}</span>
+</div>
+HTML;
+};
+
+// ============================================================================
+// 5. Fallback Markup
+// ============================================================================
+
+// ── Fallback tbody (for dashboards without register_dashboard_tile) ───────
+$render_fallback_tbody = static function(
+    string $tile_title,
+    string $header_html,
+    string $body_html,
+    string $config_html,
+    string $lightClass
+): string {
+    return <<<HTML
+<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/widget.css">
+<tbody id="db-diskviewer" title="{$tile_title}" class="{$lightClass}">
+    <tr>
+        <td class="next" colspan="3">
+            {$header_html}
+        </td>
+    </tr>
+    <tr class="dash_diskviewer_toggle dv-content">
+        <td colspan="3">
+            {$body_html}
+        </td>
+    </tr>
+</tbody>
+{$config_html}
+<script defer src="/plugins/diskviewer/js/diskviewer.js"></script>
+HTML;
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Assemble
+// ═══════════════════════════════════════════════════════════════════════════
+
+$subtitle_html = $render_subtitle();
+$body_html     = $render_body();
+$config_html   = $render_config($tile_config_json);
+
+$controls_responsive = $render_controls(true);
+$controls_legacy     = $render_controls(false);
+
+$header_responsive = $render_header_responsive($tile_title, $subtitle_html, $controls_responsive);
+$header_legacy     = $render_header_legacy($tile_title, $subtitle_html, $controls_legacy);
+
+$tile = [
+    'name'    => 'diskviewer',
+    'title'   => 'Disk Viewer',
+    'icon'    => 'fa-hdd-o',
+    'content' => '',
+    'small'   => 1,
+    'medium'  => 1,
+    'large'   => 2,
+    'script'  => '/plugins/diskviewer/js/diskviewer.js',
+    'style'   => '/plugins/diskviewer/css/widget.css',
+];
+
+// Compose root classes. dv-theme-{name} is the primary tuning hook (every
+// theme gets one), dv-light tags white/azure for the legacy two-state CSS
+// rules that already exist and don't need to be rewritten per theme.
+$themeClass  = ' dv-theme-' . $dv_theme;
+$lightClass  = $dv_light ? ' dv-light' : '';
+$rootClasses = $themeClass . $lightClass;
+
+$tile['content'] = '<div class="dv-widget-wrap' . $rootClasses . '">'
+    . ($isResponsiveWebgui
+        ? ($header_responsive . $body_html . $config_html)
+        : ($header_legacy     . $body_html . $config_html))
+    . '</div>';
+
+$fallback_markup = $render_fallback_tbody(
+    $tile_title,
+    $isResponsiveWebgui ? $header_responsive : $header_legacy,
+    $body_html,
+    $config_html,
+    trim($rootClasses)
+);
+
+// ============================================================================
+// 6. Composition & Registration
+// ============================================================================
+
+// ── Register or fall back ──────────────────────────────────────────────────
+if (function_exists('register_dashboard_tile')) {
+    $result = @register_dashboard_tile($tile);
+
+    if (is_string($result) && trim($result) !== '') {
+        echo $result;
+        return;
+    }
+
+    if ($result) return;
+}
+
+$mytiles['diskviewer']['column1'] = $fallback_markup;
+return;
+?>
