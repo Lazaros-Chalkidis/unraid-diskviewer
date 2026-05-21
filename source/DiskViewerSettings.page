@@ -93,6 +93,17 @@ if (isset($_POST['#apply'])) {
     $new_cfg['SHOW_CACHE']           = $yn($_POST['SHOW_CACHE']           ?? '1', '1');
     $new_cfg['SHOW_POOLS']           = $yn($_POST['SHOW_POOLS']           ?? '1', '1');
 
+    // Space severity. Mode is a 3-option whitelist; the two custom percent
+    // values are clamped to a sane band. Note: critical-must-exceed-warning
+    // is enforced on the read side (DiskViewerEndpoint::config) too, so a
+    // user typing identical values won't break colour coding - the resolver
+    // bumps critical to warning+1 silently.
+    $mode_in = strtolower((string)($_POST['SPACE_SEVERITY_MODE'] ?? 'inherit'));
+    $new_cfg['SPACE_SEVERITY_MODE'] = in_array($mode_in, ['inherit','custom','disabled'], true)
+        ? $mode_in : 'inherit';
+    $new_cfg['SPACE_WARNING_PCT']   = $clamp_int($_POST['SPACE_WARNING_PCT']  ?? 70,  1,  99,  70);
+    $new_cfg['SPACE_CRITICAL_PCT']  = $clamp_int($_POST['SPACE_CRITICAL_PCT'] ?? 90,  2, 100,  90);
+
     // Header bar indicator
     $new_cfg['HEADER_SHOW_BADGE']    = $yn($_POST['HEADER_SHOW_BADGE'] ?? '1', '1');
     $new_cfg['HEADER_CLICK_ACTION']  = $clamp_action($_POST['HEADER_CLICK_ACTION'] ?? 'main');
@@ -128,6 +139,9 @@ $def = [
     'SHOW_ARRAY'           => '1',
     'SHOW_CACHE'           => '1',
     'SHOW_POOLS'           => '1',
+    'SPACE_SEVERITY_MODE'  => 'inherit',
+    'SPACE_WARNING_PCT'    => '70',
+    'SPACE_CRITICAL_PCT'   => '90',
     'HEADER_SHOW_BADGE'    => '1',
     'HEADER_CLICK_ACTION'  => 'main',
     'ENABLE_SPIN_BUTTON'   => '1',
@@ -149,12 +163,26 @@ $themeClass    = ' dv-theme-' . $dv_theme;
 $lightClass    = $dv_light ? ' dv-light' : '';
 $rootClasses   = $themeClass . $lightClass;
 
-// Plugin version (best-effort)
-$plugin_version = 'dev';
-$plg = @file_get_contents('/boot/config/plugins/diskviewer/diskviewer.plg');
-if ($plg && preg_match('/<ENTITY\s+version\s+"([^"]+)"/i', $plg, $m)) {
-    $plugin_version = $m[1];
+// Plugin version - mirrors StreamViewer's dual-source pattern. Primary
+// is the VERSION file at the canonical installed location (written by
+// build.sh on every build), so the badge always reflects the running
+// plugin even when the .plg metadata went stale (manual installs, edits
+// during testing). Fallback to the .plg ENTITY for legacy installs that
+// predate the VERSION file. Final fallback: literal 'dev' so the badge
+// never appears empty - useful while developing out of the source tree.
+$plugin_version = '';
+$_pvFile = '/usr/local/emhttp/plugins/diskviewer/VERSION';
+if (is_readable($_pvFile)) {
+    $_pvRead = trim((string)@file_get_contents($_pvFile));
+    if ($_pvRead !== '') $plugin_version = $_pvRead;
 }
+if ($plugin_version === '') {
+    $plg = @file_get_contents('/boot/config/plugins/diskviewer/diskviewer.plg');
+    if ($plg && preg_match('/<!ENTITY\s+version\s+"([^"]+)"/i', $plg, $m)) {
+        $plugin_version = $m[1];
+    }
+}
+if ($plugin_version === '') $plugin_version = 'dev';
 ?>
 
 <!-- ============================================================================ -->
@@ -285,6 +313,45 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
           <span class="dv-r-desc">Requires Unassigned Devices plugin</span>
         </div>
       </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Space severity highlighting</div>
+        <div class="dv-r-field">
+          <?php
+            // Three-mode dropdown: Inherit / Custom / Disabled. Default is
+            // 'inherit' so existing users see no behavioural change after
+            // upgrade. The two number inputs below are always rendered but
+            // disabled/enabled at runtime based on the selected mode.
+            $sevMode = (string)($cfg['SPACE_SEVERITY_MODE'] ?? 'inherit');
+            if (!in_array($sevMode, ['inherit', 'custom', 'disabled'], true)) {
+                $sevMode = 'inherit';
+            }
+          ?>
+          <select name="SPACE_SEVERITY_MODE" id="dvSpaceSeverityMode" class="dv-select">
+            <option value="inherit"  <?= $sevMode === 'inherit'  ? 'selected' : '' ?>>Inherit from Unraid (default)</option>
+            <option value="custom"   <?= $sevMode === 'custom'   ? 'selected' : '' ?>>Custom thresholds</option>
+            <option value="disabled" <?= $sevMode === 'disabled' ? 'selected' : '' ?>>Disabled</option>
+          </select>
+          <span class="dv-r-desc">Inherit uses Unraid's Display Settings warning and critical percentages. Custom lets you set your own. Disabled turns the colour shift off entirely (useful for Fill-Up allocation where drives sit at 100% by design).</span>
+        </div>
+      </div>
+      <div class="dv-r" data-dv-show-when="custom">
+        <div class="dv-r-label">Custom warning percentage</div>
+        <div class="dv-r-field">
+          <input type="number" name="SPACE_WARNING_PCT" min="1" max="99" step="1"
+                 value="<?= htmlspecialchars((string)($cfg['SPACE_WARNING_PCT'] ?? '70'), ENT_QUOTES) ?>"
+                 class="dv-input dv-input--num" id="dvSpaceWarn">
+          <span class="dv-r-desc">Percentage used at which a disk's % column turns amber. Must be lower than the critical value.</span>
+        </div>
+      </div>
+      <div class="dv-r" data-dv-show-when="custom">
+        <div class="dv-r-label">Custom critical percentage</div>
+        <div class="dv-r-field">
+          <input type="number" name="SPACE_CRITICAL_PCT" min="2" max="100" step="1"
+                 value="<?= htmlspecialchars((string)($cfg['SPACE_CRITICAL_PCT'] ?? '90'), ENT_QUOTES) ?>"
+                 class="dv-input dv-input--num" id="dvSpaceCrit">
+          <span class="dv-r-desc">Percentage used at which a disk's % column turns red. Must be higher than the warning value.</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -374,24 +441,77 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
 <!-- 8. Credits modal markup -->
 <!-- ============================================================================ -->
 
-<!-- ── Credits modal ──────────────────────────────────────────────── -->
+<!-- ── Credits modal (StreamViewer 2-column layout: avatar on the left
+     with vertical accent stripe, plugin info + links on the right with
+     an inline version pill, copyright + OK button in the footer). The
+     embedded PHP block reads the live version from
+     /usr/local/emhttp/plugins/diskviewer/VERSION so the badge always
+     reflects the running plugin, even when the .plg metadata went stale
+     for a manual install. Falls back to the Slackware package metadata
+     for legacy installs that predate the VERSION file. ─────────────── -->
 <div id="dvCreditsModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);align-items:center;justify-content:center;">
-  <div class="dv-credits-modal-box">
-    <div style="padding:2.2rem 2.5rem 1.5rem;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center;">
-      <div style="margin-bottom:1.1rem;"><img src="/plugins/diskviewer/img/diskviewerplugin.png" alt="Disk Viewer" style="width:46px;height:46px;"></div>
-      <div class="dv-credits-title">Disk Viewer</div>
-      <table style="width:auto;margin:0 auto 1.5rem;border-collapse:collapse;font-size:0.95em;">
-        <tr>
-          <td style="padding:0.4rem 1rem 0.4rem 0;vertical-align:middle;"><img src="/plugins/diskviewer/img/avatar.png" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;display:block;"></td>
-          <td style="padding:0.4rem 2rem 0.4rem 0;font-weight:600;text-align:left;vertical-align:middle;">Lazaros Chalkidis</td>
-          <td style="padding:0.4rem 0;opacity:0.6;text-align:left;vertical-align:middle;">Development</td>
-        </tr>
-      </table>
-      <div class="dv-credits-copy">Copyright © 2026 Disk Viewer Plugin</div>
-      <div style="margin-bottom:1.1rem;"><a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" target="_blank" rel="noopener" style="color:#4a90e2;text-decoration:none;font-size:0.9em;">Plugin Support Thread</a></div>
+  <div class="dv-credits-modal-box dv-credits-modal-v2">
+    <div class="dv-credits-grid">
+      <!-- Left: avatar column -->
+      <div class="dv-credits-left">
+        <span class="dv-credits-accent-stripe"></span>
+        <div class="dv-credits-avatar-wrap">
+          <img src="/plugins/diskviewer/img/avatar.png" alt="Lazaros Chalkidis" class="dv-credits-avatar">
+        </div>
+        <div class="dv-credits-name">Lazaros Chalkidis</div>
+        <div class="dv-credits-role">Developer</div>
+      </div>
+      <!-- Right: info + links -->
+      <div class="dv-credits-right">
+        <div class="dv-credits-title-row">
+          <span class="dv-credits-title">Disk Viewer</span>
+          <span class="dv-credits-version">v<?php
+            $_dvPluginVer = '';
+
+            // Primary: VERSION file at the canonical installed location.
+            // Hardcoded absolute path because __DIR__ in a .page file under
+            // emhttp does not always resolve where one expects.
+            $_dvVersionFile = '/usr/local/emhttp/plugins/diskviewer/VERSION';
+            if (is_readable($_dvVersionFile)) {
+                $_dvRead = trim((string)@file_get_contents($_dvVersionFile));
+                if ($_dvRead !== '') {
+                    $_dvPluginVer = $_dvRead;
+                }
+            }
+
+            // Fallback: Slackware package metadata for legacy installs that
+            // predate the VERSION file. Sort descending so the newest install
+            // wins even if a stale entry was left behind.
+            if ($_dvPluginVer === '') {
+                $_dvPkgs = @glob('/var/log/packages/diskviewer-*');
+                if (is_array($_dvPkgs) && !empty($_dvPkgs)) {
+                    usort($_dvPkgs, function($a, $b) {
+                        return @filemtime($b) - @filemtime($a);
+                    });
+                    $_dvBase = basename($_dvPkgs[0]);
+                    if (preg_match('/^diskviewer-([^-]+(?:-[^-]+)?)/', $_dvBase, $_dvM)) {
+                        $_dvPluginVer = $_dvM[1];
+                    }
+                }
+            }
+
+            echo htmlspecialchars($_dvPluginVer ?: '');
+          ?></span>
+        </div>
+        <div class="dv-credits-desc">A real-time disk monitor for your Unraid array, cache, pools and unassigned devices.</div>
+        <div class="dv-credits-links">
+          <a href="https://github.com/Lazaros-Chalkidis" target="_blank" rel="noopener" class="dv-credits-link">
+            <i class="fa fa-github"></i><span>Github profile</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+          </a>
+          <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" target="_blank" rel="noopener" class="dv-credits-link">
+            <i class="fa fa-comments-o"></i><span>Plugin Support Thread</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+          </a>
+        </div>
+      </div>
     </div>
     <div class="dv-credits-footer">
-      <button type="button" id="dvCreditsOkBtn" style="background:#f47d42;border:1px solid #f47d42;color:#fff;padding:0.5rem 2.5rem;font-size:0.9em;font-weight:500;border-radius:4px;cursor:pointer;">OK</button>
+      <span class="dv-credits-copy">Copyright &copy; 2026 Disk Viewer - Lazaros Chalkidis</span>
+      <button type="button" id="dvCreditsOkBtn" class="dv-credits-ok-btn">OK</button>
     </div>
   </div>
 </div>
@@ -514,17 +634,20 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
     // matches the behaviour the user expects from "Reset" in similar
     // Unraid settings pages.
     var DV_DEFAULTS = {
-        REFRESH_ENABLED:     '1',
-        REFRESH_INTERVAL:    '30',
-        RESPECT_SPINDOWN:    '1',
-        DRAG_STEP_ROWS:      '1',
-        SHOW_ARRAY:          '1',
-        SHOW_CACHE:          '1',
-        SHOW_POOLS:          '1',
-        SHOW_UNASSIGNED:     '1',
-        HEADER_SHOW_BADGE:   '1',
-        HEADER_CLICK_ACTION: 'main',
-        ENABLE_SPIN_BUTTON:  '1'
+        REFRESH_ENABLED:      '1',
+        REFRESH_INTERVAL:     '30',
+        RESPECT_SPINDOWN:     '1',
+        DRAG_STEP_ROWS:       '1',
+        SHOW_ARRAY:           '1',
+        SHOW_CACHE:           '1',
+        SHOW_POOLS:           '1',
+        SHOW_UNASSIGNED:      '1',
+        SPACE_SEVERITY_MODE:  'inherit',
+        SPACE_WARNING_PCT:    '70',
+        SPACE_CRITICAL_PCT:   '90',
+        HEADER_SHOW_BADGE:    '1',
+        HEADER_CLICK_ACTION:  'main',
+        ENABLE_SPIN_BUTTON:   '1'
     };
 
     function resetDefaults(){
@@ -545,6 +668,11 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
                 txt.className = 'dv-toggle-txt ' + (cb.checked ? 'on' : 'off');
             }
         });
+        // Re-evaluate the show/hide visibility for the custom-only rows
+        // (warning/critical inputs) after the mode dropdown was reset.
+        if (typeof dvUpdateSpaceSeverityRows === 'function') {
+            dvUpdateSpaceSeverityRows();
+        }
         dvShowNotice(
             'Settings reset',
             'All settings have been restored to their default values. Click '
@@ -554,6 +682,37 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
 
     var resetBtn = document.getElementById('dvResetBtn');
     if (resetBtn) resetBtn.addEventListener('click', resetDefaults);
+
+    // ── Space severity mode show/hide ─────────────────────────────────────
+    // The "Custom warning percentage" and "Custom critical percentage" rows
+    // are only meaningful when the user has picked the 'custom' mode in the
+    // Space severity highlighting dropdown. In the other two modes (inherit,
+    // disabled) the inputs are visually grey-disabled rather than removed
+    // from the DOM, so the user still sees what values would apply if they
+    // switched to custom - and so the form submit always carries them, in
+    // case the user toggles back without re-typing.
+    var dvSpaceModeSel = document.getElementById('dvSpaceSeverityMode');
+    var dvSpaceWarnIn  = document.getElementById('dvSpaceWarn');
+    var dvSpaceCritIn  = document.getElementById('dvSpaceCrit');
+    function dvUpdateSpaceSeverityRows(){
+        if (!dvSpaceModeSel) return;
+        var active = (dvSpaceModeSel.value === 'custom');
+        [dvSpaceWarnIn, dvSpaceCritIn].forEach(function(el){
+            if (!el) return;
+            el.disabled = !active;
+            // Lift opacity on the whole row so the explanatory descriptions
+            // also dim when the inputs are inactive. The row carries
+            // data-dv-show-when="custom" so other CSS could target it too.
+            var row = el.closest('.dv-r');
+            if (row) row.style.opacity = active ? '' : '0.5';
+        });
+    }
+    if (dvSpaceModeSel) {
+        dvSpaceModeSel.addEventListener('change', dvUpdateSpaceSeverityRows);
+        dvUpdateSpaceSeverityRows();
+    }
+    // Expose for resetDefaults() to call after it updates the dropdown.
+    window.dvUpdateSpaceSeverityRows = dvUpdateSpaceSeverityRows;
 
     // ── Notice modal (replaces window.alert for plugin-side notifications) ─
     // dvShowNotice(title, body) opens the notice modal with the given title

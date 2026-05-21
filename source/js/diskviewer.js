@@ -29,6 +29,30 @@
     var criticalPct     = +cfg.criticalPct || 98;
     var tempWarning     = +cfg.tempWarning  || 45;
     var tempCritical    = +cfg.tempCritical || 55;
+    // Temperature unit follows Unraid's global Display Settings (C or F).
+    // Stored as a single letter; the raw temp value on each tile stays in
+    // Celsius (Unraid storage convention) and we convert at render time
+    // via fmtTemp(). Thresholds (tempWarning / tempCritical) are likewise
+    // in Celsius, so comparisons stay correct in both units without needing
+    // to convert the thresholds themselves.
+    var tempUnit        = (cfg.tempUnit === 'F') ? 'F' : 'C';
+    // Space severity highlighting toggle. When false, the used % column
+    // and fill bar stay neutral grey regardless of the threshold values.
+    // Default true preserves the original behaviour for users on older
+    // settings files who don't have the dropdown set yet.
+    var spaceSeverityEnabled = (cfg.spaceSeverityEnabled !== false);
+
+    // Helper: render a Celsius temperature reading in the user's chosen
+    // unit. Input is the raw integer from disks.ini; output is a display
+    // string like "33°C" or "91°F". Conversion uses the same formula as
+    // Limetech's monitor script (round(9/5*C + 32) for Fahrenheit) so
+    // values match what the rest of the Unraid WebGUI shows.
+    function fmtTemp(celsius){
+        if (tempUnit === 'F') {
+            return Math.round(9/5 * celsius + 32) + '°F';
+        }
+        return celsius + '°C';
+    }
 
     // defaultExpandRows is a section-visibility level (kept under the legacy
     // variable name for storage continuity), not a row count:
@@ -378,7 +402,7 @@
         if (temp && temp !== '*' && temp !== '-') {
             var n = parseInt(temp, 10);
             if (!isNaN(n)) {
-                tempText = n + '°';
+                tempText = fmtTemp(n);
                 tempCls = 'dv-col-temp ' + (
                     n >= tempCritical ? 'dv-temp-crit' :
                     n >= tempWarning  ? 'dv-temp-warn' : 'dv-temp-ok'
@@ -1384,6 +1408,8 @@
             criticalPct     = +cfg.criticalPct || 98;
             tempWarning     = +cfg.tempWarning  || 45;
             tempCritical    = +cfg.tempCritical || 55;
+            tempUnit        = (cfg.tempUnit === 'F') ? 'F' : 'C';
+            spaceSeverityEnabled = (cfg.spaceSeverityEnabled !== false);
             defaultExpandLevel = +cfg.defaultExpandRows || 0;
             if (defaultExpandLevel < 0) defaultExpandLevel = 0;
             if (defaultExpandLevel > 3) defaultExpandLevel = 3;

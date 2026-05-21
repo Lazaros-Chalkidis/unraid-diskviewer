@@ -1,6 +1,17 @@
 
 # Disk Viewer
 
+## Version 2026.05.21
+
+### Feature additions
+- Space Severity Highlighting: New dropdown in Display with three modes (Inherit, Custom, Disabled).
+- Temperature Unit Awareness: Plugin now follows Unraid's global Temperature Unit setting (°C / °F) automatically.
+
+### Improvements
+- Wider Settings Panel
+- Refreshed Credits Modal
+
+
 ## Version 2026.05.08
 
 ### First release

@@ -72,6 +72,14 @@ PLUGIN_DEST="${PACKAGE_DIR_TEMP}/usr/local/emhttp/plugins/${PLUGIN_NAME}"
 mkdir -p "${PLUGIN_DEST}"
 cp -R source/* "${PLUGIN_DEST}/"
 
+# Stamp the live build version into a VERSION file at the canonical
+# installed location. The Settings page reads this first when deciding
+# which version string to show in the footer badge and the credits modal
+# pill, so the displayed version always matches the running build even
+# when the .plg metadata went stale (manual installs, repackaging during
+# testing). Mirrors how StreamViewer ships its VERSION file.
+echo "${VERSION}" > "${PLUGIN_DEST}/VERSION"
+
 # Branch metadata (readable by PHP for self-identification)
 cat > "${PLUGIN_DEST}/branch.meta" << METAEOF
 BRANCH="${BRANCH}"

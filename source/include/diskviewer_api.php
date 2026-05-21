@@ -175,6 +175,20 @@ final class DiskViewerEndpoint
         return ['warning' => $hot, 'critical' => $max];
     }
 
+    // ── Read Unraid's native temperature unit (C/F) from dynamix.cfg ───────
+    // Settings > Display Settings > Temperature Unit. Same key Limetech's
+    // own monitor script reads ($unraid['display']['unit']). Values are
+    // single letters 'C' or 'F'. Default to 'C' on a fresh install where
+    // the user has never opened Display Settings - matches Unraid's own
+    // fall-back. Anything other than 'C' or 'F' (truncated cfg, custom
+    // edits) snaps back to 'C' so we never emit a garbage unit suffix.
+    public static function nativeTempUnit(): string
+    {
+        $cfg  = self::cachedIniRead('/boot/config/plugins/dynamix/dynamix.cfg', true);
+        $unit = strtoupper((string)($cfg['display']['unit'] ?? 'C'));
+        return ($unit === 'F') ? 'F' : 'C';
+    }
+
     // ── Read Unraid's native utilization thresholds from dynamix.cfg ───────
     // Mirrors nativeTempThresholds(). Unraid stores disk-utilization (free
     // space) warning and critical percentages under [display] in dynamix.cfg
@@ -207,15 +221,63 @@ final class DiskViewerEndpoint
         $cfg  = self::cachedIniRead(self::CFG_FILE);
         $temp = self::nativeTempThresholds();
         $util = self::nativeUtilThresholds();
+
+        // Space severity mode (introduced 2026.05.21). Three states:
+        //   'inherit'  - use Unraid's native warning/critical (default,
+        //                preserves the original behaviour for existing
+        //                users who haven't touched the new dropdown).
+        //   'custom'   - use SPACE_WARNING_PCT / SPACE_CRITICAL_PCT from
+        //                the plugin cfg. Lets users with Fill-Up
+        //                allocation set higher thresholds (e.g. warn at
+        //                99, critical at 100) so deliberately-full disks
+        //                don't read as alerts.
+        //   'disabled' - no colour shift at all on the used percentage
+        //                column or fill bar. The thresholds are still
+        //                emitted as fall-back values (the JS guards on
+        //                the enabled flag), but they never trigger.
+        $spaceMode = strtolower((string)($cfg['SPACE_SEVERITY_MODE'] ?? 'inherit'));
+        if (!in_array($spaceMode, ['inherit', 'custom', 'disabled'], true)) {
+            $spaceMode = 'inherit';
+        }
+        $spaceWarn = $util['warning'];
+        $spaceCrit = $util['critical'];
+        if ($spaceMode === 'custom') {
+            // Clamp custom values to a sane 1..100 band with critical
+            // strictly above warning, mirroring nativeUtilThresholds'
+            // own sanitisation so user typos can't produce nonsensical
+            // colour-coding (e.g. critical < warning, or warning > 100).
+            $cw = (int)($cfg['SPACE_WARNING_PCT']  ?? $util['warning']);
+            $cc = (int)($cfg['SPACE_CRITICAL_PCT'] ?? $util['critical']);
+            if ($cw < 1 || $cw > 99)  $cw = $util['warning'];
+            if ($cc < 2 || $cc > 100) $cc = $util['critical'];
+            if ($cc <= $cw) $cc = min(100, $cw + 1);
+            $spaceWarn = $cw;
+            $spaceCrit = $cc;
+        }
+
         return [
-            // Utilization warn/crit are sourced from Unraid's native Display
-            // Settings (dynamix.cfg [display] warning/critical) - same keys
-            // that drive Unraid's own Main and Dashboard colour coding -
-            // rather than from a duplicate plugin setting.
-            'warning_pct'         => $util['warning'],
-            'critical_pct'        => $util['critical'],
-            'temp_warning'        => $temp['warning'],
-            'temp_critical'       => $temp['critical'],
+            // Utilization warn/crit. By default inherited from Unraid's
+            // native Display Settings (dynamix.cfg [display] warning/
+            // critical); user can override via SPACE_SEVERITY_MODE = custom
+            // in the plugin cfg, or turn highlighting off entirely with
+            // SPACE_SEVERITY_MODE = disabled. The resolved values are
+            // emitted here either way - the JS checks space_severity_enabled
+            // before applying any colour class.
+            'warning_pct'             => $spaceWarn,
+            'critical_pct'            => $spaceCrit,
+            'space_severity_mode'     => $spaceMode,
+            'space_severity_enabled'  => ($spaceMode !== 'disabled'),
+            'temp_warning'            => $temp['warning'],
+            'temp_critical'           => $temp['critical'],
+            // Temperature unit follows Unraid's global Display Settings
+            // (dynamix.cfg [display] unit, "C" or "F"). The plugin does
+            // not maintain a duplicate setting - matching Limetech's own
+            // monitor script which reads from the same place. The raw
+            // tile temperature values stay in Celsius (Unraid storage
+            // convention); conversion to Fahrenheit happens client-side
+            // at render time, with the thresholds compared against the
+            // raw Celsius reading either way.
+            'temp_unit'           => self::nativeTempUnit(),
             'refresh_enabled'     => ($cfg['REFRESH_ENABLED']  ?? '1') === '1',
             'refresh_interval'    => max(5, (int)($cfg['REFRESH_INTERVAL'] ?? 30)),
             'respect_spindown'    => ($cfg['RESPECT_SPINDOWN'] ?? '1') === '1',
@@ -624,8 +686,21 @@ final class DiskViewerEndpoint
     {
         $cfg      = self::config();
         $devices  = self::devices();
-        $warn     = $cfg['warning_pct'];
-        $crit     = $cfg['critical_pct'];
+        // When space severity highlighting is disabled, push both thresholds
+        // above the 0..100 percentage range so every comparison resolves to
+        // 'ok' and no colour class is assigned. This is intentionally not a
+        // separate code path - keeping the same comparison logic for all
+        // three modes (inherit, custom, disabled) means the rest of
+        // buildModel (severity rollups, summary tiles, header bar indicator)
+        // works unchanged. The widget also reads space_severity_enabled
+        // directly via the config payload to skip JS-side colour wiring.
+        if (empty($cfg['space_severity_enabled'])) {
+            $warn = 101;
+            $crit = 101;
+        } else {
+            $warn = $cfg['warning_pct'];
+            $crit = $cfg['critical_pct'];
+        }
 
         // Group devices
         $byGroup = [];
@@ -890,15 +965,17 @@ final class DiskViewerEndpoint
             'util_severity'   => $utilSeverity,
             'sections'      => $sections,
             'cfg'           => [
-                'warning_pct'         => $cfg['warning_pct'],
-                'critical_pct'        => $cfg['critical_pct'],
-                'temp_warning'        => $cfg['temp_warning'],
-                'temp_critical'       => $cfg['temp_critical'],
-                'refresh_enabled'     => $cfg['refresh_enabled'],
-                'refresh_interval'    => $cfg['refresh_interval'] * 1000,
-                'drag_step_rows'      => $cfg['drag_step_rows'],
-                'default_expand_rows' => $cfg['default_expand_rows'],
-                'enable_spin_button'  => $cfg['enable_spin_button'],
+                'warning_pct'             => $cfg['warning_pct'],
+                'critical_pct'            => $cfg['critical_pct'],
+                'space_severity_enabled'  => $cfg['space_severity_enabled'],
+                'temp_warning'            => $cfg['temp_warning'],
+                'temp_critical'           => $cfg['temp_critical'],
+                'temp_unit'               => $cfg['temp_unit'],
+                'refresh_enabled'         => $cfg['refresh_enabled'],
+                'refresh_interval'        => $cfg['refresh_interval'] * 1000,
+                'drag_step_rows'          => $cfg['drag_step_rows'],
+                'default_expand_rows'     => $cfg['default_expand_rows'],
+                'enable_spin_button'      => $cfg['enable_spin_button'],
             ],
         ];
     }

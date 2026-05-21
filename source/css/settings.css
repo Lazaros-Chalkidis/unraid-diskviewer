@@ -217,14 +217,27 @@
    phone sizes, with a hard handover to full-width-edge-to-edge below
    768px so phones get every pixel of horizontal space.
    ──────────────────────────────────────────────────────────────────────── */
+/* ── WRAPPER & RESPONSIVE ─────────────────────────────────────────────────
+   Width follows the StreamViewer convention: 80% of the viewport on
+   desktop (10% gutter each side) and 95% on tablet/mobile below 768px,
+   capped at 1400px so content stays readable on very wide displays.
+   This replaced the older fixed-band rule (min-width:720px; width:
+   min(54vw,1020px);) which felt cramped on big screens compared to the
+   other Aegis-stack settings pages. */
 .diskviewer-settings {
-  width: min(54vw, 1020px);
-  min-width: 720px;
-  margin: 0 auto;
+  width: 80%;
+  max-width: 80%;
+  margin: 2rem auto;
   padding: 0;
   box-sizing: border-box;
   display: block;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+@media (max-width: 768px) {
+  .diskviewer-settings {
+    width: 95%;
+    max-width: 95%;
+  }
 }
 
 
@@ -531,6 +544,57 @@
   color: rgba(255,255,255,.85);
 }
 
+/* Number / text input styled to match .dv-select so the custom severity
+   warning/critical fields sit visually alongside the dropdown without
+   looking like a foreign control. Same border/background tokens as the
+   select, same hover/focus accents, same border-radius. The --num
+   variant pins a fixed narrow width because percent inputs only need 3
+   characters max and a full-width input would look enormous next to its
+   label. The selector is scoped to .diskviewer-settings for specificity
+   and uses !important on the box-defining properties (background,
+   border, width, box-sizing, padding) because Unraid's global input
+   stylesheet ships `input[type="number"] { width: 100%; border: 0;
+   border-bottom: 1px solid ...; }` rules that would otherwise reduce
+   the field to an underline-only ghost stretched across the row. */
+.diskviewer-settings .dv-input {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background: var(--dv-ctrl-bg) !important;
+  border: 1px solid var(--dv-ctrl-border) !important;
+  border-radius: 4px !important;
+  color: var(--dv-c-text) !important;
+  font-size: 12px !important;
+  padding: 4px 8px !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  transition: border-color .2s !important;
+  line-height: 1.4 !important;
+  font-family: inherit !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.diskviewer-settings .dv-input:hover { border-color: var(--dv-ctrl-hover) !important; }
+.diskviewer-settings .dv-input:focus { border-color: var(--dv-accent)     !important; }
+
+.diskviewer-settings .dv-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.diskviewer-settings .dv-input--num {
+  width: 90px !important;
+  max-width: 90px !important;
+  text-align: right !important;
+}
+
+.dv-light .diskviewer-settings .dv-input {
+  background: var(--dv-ctrl-bg) !important;
+  border-color: var(--dv-ctrl-border) !important;
+  color: var(--dv-c-text) !important;
+}
+
 
 /* ==============================================================================
    12. Action Bar (Apply / Reset / Done)
@@ -669,32 +733,212 @@
 /* ══════════════════════════════════════════════════════════════════════════
    CREDITS MODAL (harmonized neutral greys)
    ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   CREDITS MODAL (2-column grid: avatar + name on the left, info + links
+   on the right). Styled after StreamViewer's credits modal so the two
+   plugins feel consistent. Uses dv- prefixed classes throughout.
+   ══════════════════════════════════════════════════════════════════════════ */
+
 .dv-credits-modal-box {
-  width: 440px; max-width: 94vw; height: 370px;
-  background: #1c1c1c; color: rgba(255,255,255,.87);
-  border: 1px solid rgba(255,255,255,.10); border-radius: 8px;
-  box-shadow: 0 8px 40px rgba(0,0,0,.75);
-  overflow: hidden; display: flex; flex-direction: column;
+  width: 460px;
+  max-width: 94vw;
+  background: #1c1c1c;
+  color: rgba(255,255,255,.87);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.65);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.dv-credits-title { font-size: 1.25em; margin-bottom: 1.4rem; font-weight: 700; color: #fff; }
+.dv-credits-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 0;
+}
 
-.dv-credits-copy { font-size: .8em; opacity: .45; margin-bottom: 1rem; color: rgba(255,255,255,.85); font-style: italic; }
+/* Left column: avatar + identity */
+.dv-credits-left {
+  position: relative;
+  padding: 26px 16px 22px;
+  text-align: center;
+  background: linear-gradient(180deg, #242424 0%, #1a1a1a 100%);
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.dv-credits-accent-stripe {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #f47d42 0%, rgba(244,125,66,0) 100%);
+}
+.dv-credits-avatar-wrap {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto;
+  border-radius: 50%;
+  border: 2px solid rgba(244,125,66,0.40);
+  background: #2c2c2c;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dv-credits-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.dv-credits-name {
+  font-size: 13px !important;
+  font-weight: 600;
+  margin-top: 12px;
+  color: rgba(255,255,255,.87);
+  line-height: 1.2;
+}
+.dv-credits-role {
+  font-size: 9px !important;
+  color: #f47d42;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-top: 4px;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0.85;
+}
 
+/* Right column: info + links */
+.dv-credits-right {
+  padding: 20px 22px;
+}
+.dv-credits-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.dv-credits-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255,255,255,.87);
+}
+.dv-credits-version {
+  background: rgba(244,125,66,.12);
+  color: #f47d42;
+  font-size: 9px;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(244,125,66,.45);
+}
+.dv-credits-version:empty { display: none; }
+.dv-credits-desc {
+  font-size: 11px;
+  color: rgba(255,255,255,.60);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.dv-credits-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dv-credits-link,
+.dv-credits-link:link,
+.dv-credits-link:visited {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #1e1e1e;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 5px;
+  color: rgba(255,255,255,.87);
+  font-size: 11px;
+  text-decoration: none !important;
+  transition: background-color .15s, border-color .15s;
+}
+.dv-credits-link:hover,
+.dv-credits-link:focus {
+  background: rgba(244,125,66,.12) !important;
+  border-color: rgba(244,125,66,.45) !important;
+  color: rgba(255,255,255,.87) !important;
+  text-decoration: none !important;
+  outline: none;
+}
+.dv-credits-link:active {
+  background: rgba(244,125,66,.12) !important;
+  transform: scale(.99);
+}
+.dv-credits-link .fa { font-size: 13px; color: rgba(255,255,255,.60); }
+.dv-credits-link:hover .fa { color: #f47d42; }
+.dv-credits-link-ext {
+  font-size: 9px !important;
+  margin-left: auto;
+  opacity: 0.5;
+}
+
+/* Footer */
 .dv-credits-footer {
-  padding: .85rem; text-align: center;
-  border-top: 1px solid rgba(255,255,255,.10);
+  padding: 12px 22px;
   background: #181818;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   flex-shrink: 0;
+  gap: 12px;
+}
+.dv-credits-copy {
+  font-size: 10px;
+  color: rgba(255,255,255,.40);
+  opacity: 0.7;
+  font-style: italic;
+}
+.dv-credits-ok-btn {
+  background: #f47d42 !important;
+  border: 1px solid #f47d42 !important;
+  color: #fff !important;
+  padding: 6px 22px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 5px !important;
+  cursor: pointer !important;
+  transition: background-color .15s !important;
+}
+.dv-credits-ok-btn:hover {
+  background: #d56a35 !important;
+  border-color: #d56a35 !important;
 }
 
-.dv-light .dv-credits-modal-box { background: #fff; color: rgba(0,0,0,.85); box-shadow: 0 8px 40px rgba(0,0,0,.25); }
-
+/* Light theme overrides */
+.dv-light .dv-credits-modal-box {
+  background: #fff;
+  color: rgba(0,0,0,.85);
+  box-shadow: 0 8px 40px rgba(0,0,0,.25);
+}
+.dv-light .dv-credits-left {
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+  border-right-color: rgba(0,0,0,.08);
+}
+.dv-light .dv-credits-name { color: rgba(0,0,0,.85); }
 .dv-light .dv-credits-title { color: rgba(0,0,0,.9); }
-
-.dv-light .dv-credits-copy  { color: rgba(0,0,0,.55); }
-
-.dv-light .dv-credits-footer { background: #f4f5f7; border-top-color: rgba(0,0,0,.10); }
+.dv-light .dv-credits-desc { color: rgba(0,0,0,.65); }
+.dv-light .dv-credits-link,
+.dv-light .dv-credits-link:link,
+.dv-light .dv-credits-link:visited {
+  background: #f4f5f7;
+  border-color: rgba(0,0,0,.10);
+  color: rgba(0,0,0,.85);
+}
+.dv-light .dv-credits-link .fa { color: rgba(0,0,0,.55); }
+.dv-light .dv-credits-footer {
+  background: #f4f5f7;
+  border-top-color: rgba(0,0,0,.10);
+}
+.dv-light .dv-credits-copy { color: rgba(0,0,0,.55); }
 
 
 /* ==============================================================================
