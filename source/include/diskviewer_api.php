@@ -39,12 +39,24 @@ final class DiskViewerEndpoint
     private const VAR_INI            = '/var/local/emhttp/var.ini';
     private const POOLS_DIR          = '/boot/config/pools';
     private const UD_INI             = '/var/local/emhttp/plugins/unassigned.devices/unassigned.devices.ini';
+    // Per-disk SMART overrides written by Unraid's /Main/Device?name=X
+    // page when the user edits warning/critical temp thresholds on a
+    // specific disk. Sections are keyed by disk id (matching the 'id'
+    // field in disks.ini and the UD device id), with hotTemp/maxTemp
+    // keys carrying the per-disk values.
+    private const SMART_ONE_FILE     = '/boot/config/smart-one.cfg';
     private const CACHE_FILE         = '/tmp/diskviewer_cache/state.json';
     private const HEADER_COUNT_FILE  = '/tmp/diskviewer_cache/header_count';
     private const HEADER_NAMES_FILE  = '/tmp/diskviewer_cache/header_names';
     private const HEADER_TEMP_FILE   = '/tmp/diskviewer_cache/header_temp';
     private const HEADER_HEALTH_FILE = '/tmp/diskviewer_cache/header_health';
     private const HEADER_UTIL_FILE   = '/tmp/diskviewer_cache/header_util';
+    private const HEADER_ERRORS_FILE = '/tmp/diskviewer_cache/header_errors';
+    // Per-disk per-axis issue rows for the header tooltip. JSON-encoded
+    // array of {name, axis, severity, label} entries, already sorted
+    // server-side by axis priority and severity. JS reads it on the 30s
+    // poll and renders the rows in the custom hover toast.
+    private const HEADER_ISSUES_FILE = '/tmp/diskviewer_cache/header_issues';
 
 
     // ============================================================================
@@ -189,6 +201,387 @@ final class DiskViewerEndpoint
         return ($unit === 'F') ? 'F' : 'C';
     }
 
+    // ── Map parity count to the official RAID equivalent for the array ───
+    // Unraid array is parity-protected, not classic RAID, but the
+    // protection model maps cleanly onto traditional RAID levels:
+    //   1 parity disk  -> RAID 4 (single dedicated parity)
+    //   2 parity disks -> RAID 6 (dual parity)
+    //   3 parity disks -> RAID 7 (theoretical, Unraid 7+ - kept as "RAID 7")
+    // Zero parities means no protection, so return empty string and the
+    // header just shows "ARRAY DEVICES N" without a RAID suffix.
+    public static function arrayRaidProfile(int $parityCount): string
+    {
+        switch ($parityCount) {
+            case 1:  return 'RAID 4';
+            case 2:  return 'RAID 6';
+            case 3:  return 'RAID 7';
+            default: return '';
+        }
+    }
+
+    // ── Detect a pool's RAID topology from the filesystem layer ──────────
+    // BTRFS: `btrfs filesystem df /mnt/<pool>` reports a "Data, <profile>"
+    // line where profile is one of single/RAID0/RAID1/RAID10/RAID5/RAID6.
+    // We return e.g. "RAID 1" with the space (display preference). Single
+    // profile -> empty string (no RAID label needed).
+    //
+    // ZFS: `zpool status <pool>` includes a vdev line indented with two
+    // spaces, naming the topology - mirror, raidz1, raidz2, raidz3. We
+    // return the ZFS-native name (Mirror / RAIDZ1 / RAIDZ2 / RAIDZ3) per
+    // the user preference for exact ZFS naming rather than RAID-X mapping.
+    //
+    // Results are memoised per (pool,fs) pair because shell_exec is the
+    // single most expensive call we make per buildModel() and the pool
+    // topology cannot change inside a single request. Caches survive the
+    // PHP-FPM worker lifetime which is good enough; topology changes
+    // require a pool stop/start which kills the running plugin anyway.
+    public static function poolRaidProfile(string $pool, string $fs): string
+    {
+        static $cache = [];
+        $key = strtolower($pool) . '|' . strtolower($fs);
+        if (isset($cache[$key])) return $cache[$key];
+
+        $result = '';
+        $fs     = strtolower(trim($fs));
+        $mount  = '/mnt/' . $pool;
+        if (!is_dir($mount)) return $cache[$key] = '';
+
+        if ($fs === 'btrfs') {
+            // Parse `btrfs filesystem df` output. The Data line is
+            // authoritative for the user-visible profile - System and
+            // Metadata may use a different profile (often DUP) which we
+            // don't surface.
+            $out = @shell_exec('btrfs filesystem df ' . escapeshellarg($mount) . ' 2>/dev/null');
+            if ($out && preg_match('/^Data,\s*([A-Z0-9]+):/mi', $out, $m)) {
+                $profile = strtoupper($m[1]);
+                if ($profile !== 'SINGLE') {
+                    // Normalise RAID0/RAID1/RAID10 -> "RAID 0" / "RAID 1"
+                    // / "RAID 10" with the display space.
+                    if (preg_match('/^RAID(\d+)$/', $profile, $rm)) {
+                        $result = 'RAID ' . $rm[1];
+                    } else {
+                        $result = $profile;
+                    }
+                }
+            }
+        } elseif ($fs === 'zfs') {
+            // zpool status output has the vdev type as an indented line
+            // right under the pool name. mirror, raidz1, raidz2, raidz3.
+            // A single-disk zpool has no vdev line - just the device.
+            $out = @shell_exec('zpool status ' . escapeshellarg($pool) . ' 2>/dev/null');
+            if ($out && preg_match('/^\s+(mirror|raidz[0-9]?)/mi', $out, $m)) {
+                $vdev = strtolower($m[1]);
+                if ($vdev === 'mirror') {
+                    $result = 'Mirror';
+                } elseif (preg_match('/^raidz([0-9]?)$/', $vdev, $rm)) {
+                    // raidz alone means raidz1 in ZFS terminology.
+                    $result = 'RAIDZ' . ($rm[1] !== '' ? $rm[1] : '1');
+                }
+            }
+        }
+
+        return $cache[$key] = $result;
+    }
+
+    // ── Detect which pools are used as cache targets ──────────────────────
+    // Returns the set of pool names (lowercased) that are referenced as
+    // `shareCachePool` in at least one share whose `shareUseCache` is yes,
+    // prefer, or only. This is function-based detection, not name-based:
+    // a pool named "fast_ssd" that's actually used as cache reads as a
+    // cache target; a pool named "cache" that no share writes through
+    // does NOT read as one.
+    //
+    // Why this matters: Unraid lets users name pools anything. The legacy
+    // "cache" name is just default - it has no special meaning. Detecting
+    // function from share configs makes the CACHE section show what the
+    // user actually uses as write buffer, regardless of naming.
+    //
+    // shareUseCache values that count as "uses cache":
+    //   "yes"    - writes go to cache, mover transfers to array later
+    //   "prefer" - files stay on cache until full, then spill to array
+    //   "only"   - files stay on cache permanently
+    //   "no"     - direct to array, cachePool ignored even if set
+    //
+    // Returns lowercased pool names for case-insensitive matching against
+    // group names in classify(). Cached per request via the same memoize
+    // pattern as listPools().
+    public static function cacheTargetPools(): array
+    {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+
+        $targets = [];
+        $shareDir = '/boot/config/shares';
+        if (!is_dir($shareDir)) {
+            return $cache = [];
+        }
+        foreach (glob($shareDir . '/*.cfg') as $file) {
+            $cfg = self::cachedIniRead($file, false);
+            // Share .cfg files are flat key=value, no sections.
+            $use  = strtolower(trim((string)($cfg['shareUseCache']  ?? 'no'), " \"'"));
+            $pool = strtolower(trim((string)($cfg['shareCachePool'] ?? ''),   " \"'"));
+            if ($pool === '' || $use === 'no') continue;
+            if (in_array($use, ['yes', 'prefer', 'only'], true)) {
+                $targets[$pool] = true;
+            }
+        }
+        return $cache = array_keys($targets);
+    }
+
+    // ── Per-disk temperature thresholds (NVMe-aware) ──────────────────────
+    // Returns ['warning' => int, 'critical' => int] for the given disks.ini
+    // row, picking from three sources in order:
+    //   1. Per-disk override stored in disks.ini as hotTemp / maxTemp -
+    //      this is what Unraid writes when the user clicks a disk on the
+    //      Main page and edits "Warning disk temperature threshold" or
+    //      "Critical disk temperature threshold". Same fields Limetech's
+    //      own monitor script reads from $disk['hotTemp'] / $disk['maxTemp'].
+    //   2. NVMe-aware fallback when no per-disk override is set. NVMe
+    //      drives legitimately run 60..75°C under load (HDDs run cool at
+    //      30..40°C), so applying the HDD threshold globally throws false
+    //      criticals on every cache write. Detect NVMe via the device
+    //      path starting with /dev/nvme. Defaults 60/70 match common NVMe
+    //      vendor specs (Samsung, WD, Crucial all warrant 70°C composite).
+    //   3. Global HDD thresholds from dynamix.cfg [display] hot/max -
+    //      what nativeTempThresholds() returns. Applies to all rotating
+    //      and SATA SSD drives without per-disk overrides.
+    // Always returns sane integers; never returns the literal disks.ini
+    // string (which may be empty when no override was set).
+    public static function diskTempThresholds(array $d): array
+    {
+        // Highest-priority source: per-disk overrides in smart-one.cfg,
+        // keyed by the disk id from disks.ini. This is where Unraid 7.x
+        // writes the values the user enters on the /Main/Device?name=X
+        // page under SMART Settings. Format:
+        //   [WD_Elements_2620_57583332443731484137415A-0:0]
+        //   hotTemp="70"
+        //   maxTemp="80"
+        // We try $d['id'] first, then $d['idSb'] (which carries the same
+        // identity for most disks but is used as backup). UD disks
+        // expose 'id' as their device id with the -0:0 USB suffix, which
+        // matches the section name exactly.
+        $diskId = (string)($d['id'] ?? $d['idSb'] ?? '');
+        if ($diskId !== '') {
+            $smart = self::cachedIniRead(self::SMART_ONE_FILE, true);
+            $sec   = $smart[$diskId] ?? null;
+            if (is_array($sec)) {
+                $hot = (string)($sec['hotTemp'] ?? '');
+                $max = (string)($sec['maxTemp'] ?? '');
+                if ($hot !== '' && $max !== '') {
+                    $hotI = (int)$hot;
+                    $maxI = (int)$max;
+                    if ($hotI > 0 && $hotI < 100 && $maxI > 0 && $maxI < 100) {
+                        if ($maxI <= $hotI) $maxI = $hotI + 5;
+                        return ['warning' => $hotI, 'critical' => $maxI];
+                    }
+                }
+            }
+        }
+
+        // Legacy disks.ini inline override fields. Older Unraid versions
+        // wrote per-disk values into disks.ini directly with these key
+        // names; kept as a defensive fallback for upgrades from those
+        // versions where smart-one.cfg may still be unpopulated.
+        $keyPairs = [
+            ['hotTemp',  'maxTemp'],
+            ['hotTemp1', 'maxTemp1'],
+            ['warnTemp', 'critTemp'],
+        ];
+        foreach ($keyPairs as $pair) {
+            $hot = (string)($d[$pair[0]] ?? '');
+            $max = (string)($d[$pair[1]] ?? '');
+            if ($hot !== '' && $max !== '') {
+                $hotI = (int)$hot;
+                $maxI = (int)$max;
+                if ($hotI > 0 && $hotI < 100 && $maxI > 0 && $maxI < 100) {
+                    if ($maxI <= $hotI) $maxI = $hotI + 5;
+                    return ['warning' => $hotI, 'critical' => $maxI];
+                }
+            }
+        }
+
+        // No per-disk override - fall back to the global default that
+        // matches this disk's class. Unraid stores two pairs in
+        // dynamix.cfg [display]: hot/max (rotating HDDs) and
+        // hotssd/maxssd (solid state). Applying hot/max to every disk
+        // throws false warnings on SSDs and cache pools that legitimately
+        // run hotter than HDDs - which is exactly what happened before
+        // this fix.
+        //
+        // Detection priority:
+        //   1. NVMe path - device basename starts with "nvme" (or the
+        //      device string contains "nvme"). NVMe drives use the SSD
+        //      pair from dynamix.cfg, falling back to vendor-typical
+        //      60/70 if the user hasn't set hotssd/maxssd.
+        //   2. SSD - rotational field is exactly "0" in disks.ini.
+        //      Uses hotssd/maxssd.
+        //   3. HDD - everything else (rotational=1 or missing). Uses
+        //      hot/max.
+        $dev        = strtolower((string)($d['device'] ?? ''));
+        $rotational = (string)($d['rotational'] ?? '');
+        $isNvme     = (strpos($dev, 'nvme') !== false);
+        $isSsd      = !$isNvme && ($rotational === '0');
+
+        $cfg  = self::cachedIniRead('/boot/config/plugins/dynamix/dynamix.cfg', true);
+        $disp = $cfg['display'] ?? [];
+
+        if ($isNvme || $isSsd) {
+            $hot = (int)($disp['hotssd'] ?? 60);
+            $max = (int)($disp['maxssd'] ?? 70);
+            if ($hot <= 0 || $hot > 99) $hot = 60;
+            if ($max <= 0 || $max > 99) $max = 70;
+        } else {
+            $hot = (int)($disp['hot'] ?? 45);
+            $max = (int)($disp['max'] ?? 55);
+            if ($hot <= 0 || $hot > 99) $hot = 45;
+            if ($max <= 0 || $max > 99) $max = 55;
+        }
+        if ($max <= $hot) $max = min(99, $hot + 5);
+
+        return ['warning' => $hot, 'critical' => $max];
+    }
+
+    // ── Per-pool, per-device error counts ─────────────────────────────────
+    // Returns ['device_basename' => total_error_count] for a pool. Pool
+    // members report errors via filesystem-level tools, not via the
+    // disks.ini numErrors field (that field tracks array read errors
+    // for parity-protected disks). Without these shellouts a BTRFS or
+    // ZFS pool can be silently accumulating corruption errors and the
+    // widget would show zero. Mirrors the official Unraid Pool Devices
+    // page which surfaces the same counters under "pool device stats".
+    //
+    // BTRFS: parse `btrfs device stats /mnt/<pool>` output, summing
+    //   write_io_errs + read_io_errs + flush_io_errs + corruption_errs
+    //   + generation_errs across all five categories per device.
+    // ZFS: parse `zpool status <pool>` output, summing READ + WRITE +
+    //   CKSUM error columns per leaf device row.
+    //
+    // device_basename strips the /dev/ prefix and any trailing partition
+    // (sdz1 -> sdz; nvme0n1p1 -> nvme0n1) so it matches the tile.device
+    // value already in the model. Cached per request via static array
+    // so repeated tile loops don't re-shell out.
+    public static function poolDeviceErrors(string $pool, string $fs): array
+    {
+        static $cache = [];
+        $key = strtolower($pool) . '|' . strtolower($fs);
+        if (isset($cache[$key])) return $cache[$key];
+
+        $errors = [];
+        $fs     = strtolower(trim($fs));
+        $mount  = '/mnt/' . $pool;
+        if (!is_dir($mount)) return $cache[$key] = $errors;
+
+        $stripPartition = static function(string $dev): string {
+            $dev = preg_replace('@^/dev/@', '', $dev);
+            // NVMe partition format is "nvmeXnYpZ" - strip the pZ suffix.
+            // SATA/IDE format is "sdXN" - strip the trailing digits.
+            if (strpos($dev, 'nvme') === 0) {
+                return preg_replace('/p\d+$/', '', $dev);
+            }
+            return preg_replace('/\d+$/', '', $dev);
+        };
+
+        if ($fs === 'btrfs') {
+            $out = @shell_exec('btrfs device stats ' . escapeshellarg($mount) . ' 2>/dev/null');
+            if ($out) {
+                // Each line looks like: [/dev/sdz1].corruption_errs    1573
+                // Five lines per device (write/read/flush/corruption/generation).
+                // We sum all five categories - the user just wants to know
+                // "is anything wrong here", not which category.
+                foreach (preg_split('/\R/', (string)$out) as $line) {
+                    if (preg_match('/^\[(\S+)\]\.\w+_errs\s+(\d+)/', $line, $m)) {
+                        $base  = $stripPartition($m[1]);
+                        $count = (int)$m[2];
+                        $errors[$base] = ($errors[$base] ?? 0) + $count;
+                    }
+                }
+            }
+        } elseif ($fs === 'zfs') {
+            $out = @shell_exec('zpool status ' . escapeshellarg($pool) . ' 2>/dev/null');
+            if ($out) {
+                // The config block has a header line "NAME STATE READ WRITE CKSUM"
+                // followed by indented device rows. The pool name row and any
+                // vdev type rows (mirror, raidz1, etc) also have these columns
+                // but they aggregate the children, so we'd double-count if we
+                // included them. Distinguish leaf devices by the deeper
+                // indentation (at least 4 spaces before the device name) and
+                // by checking the name doesn't match a known vdev keyword.
+                $inConfig = false;
+                $vdevKeywords = ['mirror', 'raidz', 'raidz1', 'raidz2', 'raidz3', 'spare', 'log', 'cache'];
+                foreach (preg_split('/\R/', (string)$out) as $line) {
+                    if (preg_match('/^\s*NAME\s+STATE\s+READ\s+WRITE\s+CKSUM/', $line)) {
+                        $inConfig = true;
+                        continue;
+                    }
+                    if (!$inConfig) continue;
+                    if (preg_match('/^(\s+)(\S+)\s+\S+\s+(\d+)\s+(\d+)\s+(\d+)/', $line, $m)) {
+                        $indent = strlen($m[1]);
+                        $name   = $m[2];
+                        $r      = (int)$m[3];
+                        $w      = (int)$m[4];
+                        $c      = (int)$m[5];
+                        // Skip the pool name row (2-space indent) and any
+                        // vdev container row (matches a known keyword by
+                        // prefix, eg "raidz1-0").
+                        if ($indent < 4) continue;
+                        $lname = strtolower($name);
+                        foreach ($vdevKeywords as $kw) {
+                            if (strpos($lname, $kw) === 0) continue 2;
+                        }
+                        $base = $stripPartition('/dev/' . $name);
+                        $errors[$base] = ($errors[$base] ?? 0) + $r + $w + $c;
+                    }
+                }
+            }
+        }
+
+        return $cache[$key] = $errors;
+    }
+
+
+    // ── Per-disk utilization (free space) thresholds ──────────────────────
+    // Mirrors diskTempThresholds() but for disk fill levels. Picks up
+    // per-disk overrides set by the user from the Main page (click a
+    // disk -> Disk Settings -> "Warning disk utilization level" /
+    // "Critical disk utilization level"). Unraid persists these into
+    // disks.ini under the keys 'warning' and 'critical', stored as
+    // raw strings ('' when no override). When both are present and
+    // sane, they win outright. Otherwise we fall back to the global
+    // values from dynamix.cfg (what nativeUtilThresholds returns).
+    //
+    // Returns ['warning' => int, 'critical' => int] with critical
+    // strictly greater than warning. Both are integer percentages in
+    // 1..100, matching the way the rest of the plugin compares pct.
+    public static function diskUtilThresholds(array $d, array $globalUtil): array
+    {
+        $w = (string)($d['warning']  ?? '');
+        $c = (string)($d['critical'] ?? '');
+        if ($w !== '' && $c !== '') {
+            $wi = (int)$w;
+            $ci = (int)$c;
+            if ($wi >= 1 && $wi <= 99 && $ci >= 2 && $ci <= 100) {
+                if ($ci <= $wi) $ci = min(100, $wi + 1);
+                return ['warning' => $wi, 'critical' => $ci];
+            }
+        }
+        return ['warning' => $globalUtil['warning'], 'critical' => $globalUtil['critical']];
+    }
+
+
+    // ── Header click action whitelist ─────────────────────────────────────
+    // Constrains the HEADER_CLICK_ACTION cfg value to one of three known
+    // page slugs the click handler in diskviewer-header.js can route to.
+    // Anything outside the whitelist falls back to 'main' (Unraid Main),
+    // matching the default for a fresh install. Centralised here so the
+    // settings POST handler, the cfg accessor, and any future caller all
+    // produce the same canonical value.
+    public static function clampHeaderClickAction(string $v): string
+    {
+        $allowed = ['main', 'widget', 'settings'];
+        return in_array($v, $allowed, true) ? $v : 'main';
+    }
+
+
     // ── Read Unraid's native utilization thresholds from dynamix.cfg ───────
     // Mirrors nativeTempThresholds(). Unraid stores disk-utilization (free
     // space) warning and critical percentages under [display] in dynamix.cfg
@@ -280,21 +673,51 @@ final class DiskViewerEndpoint
             'temp_unit'           => self::nativeTempUnit(),
             'refresh_enabled'     => ($cfg['REFRESH_ENABLED']  ?? '1') === '1',
             'refresh_interval'    => max(5, (int)($cfg['REFRESH_INTERVAL'] ?? 30)),
-            'respect_spindown'    => ($cfg['RESPECT_SPINDOWN'] ?? '1') === '1',
             'drag_step_rows'      => max(1, min(5, (int)($cfg['DRAG_STEP_ROWS'] ?? 1))),
-            'show_unassigned'     => ($cfg['SHOW_UNASSIGNED'] ?? '1') === '1',
+            'show_unassigned'     => ($cfg['SHOW_UNASSIGNED'] ?? '0') === '1',
             'show_array'          => ($cfg['SHOW_ARRAY']      ?? '1') === '1',
             'show_cache'          => ($cfg['SHOW_CACHE']      ?? '1') === '1',
             'show_pools'          => ($cfg['SHOW_POOLS']      ?? '1') === '1',
-            // default_expand_rows is no longer a user-facing setting - the
-            // dropdown was removed in 2026.05.05v as redundant (the user can
-            // drag the footer handle to reveal sections at any time).
-            // Hardcoded to 0 here (ARRAY section visible initially; the rest
-            // are reachable via drag) so JS layout code that reads this key
-            // keeps working without rewrites.
-            'default_expand_rows' => 0,
+            // Pool severity highlight: when on, single-disk pool tiles
+            // whose used % crosses the warning or critical threshold
+            // override the zebra background with the severity colour
+            // (amber/red). When off, the zebra wins so the table
+            // pattern reads cleanly even on partially-full pools.
+            'pool_highlight_used' => ($cfg['POOL_HIGHLIGHT_USED'] ?? '0') === '1',
+            // FS pill on aggregate rows (ARRAY summary, multi-disk
+            // pool summary). When off, the filesystem pill (xfs,
+            // btrfs, zfs, mixed) is hidden everywhere.
+            'show_fs_badge'       => ($cfg['SHOW_FS_BADGE']    ?? '1') === '1',
+            // Disk error indicator master switch. Controls everything
+            // tied to FS-level error reporting (BTRFS device stats /
+            // ZFS zpool errors): the warning triangle on section headers,
+            // the disk-silhouette tint on the Unraid header indicator,
+            // and the errors_severity axis itself. Default on.
+            'show_disk_errors'    => ($cfg['SHOW_DISK_ERRORS'] ?? '1') === '1',
+            // default_expand_rows was a user-facing dropdown until 2026.05.05v
+            // when it was removed in favour of the drag handle on the footer.
+            // The value here still drives the JS-side baseline expansion level:
+            //   0 = ARRAY only visible without drag
+            //   1 = ARRAY + RAID groups (multi-disk pools)
+            //   2 = ARRAY + RAID groups + POOL (single-disk pools)
+            //   3 = all sections (incl. UNASSIGNED) visible without drag
+            // Level 2 was picked as the default per user request 2026.05.24:
+            // a fresh install shows ARRAY, RAID groups, and POOL visible from
+            // first paint, with UNASSIGNED reachable via drag. SHOW_*
+            // settings still gate which sections appear at all - level 2
+            // with SHOW_CACHE=off means the RAID baseline slot is empty.
+            // Existing users keep their drag-set extras via localStorage
+            // (dv_expand_v3) so the upgrade preserves their layout.
+            'default_expand_rows' => 2,
             'header_show_badge'   => ($cfg['HEADER_SHOW_BADGE'] ?? '1') === '1',
-            'header_click_action' => (string)($cfg['HEADER_CLICK_ACTION'] ?? 'main'),
+            // Header click action - which Unraid page to open when the
+            // user clicks the disk indicator in the top bar. The dropdown
+            // in DiskViewerSettings constrains valid values; we clamp
+            // here too as a defence in depth in case the cfg file is
+            // hand-edited. The JS reads this via the header poll JSON
+            // and sets window.diskviewerHeaderAction at runtime, which
+            // the click handler in diskviewer-header.js consumes.
+            'header_click_action' => self::clampHeaderClickAction((string)($cfg['HEADER_CLICK_ACTION'] ?? 'main')),
             'enable_spin_button'  => ($cfg['ENABLE_SPIN_BUTTON'] ?? '1') === '1',
         ];
     }
@@ -337,12 +760,54 @@ final class DiskViewerEndpoint
     // ── Unassigned devices ─────────────────────────────────────────────────
     private static function parseUnassigned(): array
     {
-        $data = self::cachedIniRead(self::UD_INI, true);
-        if (!$data) return [];
+        // Only the standard UD plugin path. We tried fallbacks in an
+        // earlier build but at least one of them picked up an Unraid
+        // state file with /dev/disk/by-id/* sections that the parser
+        // happily mistook for UD entries and rendered as 34 fake
+        // tiles. Single path is safer; the diagnostic file below tells
+        // us if the standard path isn't where this user's UD plugin is
+        // writing.
+        $data    = self::cachedIniRead(self::UD_INI, true);
+        $diag    = [
+            'path'     => self::UD_INI,
+            'exists'   => is_file(self::UD_INI),
+            'size'     => is_file(self::UD_INI) ? @filesize(self::UD_INI) : null,
+            'sections' => is_array($data) ? count($data) : 0,
+        ];
+
+        if (empty($data)) {
+            self::writeUDDiagnostic($diag);
+            return [];
+        }
 
         $out = [];
+        $accepted = 0;
+        $rejected = [];
         foreach ($data as $key => $d) {
             if (!is_array($d)) continue;
+
+            // Shape validation. A real UD entry always has a device
+            // field AND at least one UD-specific marker field
+            // (mounted/mountpoint/partitions/fstype/serial). State
+            // files and other unrelated content keyed by /dev/disk/by-id
+            // paths typically have neither, so this catches them
+            // without making us depend on the exact device-path format
+            // each UD plugin version chooses to write.
+            $devPath = (string)($d['device'] ?? '');
+            if ($devPath === '') {
+                $rejected[] = $key . ' (no device field)';
+                continue;
+            }
+            $hasUdMarker = isset($d['mounted'])
+                        || isset($d['mountpoint'])
+                        || isset($d['partitions'])
+                        || isset($d['fstype'])
+                        || isset($d['serial']);
+            if (!$hasUdMarker) {
+                $rejected[] = $key . ' (no UD marker field)';
+                continue;
+            }
+
             $mounted = ((string)($d['mounted'] ?? '0') === '1');
             $size    = (int)($d['size']     ?? 0) * 1024;
             $used    = (int)($d['used']     ?? 0) * 1024;
@@ -358,9 +823,10 @@ final class DiskViewerEndpoint
             elseif ($smartRaw === '')        $smart = 'unknown';
             else                             $smart = 'warning';
 
-            $devPath = (string)($d['device'] ?? '');
             $isSpun  = $mounted;
             $speed   = $isSpun ? self::diskSpeed($devPath) : ['bps' => 0, 'dir' => ''];
+            $tt      = self::diskTempThresholds($d);
+            $ut      = self::diskUtilThresholds($d, self::nativeUtilThresholds());
 
             $out[] = [
                 'name'   => (string)($d['label'] ?? $d['device'] ?? $key),
@@ -370,6 +836,10 @@ final class DiskViewerEndpoint
                 'status' => $mounted ? 'DISK_OK' : 'DISK_NP',
                 'spun'   => $isSpun,
                 'temp'   => (string)($d['temperature'] ?? $d['temp'] ?? '*'),
+                'temp_warning'  => $tt['warning'],
+                'temp_critical' => $tt['critical'],
+                'space_warning'  => $ut['warning'],
+                'space_critical' => $ut['critical'],
                 'smart'  => $smart,
                 'size'   => $fsSize,
                 'used'   => $fsUsed,
@@ -382,8 +852,25 @@ final class DiskViewerEndpoint
                 'is_parity'    => false,
                 'spin_disabled'=> false,
             ];
+            $accepted++;
         }
+
+        $diag['accepted'] = $accepted;
+        $diag['rejected'] = $rejected;
+        self::writeUDDiagnostic($diag);
+
         return $out;
+    }
+
+    // Diagnostic writer for UD detection. Single overwritten JSON file.
+    // Lets us answer "why isn't my UD showing?" by inspecting one file
+    // instead of running a battery of grep commands.
+    private static function writeUDDiagnostic(array $diag): void
+    {
+        $dir = dirname(self::CACHE_FILE);
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $diag['timestamp'] = date('c');
+        @file_put_contents($dir . '/ud_diag.json', json_encode($diag, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
 
@@ -621,6 +1108,46 @@ final class DiskViewerEndpoint
             $isMultiPoolMember = ($cls['kind'] === 'pool' && (($memberCount[$cls['group']] ?? 0) >= 2));
             $spinDisabled      = ($isArrayMember || $isMultiPoolMember);
 
+            // Per-disk temperature thresholds. Uses the disks.ini
+            // hotTemp/maxTemp override when set, NVMe-aware defaults when
+            // not, and falls back to the global HDD threshold for SATA.
+            // Emitted per-tile so the JS classifier picks the right
+            // warning/critical band per drive instead of applying the
+            // HDD global to NVMe cache drives.
+            $tt = self::diskTempThresholds($d);
+
+            // Per-disk utilization thresholds. Same pattern as temp:
+            // uses disks.ini 'warning'/'critical' overrides when the
+            // user has set them on the Main page, falls back to the
+            // global dynamix.cfg values otherwise. Lets a user mark
+            // an intentionally-full backup drive with relaxed
+            // thresholds while keeping their main pool tight.
+            $ut = self::diskUtilThresholds($d, self::nativeUtilThresholds());
+
+            // Pool member tiles need their errors enriched from
+            // filesystem-level tools (btrfs device stats / zpool status)
+            // because disks.ini.numErrors is only meaningful for ARRAY
+            // disks (it tracks Unraid's own read-error counter under
+            // parity protection). Pool errors are persisted by btrfs/zfs
+            // independently and would be silently zero without these
+            // shellouts. ARRAY and UD tiles keep numErrors.
+            $tileErrors = (int)($d['numErrors'] ?? 0);
+            if ($cls['group'] !== 'array') {
+                $tileFs = strtolower(trim((string)($d['fsType'] ?? '')));
+                if ($tileFs === 'btrfs' || $tileFs === 'zfs') {
+                    $poolErrs = self::poolDeviceErrors($cls['group'], $tileFs);
+                    // Strip /dev/ and partition off the tile device path
+                    // so the key matches poolDeviceErrors' map format.
+                    $key = preg_replace('@^/dev/@', '', $devPath);
+                    if (strpos($key, 'nvme') === 0) {
+                        $key = preg_replace('/p\d+$/', '', $key);
+                    } else {
+                        $key = preg_replace('/\d+$/', '', $key);
+                    }
+                    $tileErrors = (int)($poolErrs[$key] ?? 0);
+                }
+            }
+
             $devices[] = [
                 'name'          => $name,
                 'device'        => $devPath,
@@ -629,14 +1156,24 @@ final class DiskViewerEndpoint
                 'status'        => $status,
                 'spun'          => $spun,
                 'temp'          => $temp,
+                'temp_warning'  => $tt['warning'],
+                'temp_critical' => $tt['critical'],
+                'space_warning'  => $ut['warning'],
+                'space_critical' => $ut['critical'],
                 'smart'         => self::smartHealth($d),
                 'size'          => $fsSize,
                 'used'          => $fsUsed,
                 'free'          => $fsFree,
                 'pct'           => $pct,
+                // Filesystem type as reported by emhttpd in disks.ini.
+                // Lowercased for consistent comparison (xfs/btrfs/zfs/
+                // reiserfs/ntfs/ext4). Parity disks have no FS so this is
+                // empty string for them - same convention the official
+                // Unraid Main page uses (blank FS column on parity rows).
+                'fs'            => strtolower(trim((string)($d['fsType'] ?? ''))),
                 'speed_bps'     => $speed['bps'],
                 'speed_dir'     => $speed['dir'],
-                'errors'        => (int)($d['numErrors'] ?? 0),
+                'errors'        => $tileErrors,
                 'is_summary'    => false,
                 'is_parity'     => $cls['is_parity'],
                 'spin_disabled' => $spinDisabled,
@@ -667,6 +1204,22 @@ final class DiskViewerEndpoint
     //   red-*                = critical
     private static function smartHealth(array $d): string
     {
+        // Status-based critical escalation. Disabled disks (Unraid has
+        // failed them out of the array, emulating with parity) and
+        // invalid disks (refused to mount) are always critical,
+        // independently of the color field. Some Unraid versions leave
+        // color=grey or color=blue-on for disabled disks instead of
+        // red-blink, which would otherwise let the failure slip past
+        // the colour-based classifier silently.
+        $status = (string)($d['status'] ?? '');
+        if ($status === 'DISK_DSBL' || $status === 'DISK_DSBL_NEW' || $status === 'DISK_INVALID') {
+            return 'critical';
+        }
+
+        // Standard color-based classification. disks.ini.color encodes
+        // Unraid's own status thumbnail in the Main page (green/yellow
+        // /red ball next to each disk), so reusing it keeps the widget
+        // and Main page in sync on what "healthy" means.
         $color = strtolower((string)($d['color'] ?? ''));
         if ($color === '') return 'unknown';
         if (strpos($color, 'red')    !== false) return 'critical';
@@ -721,10 +1274,23 @@ final class DiskViewerEndpoint
             $smartWorst = 'healthy';
             $rank = ['unknown' => 0, 'healthy' => 1, 'warning' => 2, 'critical' => 3];
             $anySpun = false;
+            // Speed sums I/O bytes/sec across every tile (parities AND
+            // data), matching the official Unraid Main aggregate row. The
+            // direction indicator follows whichever flow (reads or writes)
+            // is currently dominant - tile dirs are inspected separately
+            // and the dominant one wins.
+            $sumR = 0; $sumW = 0;
             foreach ($tiles as $t) {
-                if ($t['is_parity']) continue; // parity doesn't contribute to usable
-                $total += $t['size'];
-                $used  += $t['used'];
+                if (!$t['is_parity']) {
+                    // Capacity sums only data disks - parity has no usable
+                    // capacity to contribute.
+                    $total += $t['size'];
+                    $used  += $t['used'];
+                }
+                $bps = (int)($t['speed_bps'] ?? 0);
+                $dir = (string)($t['speed_dir'] ?? '');
+                if ($dir === 'r') $sumR += $bps;
+                elseif ($dir === 'w') $sumW += $bps;
                 if (!empty($t['spun'])) $anySpun = true;
                 if (($rank[$t['smart']] ?? 0) > ($rank[$smartWorst] ?? 0)) {
                     $smartWorst = $t['smart'];
@@ -733,6 +1299,7 @@ final class DiskViewerEndpoint
             $free = max(0, $total - $used);
             $pct  = $total > 0 ? (int)round($used / $total * 100) : 0;
             $severity = $pct >= $crit ? 'critical' : ($pct >= $warn ? 'warning' : 'ok');
+            $totalSpeed = $sumR + $sumW;
             return [
                 'name'       => $label,
                 'kind'       => 'summary',
@@ -745,28 +1312,49 @@ final class DiskViewerEndpoint
                 'severity'   => $severity,
                 'spun'       => $anySpun,
                 'temp'       => '*',
-                'speed_bps'  => 0,
-                'speed_dir'  => '',
+                'speed_bps'  => $totalSpeed,
+                'speed_dir'  => $totalSpeed > 0 ? ($sumR >= $sumW ? 'r' : 'w') : '',
                 'errors'     => 0,
                 'is_summary' => true,
                 'is_parity'  => false,
             ];
         };
 
-        // Helper: tile severity classifier
-        $classify = function(array $t) use ($warn, $crit): array {
+        // Helper: tile severity classifier. In inherit mode each tile
+        // carries its own space_warning/space_critical (per-disk
+        // overrides set by the user from the Main page, or global
+        // defaults from dynamix.cfg when no override exists). In custom
+        // mode the plugin's SPACE_WARNING_PCT/SPACE_CRITICAL_PCT apply
+        // uniformly to every disk. In disabled mode warn/crit are
+        // bumped to 101 above so the comparison never triggers.
+        $useTileThresholds = ($cfg['space_severity_mode'] ?? 'inherit') === 'inherit'
+                          && !empty($cfg['space_severity_enabled']);
+        $classify = function(array $t) use ($warn, $crit, $useTileThresholds): array {
             $pct = (int)$t['pct'];
-            $t['severity'] = $pct >= $crit ? 'critical' : ($pct >= $warn ? 'warning' : 'ok');
+            if ($useTileThresholds) {
+                $tw = (int)($t['space_warning']  ?? $warn);
+                $tc = (int)($t['space_critical'] ?? $crit);
+            } else {
+                $tw = $warn;
+                $tc = $crit;
+            }
+            $t['severity'] = $pct >= $tc ? 'critical' : ($pct >= $tw ? 'warning' : 'ok');
             return $t;
         };
 
         // 1. ARRAY section
         if (!empty($byGroup['array']) && $cfg['show_array']) {
             $arrTiles = array_map($classify, $byGroup['array']);
-            // Summary tile aggregates all non-parity disks
-            $summary = $makeSummary('Parity', $arrTiles);
-            // Separate parity disks from data disks, then sort each group naturally
-            // so the final order is: PARITY (summary) > PARITY2 > DISK1 > DISK2...
+            // Summary tile aggregates data-disk capacity. The ARRAY layout
+            // pattern (agreed with the user 2026.05.24): parities first,
+            // data disks next, dedicated aggregate row at the bottom -
+            // matches the official Unraid Main page. Summary is fully
+            // synthetic now: it does NOT inherit name/temp/SMART/spin from
+            // the primary parity (used to, and that confused users by
+            // making the first PARITY row double as the array total).
+            $summary = $makeSummary('ARRAY', $arrTiles);
+
+            // Separate parities from data, sort each group naturally.
             $parities = [];
             $data     = [];
             foreach ($arrTiles as $t) {
@@ -775,29 +1363,48 @@ final class DiskViewerEndpoint
             }
             usort($parities, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
             usort($data,     fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
-            // Primary parity drives the summary tile stats
-            $primaryParity = $parities[0] ?? null;
-            if ($primaryParity) {
-                $summary['smart'] = $primaryParity['smart'];
-                $summary['spun']  = $primaryParity['spun'];
-                $summary['temp']  = $primaryParity['temp'];
-                $summary['name']  = 'Parity';
+
+            // FS detection. Pull fsType from every data tile; parities
+            // have no filesystem so they're skipped. If all data disks
+            // agree, that's the array FS - if they disagree (rare but
+            // possible: one xfs disk + one btrfs disk), mark "mixed".
+            $fsSet = [];
+            foreach ($data as $t) {
+                $fs = strtolower(trim((string)($t['fs'] ?? '')));
+                if ($fs !== '' && $fs !== '-') $fsSet[$fs] = true;
             }
-            // Extra parities (parity2, parity3...) appear between summary and data disks
-            $extraParities = array_slice($parities, 1);
-            $tiles = array_merge([$summary], $extraParities, $data);
-            // Count severity
+            if (count($fsSet) === 1) {
+                $summary['fs'] = array_key_first($fsSet);
+            } elseif (count($fsSet) > 1) {
+                $summary['fs'] = 'mixed';
+            } else {
+                $summary['fs'] = '';
+            }
+
+            // Layout: aggregate first, parities, then data disks.
+            // Matches the CACHE multi-disk section pattern (summary on
+            // top, members below) so the user sees consistent ordering
+            // across both sections.
+            $tiles = array_merge([$summary], $parities, $data);
+
+            // Severity counting: parities and data both count as devices.
+            // Parity tiles can have SMART warnings even without capacity,
+            // so we include them in critNames/warnNames too.
+            foreach ($parities as $t) {
+                $totalDevices++;
+                if ($t['severity'] === 'critical') $critNames[] = $t['name'];
+                elseif ($t['severity'] === 'warning') $warnNames[] = $t['name'];
+            }
             foreach ($data as $t) {
                 $totalDevices++;
                 if ($t['severity'] === 'critical') $critNames[] = $t['name'];
                 elseif ($t['severity'] === 'warning') $warnNames[] = $t['name'];
             }
-            if ($primaryParity) $totalDevices++;
-            if ($extraParities) $totalDevices += count($extraParities);
             $sections[] = [
                 'id'     => 'array',
                 'label'  => 'ARRAY',
-                'count'  => count($tiles) - 1,
+                'count'  => count($parities) + count($data),
+                'raid'   => self::arrayRaidProfile(count($parities)),
                 'tiles'  => $tiles,
             ];
         }
@@ -811,54 +1418,114 @@ final class DiskViewerEndpoint
         // both branches so the array group never reaches the pool loop.
         unset($byGroup['array']);
 
-        // 2. POOLS: multi-disk pools first (get own section), single-disk pools grouped into 'POOLS'
-        $multiDisk = [];
-        $singleDisk = [];
+        // 2. POOLS routing: split by topology (multi vs single disk) AND
+        // by function (cache target vs not). Layout per user feedback
+        // 2026.05.24:
+        //   - All multi-disk pools (RAID groups) gated on SHOW_CACHE.
+        //     Cache-target multi-disk pools render first, non-cache
+        //     multi-disk pools below them.
+        //   - All single-disk pools (cache or not) combine into a single
+        //     POOL section gated on SHOW_POOLS.
+        // Cache-target detection is function-based via cacheTargetPools()
+        // (share configs declaring shareCachePool), independent of pool
+        // name. Multi-disk = 2+ member disks regardless of FS profile.
+        $cacheTargets = self::cacheTargetPools();
+        $multiCache   = [];  // multi-disk cache targets - render first
+        $multiPool    = [];  // multi-disk non-cache - render below multiCache
+        $singleAll    = [];  // every single-disk pool combined into POOL
         foreach ($byGroup as $group => $tiles) {
             if ($group === 'unassigned') continue;
             $tiles = array_map($classify, $tiles);
+            $isCache = in_array(strtolower($group), $cacheTargets, true);
             if (count($tiles) >= 2) {
-                $multiDisk[$group] = $tiles;
+                if ($isCache) $multiCache[$group] = $tiles;
+                else          $multiPool[$group]  = $tiles;
             } else {
-                $singleDisk[$group] = $tiles[0];
+                $singleAll[$group] = $tiles[0];
             }
         }
 
-        // Each multi-disk pool = own section with summary tile.
-        // The whole block of multi-disk pools is gated by SHOW_CACHE - when
-        // disabled, multi-disk pools (cache RAID and similar) are omitted
-        // from the rendered model entirely. Severity counters are NOT
-        // updated for hidden sections because the user has explicitly opted
-        // out of seeing them; surfacing their disks in the header dot or
-        // critical list would be inconsistent with the "section hidden"
-        // semantic SHOW_ARRAY and SHOW_UNASSIGNED already follow.
+        // Helper to emit a single multi-disk pool section (summary + members).
+        // Used twice below - once for cache targets, once for non-cache.
+        $emitMultiSection = function(string $group, array $tiles) use ($makeSummary, &$totalDevices, &$critNames, &$warnNames, &$sections) {
+            $label = strtoupper($group);
+            $summary = $makeSummary($group, $tiles);
+            $summary['name'] = $group;
+            // Rename members to a generic "Device N" ordinal for display.
+            // We attach the new label as `display_name` rather than
+            // overwriting `name` because the real device name (cache,
+            // cache 2, etc) is the join key used by the speed poller,
+            // the spin-button targeting, and severity reporting. The
+            // renderer reads `display_name` first, falling back to
+            // `name`.
+            $idx = 1;
+            foreach ($tiles as &$t) {
+                $t['is_pool_member'] = true;
+                $t['display_name']   = 'Device ' . $idx;
+                $idx++;
+            }
+            unset($t);
+            // FS detection: pool members share the same filesystem (a
+            // BTRFS RAID1 pool reports btrfs on every member, a ZFS
+            // mirror reports zfs on every member). Pick the first
+            // non-empty member FS as the pool FS. If members disagree
+            // (extremely rare - misconfigured pool) mark "mixed".
+            $fsSet = [];
+            foreach ($tiles as $t) {
+                $fs = strtolower(trim((string)($t['fs'] ?? '')));
+                if ($fs !== '' && $fs !== '-') $fsSet[$fs] = true;
+            }
+            if (count($fsSet) === 1) {
+                $summary['fs'] = array_key_first($fsSet);
+            } elseif (count($fsSet) > 1) {
+                $summary['fs'] = 'mixed';
+            } else {
+                $summary['fs'] = '';
+            }
+            // RAID topology - calls into btrfs/zpool tooling. Returns
+            // empty string for single-profile pools (still surface them
+            // as multi-disk if 2+ member tiles exist, but with no RAID
+            // suffix in the header).
+            $poolFs   = $summary['fs'];
+            $raidLabel = ($poolFs !== '' && $poolFs !== 'mixed')
+                ? self::poolRaidProfile($group, $poolFs)
+                : '';
+            $sectionTiles = array_merge([$summary], $tiles);
+            foreach ($tiles as $t) {
+                $totalDevices++;
+                if ($t['severity'] === 'critical') $critNames[] = $t['name'];
+                elseif ($t['severity'] === 'warning') $warnNames[] = $t['name'];
+            }
+            $sections[] = [
+                'id'    => 'pool_' . $group,
+                'label' => $label,
+                'count' => count($tiles),
+                'raid'  => $raidLabel,
+                'tiles' => $sectionTiles,
+            ];
+        };
+
+        // 2a. Multi-disk RAID groups - gated on SHOW_CACHE since the
+        // "CACHE" toggle historically meant "show multi-disk pools".
+        // Cache-target ones render first, non-cache multi-disk below.
+        // Each pool gets its own section labeled with the pool name +
+        // RAID profile.
         if ($cfg['show_cache']) {
-            foreach ($multiDisk as $group => $tiles) {
-                $label = strtoupper($group);
-                $summary = $makeSummary($group, $tiles);
-                $summary['name'] = $group;
-                $sectionTiles = array_merge([$summary], $tiles);
-                foreach ($tiles as $t) {
-                    $totalDevices++;
-                    if ($t['severity'] === 'critical') $critNames[] = $t['name'];
-                    elseif ($t['severity'] === 'warning') $warnNames[] = $t['name'];
-                }
-                $sections[] = [
-                    'id'    => 'pool_' . $group,
-                    'label' => $label,
-                    'count' => count($tiles),
-                    'tiles' => $sectionTiles,
-                ];
+            foreach ($multiCache as $group => $tiles) {
+                $emitMultiSection($group, $tiles);
+            }
+            foreach ($multiPool as $group => $tiles) {
+                $emitMultiSection($group, $tiles);
             }
         }
 
-        // Single-disk pools combined into POOLS section. Gated on the
-        // SHOW_POOLS toggle (added 2026.05.05v): if the user has hidden
-        // single-disk pools, omit the section entirely from the model so
-        // their tiles don't contribute to severity counters either - same
-        // semantic as SHOW_ARRAY, SHOW_CACHE, and SHOW_UNASSIGNED.
-        if (!empty($singleDisk) && $cfg['show_pools']) {
-            $tiles = array_values($singleDisk);
+        // 2b. Single-disk pools (cache or not) combined into one POOL
+        // section, gated on SHOW_POOLS. The old "CACHE for single-disk
+        // cache pools" treatment is gone - all single-disk pools live
+        // here regardless of cache function, with the same zebra
+        // styling.
+        if (!empty($singleAll) && $cfg['show_pools']) {
+            $tiles = array_values($singleAll);
             foreach ($tiles as $t) {
                 $totalDevices++;
                 if ($t['severity'] === 'critical') $critNames[] = $t['name'];
@@ -866,7 +1533,7 @@ final class DiskViewerEndpoint
             }
             $sections[] = [
                 'id'    => 'pools',
-                'label' => 'POOLS',
+                'label' => 'POOL',
                 'count' => count($tiles),
                 'tiles' => $tiles,
             ];
@@ -893,8 +1560,15 @@ final class DiskViewerEndpoint
         // for ok, amber for >= temp_warning, red for >= temp_critical). Skips
         // summary tiles (synthetic, no real reading), spundown disks, and any
         // tile without a numeric temperature. Parity disks count.
-        $tempWarn = (int)$cfg['temp_warning'];
-        $tempCrit = (int)$cfg['temp_critical'];
+        //
+        // Each tile carries its own temp_warning/temp_critical (set by the
+        // per-disk diskTempThresholds() helper - reads disks.ini hotTemp/
+        // maxTemp first, falls back to NVMe-aware defaults for NVMe drives
+        // without an override, then to global HDD thresholds). We classify
+        // per-tile against its own thresholds so an NVMe cache running at
+        // 65°C doesn't flag critical just because the HDD global is 55°C.
+        $globalWarn = (int)$cfg['temp_warning'];
+        $globalCrit = (int)$cfg['temp_critical'];
         $rank = ['ok' => 0, 'warning' => 1, 'critical' => 2];
         $tempSeverity = 'ok';
         foreach ($sections as $sec) {
@@ -904,7 +1578,9 @@ final class DiskViewerEndpoint
                 if ($tempStr === '' || $tempStr === '*' || $tempStr === '-') continue;
                 $n = (int)$tempStr;
                 if ($n <= 0) continue;
-                $sev = ($n >= $tempCrit) ? 'critical' : (($n >= $tempWarn) ? 'warning' : 'ok');
+                $tWarn = isset($t['temp_warning'])  ? (int)$t['temp_warning']  : $globalWarn;
+                $tCrit = isset($t['temp_critical']) ? (int)$t['temp_critical'] : $globalCrit;
+                $sev = ($n >= $tCrit) ? 'critical' : (($n >= $tWarn) ? 'warning' : 'ok');
                 if ($rank[$sev] > $rank[$tempSeverity]) {
                     $tempSeverity = $sev;
                     if ($tempSeverity === 'critical') break 2;
@@ -953,6 +1629,123 @@ final class DiskViewerEndpoint
             }
         }
 
+        // Worst disk-error severity. Independent of health: a disk can be
+        // SMART-healthy and still have BTRFS/ZFS write/read/corruption
+        // errors recorded by the filesystem layer. Any non-zero error
+        // count promotes the axis to warning. We don't escalate to
+        // critical because Unraid's own Pool Devices page treats these
+        // as warnings (orange "ONLINE - ERRORS"), reserving red for
+        // unmounted/missing devices. Gated on show_disk_errors so the
+        // user can switch off the whole feature.
+        $errorsSeverity = 'ok';
+        if (!empty($cfg['show_disk_errors'])) {
+            foreach ($sections as $sec) {
+                foreach ($sec['tiles'] as $t) {
+                    if (!empty($t['is_summary'])) continue;
+                    if (((int)($t['errors'] ?? 0)) > 0) {
+                        $errorsSeverity = 'warning';
+                        break 2;
+                    }
+                }
+            }
+        }
+
+        // Per-disk per-axis issues for the header tooltip. One entry
+        // per problem (a single disk can produce multiple rows if it has
+        // issues on more than one axis). Sorted server-side by axis
+        // priority then severity so JS just renders in iteration order
+        // without further work.
+        //
+        // Axis priority follows the user-requested order: health first
+        // (a failed disk is the most urgent thing to see), then errors,
+        // then temperature, then capacity. Within an axis, criticals
+        // come before warnings; ties resolved alphabetically by name.
+        $tempUnit  = self::nativeTempUnit();
+        $issuesRaw = [];
+        $axisRank  = ['health' => 0, 'errors' => 1, 'temp' => 2, 'used' => 3];
+        $sevRank   = ['critical' => 0, 'warning' => 1];
+
+        $fmtTemp = static function(int $c) use ($tempUnit): string {
+            if ($tempUnit === 'F') return ((int)round($c * 9 / 5 + 32)) . '°F';
+            return $c . '°C';
+        };
+
+        foreach ($sections as $sec) {
+            foreach ($sec['tiles'] as $t) {
+                if (!empty($t['is_summary'])) continue;
+                $name = (string)($t['display_name'] ?? $t['name'] ?? '?');
+
+                // HEALTH - SMART status. critical = FAILED disk, warning
+                // = anything else that smart normalization mapped to
+                // warning (UD plugin reports neither PASSED nor FAILED
+                // for some configurations).
+                $smart = (string)($t['smart'] ?? 'unknown');
+                if ($smart === 'critical') {
+                    $issuesRaw[] = ['name' => $name, 'axis' => 'health', 'severity' => 'critical', 'label' => 'SMART failed'];
+                } elseif ($smart === 'warning') {
+                    $issuesRaw[] = ['name' => $name, 'axis' => 'health', 'severity' => 'warning', 'label' => 'SMART warning'];
+                }
+
+                // ERRORS - btrfs/zfs device-error counter from
+                // poolDeviceErrors() or numErrors in disks.ini. Always
+                // warning (no critical band - Unraid Main page treats
+                // these the same way).
+                $errCount = (int)($t['errors'] ?? 0);
+                if ($errCount > 0) {
+                    $issuesRaw[] = [
+                        'name'     => $name,
+                        'axis'     => 'errors',
+                        'severity' => 'warning',
+                        'label'    => $errCount . ' error' . ($errCount === 1 ? '' : 's'),
+                    ];
+                }
+
+                // TEMP - per-tile thresholds from diskTempThresholds()
+                // (smart-one.cfg per-disk, then class-aware default).
+                // Skip spundown disks ('*' or empty temp) since the
+                // reading is stale and would either false-flag or
+                // require dragging the disk awake.
+                $tempStr = trim((string)($t['temp'] ?? ''));
+                if ($tempStr !== '' && $tempStr !== '*' && $tempStr !== '-' && is_numeric($tempStr)) {
+                    $tempVal = (int)$tempStr;
+                    $tw      = (int)($t['temp_warning']  ?? 0);
+                    $tc      = (int)($t['temp_critical'] ?? 0);
+                    if ($tc > 0 && $tempVal >= $tc) {
+                        $issuesRaw[] = ['name' => $name, 'axis' => 'temp', 'severity' => 'critical', 'label' => $fmtTemp($tempVal)];
+                    } elseif ($tw > 0 && $tempVal >= $tw) {
+                        $issuesRaw[] = ['name' => $name, 'axis' => 'temp', 'severity' => 'warning', 'label' => $fmtTemp($tempVal)];
+                    }
+                }
+
+                // USED - utilization band from $t['severity'] which was
+                // already classified earlier in this method against
+                // per-tile space_warning/space_critical thresholds. We
+                // rely on that classification so the tooltip and the
+                // widget row agree on which level the disk is in.
+                if (($t['severity'] ?? 'ok') === 'critical' || ($t['severity'] ?? 'ok') === 'warning') {
+                    $pct = (int)($t['pct'] ?? 0);
+                    if ($pct > 0) {
+                        $issuesRaw[] = [
+                            'name'     => $name,
+                            'axis'     => 'used',
+                            'severity' => $t['severity'],
+                            'label'    => $pct . '%',
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Sort: axis priority asc, then severity rank asc, then name asc.
+        usort($issuesRaw, static function ($a, $b) use ($axisRank, $sevRank) {
+            $da = ($axisRank[$a['axis']]    ?? 99) - ($axisRank[$b['axis']]    ?? 99);
+            if ($da !== 0) return $da;
+            $ds = ($sevRank[$a['severity']] ?? 9)  - ($sevRank[$b['severity']] ?? 9);
+            if ($ds !== 0) return $ds;
+            return strnatcasecmp($a['name'], $b['name']);
+        });
+        $diskIssues = $issuesRaw;
+
         return [
             'ts'            => time(),
             'total_devices' => $totalDevices,
@@ -960,9 +1753,11 @@ final class DiskViewerEndpoint
             'warning_count' => count($warnNames),
             'critical_names'=> array_values($critNames),
             'warning_names' => array_values($warnNames),
-            'temp_severity'   => $tempSeverity,
-            'health_severity' => $healthSeverity,
-            'util_severity'   => $utilSeverity,
+            'disk_issues'   => $diskIssues,
+            'temp_severity'    => $tempSeverity,
+            'health_severity'  => $healthSeverity,
+            'util_severity'    => $utilSeverity,
+            'errors_severity'  => $errorsSeverity,
             'sections'      => $sections,
             'cfg'           => [
                 'warning_pct'             => $cfg['warning_pct'],
@@ -976,6 +1771,8 @@ final class DiskViewerEndpoint
                 'drag_step_rows'          => $cfg['drag_step_rows'],
                 'default_expand_rows'     => $cfg['default_expand_rows'],
                 'enable_spin_button'      => $cfg['enable_spin_button'],
+                'pool_highlight_used'     => $cfg['pool_highlight_used'],
+                'show_fs_badge'           => $cfg['show_fs_badge'],
             ],
         ];
     }
@@ -991,29 +1788,22 @@ final class DiskViewerEndpoint
         @mkdir('/tmp/diskviewer_cache', 0755, true);
         @file_put_contents(self::HEADER_COUNT_FILE,  (string)$model['critical_count']);
         @file_put_contents(self::HEADER_NAMES_FILE,  implode('|', $model['critical_names']));
-        @file_put_contents(self::HEADER_TEMP_FILE,   (string)($model['temp_severity']   ?? 'ok'));
-        @file_put_contents(self::HEADER_HEALTH_FILE, (string)($model['health_severity'] ?? 'ok'));
-        @file_put_contents(self::HEADER_UTIL_FILE,   (string)($model['util_severity']   ?? 'ok'));
+        @file_put_contents(self::HEADER_TEMP_FILE,    (string)($model['temp_severity']    ?? 'ok'));
+        @file_put_contents(self::HEADER_HEALTH_FILE,  (string)($model['health_severity']  ?? 'ok'));
+        @file_put_contents(self::HEADER_UTIL_FILE,    (string)($model['util_severity']    ?? 'ok'));
+        @file_put_contents(self::HEADER_ERRORS_FILE,  (string)($model['errors_severity']  ?? 'ok'));
+        // disk_issues serialized as JSON. Read back as-is by the header
+        // endpoint and forwarded to JS. Empty array if no issues - JS
+        // uses that to switch the tooltip to its "all OK" mode.
+        @file_put_contents(self::HEADER_ISSUES_FILE, json_encode($model['disk_issues'] ?? [], JSON_UNESCAPED_SLASHES));
     }
 
 
     // ============================================================================
 
-    // 11. Formatters (bytes, durations)
+    // 11. Formatters (durations)
 
     // ============================================================================
-    public static function formatBytes(int $bytes, int $precision = 1): string
-    {
-        if ($bytes <= 0) return '0 B';
-        $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-        $i = (int)floor(log($bytes, 1024));
-        $i = min($i, count($units) - 1);
-        $val = $bytes / (1024 ** $i);
-        $fmt = ($i >= 3 && $val < 10) ? number_format($val, $precision) : (string)round($val);
-        if ($i >= 3) $fmt = rtrim(rtrim(number_format($val, $precision), '0'), '.');
-        return $fmt . ' ' . $units[$i];
-    }
-
     public static function generateNonce(): string
     {
         return bin2hex(random_bytes(8));

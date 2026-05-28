@@ -184,8 +184,7 @@
    ============================================================================== */
 
 /* ── FOUC PREVENTION ─────────────────────────────────────────────────────── */
-.diskviewer-settings,
-.dv-credits-top { visibility: visible !important; }
+.diskviewer-settings { visibility: visible !important; }
 
 
 /* ==============================================================================
@@ -264,34 +263,10 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════════════════
-   CREDITS LINK (top right)
+   (Top-right CREDITS link removed - Credits now lives in the footer row
+   alongside Support Forum and GitHub Issues; see the footer row styles
+   below for the new layout.)
    ══════════════════════════════════════════════════════════════════════════ */
-.dv-credits-top {
-  display: block !important;
-  width: 100% !important;
-  margin: 0 0 .3rem 0 !important;
-}
-
-.dv-credits-top .dv-credits {
-  float: right !important;
-  cursor: pointer !important;
-}
-
-.dv-credits-top::after { content: ""; display: block; clear: both; }
-
-.dv-credits {
-  font-size: .78em !important;
-  text-decoration: none !important;
-  color: var(--dv-c-text-muted) !important;
-  cursor: pointer !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  border: 0 !important;
-  background: transparent !important;
-  transition: color .2s !important;
-}
-
-.dv-credits:hover { color: var(--dv-blue) !important; }
 
 
 /* ==============================================================================
@@ -421,6 +396,14 @@
   font-size: 11.5px;
   color: var(--dv-c-text-faint);
   line-height: 1.3;
+}
+
+/* Amber variant of dv-r-desc - draw extra attention to notes that flag
+   a hard dependency (e.g. "Requires Unassigned Devices plugin"). Same
+   layout as the base; the colour change alone is enough to make it
+   pop in the otherwise-grey description column. */
+.dv-r-desc--warn {
+  color: #ffb300;
 }
 
 .dv-r-warn {
@@ -691,27 +674,62 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════════════════
-   FOOTER ROW (support link + version badge under the panel)
+   FOOTER ROW (support / github / credits links cluster + version badge)
    ══════════════════════════════════════════════════════════════════════════ */
 .dv-footer-row {
-  text-align: center;
-  padding: 8px 0 4px;
-  font-size: 11px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  /* Vertical gap between the links row and the version badge below.
+     8px keeps them clearly related but visually distinct, matching the
+     screenshot pattern the user prefers. */
+  gap: 8px;
+  padding: 10px 0 6px;
+  font-size: 11px;
 }
 
-.dv-support-link {
+/* Links cluster: inline-flex so the separators sit inline with the links
+   and gap controls the spacing on either side of each separator. */
+.dv-footer-links {
+  display: inline-flex;
+  align-items: center;
+  /* gap is the breathing room on EACH side of the separator. 0.7ch lands
+     visually as roughly one character of space, matching the requested
+     "space on the left and right of the |". */
+  gap: 0.7ch;
+}
+
+/* Shared link style. No hover underline anywhere - text colour shifts
+   slightly on hover for affordance, nothing more. */
+.dv-footer-link,
+.dv-footer-link:link,
+.dv-footer-link:visited {
   color: var(--dv-blue);
-  text-decoration: none;
+  text-decoration: none !important;
   font-weight: 500;
   cursor: pointer;
   transition: color .2s;
+  border: 0;
+  background: transparent;
 }
 
-.dv-support-link:hover { color: #6bb3ff; }
+.dv-footer-link:hover,
+.dv-footer-link:focus {
+  color: #6bb3ff;
+  text-decoration: none !important;
+  outline: none;
+}
+
+/* Thin CSS divider between links - option C from the user's reference
+   sheet. 1px wide, 10px tall, vertically centred. Subtle muted colour
+   so it doesn't fight with the link text. */
+.dv-footer-sep {
+  display: inline-block;
+  width: 1px;
+  height: 10px;
+  background: var(--dv-c-text-muted);
+  opacity: 0.45;
+}
 
 .dv-version-badge {
   display: inline-block;
@@ -1027,9 +1045,6 @@
   .dv-sec-hd {
     padding: 11px 12px;
     font-size: 12px;
-  }
-  .dv-credits-top {
-    padding: 4px 8px 0;
   }
   .dv-actions-bar {
     padding: 12px 12px 6px;

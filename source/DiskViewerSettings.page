@@ -49,13 +49,8 @@ $clamp_int = static function($v, int $min, int $max, int $default): string {
 };
 
 $clamp_interval = static function($v): string {
-    $allowed = ['5','10','20','30','50','80','100','150','200','250','300'];
-    return in_array((string)$v, $allowed, true) ? (string)$v : '30';
-};
-
-$clamp_action = static function($v): string {
-    $allowed = ['main','widget','settings'];
-    return in_array((string)$v, $allowed, true) ? (string)$v : 'main';
+    $allowed = ['5','10','20','30','50','80','100'];
+    return in_array((string)$v, $allowed, true) ? (string)$v : '20';
 };
 
 // ── POST handler ───────────────────────────────────────────────────────────
@@ -83,15 +78,43 @@ if (isset($_POST['#apply'])) {
 
     // Behavior
     $new_cfg['REFRESH_ENABLED']   = $yn($_POST['REFRESH_ENABLED']  ?? '1', '1');
-    $new_cfg['REFRESH_INTERVAL']  = $clamp_interval($_POST['REFRESH_INTERVAL'] ?? 30);
-    $new_cfg['RESPECT_SPINDOWN']  = $yn($_POST['RESPECT_SPINDOWN'] ?? '1', '1');
+    $new_cfg['REFRESH_INTERVAL']  = $clamp_interval($_POST['REFRESH_INTERVAL'] ?? 20);
     $new_cfg['DRAG_STEP_ROWS']    = $clamp_int($_POST['DRAG_STEP_ROWS'] ?? 1, 1, 5, 1);
+    // Allow spin actions (moved here from the removed Spin control section).
+    // The backend guard inside diskviewer_api.php still blocks parity and
+    // multi-disk pool members regardless of this toggle.
+    $new_cfg['ENABLE_SPIN_BUTTON']   = $yn($_POST['ENABLE_SPIN_BUTTON'] ?? '1', '1');
 
     // Display
-    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '1', '1');
+    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '0', '0');
     $new_cfg['SHOW_ARRAY']           = $yn($_POST['SHOW_ARRAY']           ?? '1', '1');
     $new_cfg['SHOW_CACHE']           = $yn($_POST['SHOW_CACHE']           ?? '1', '1');
     $new_cfg['SHOW_POOLS']           = $yn($_POST['SHOW_POOLS']           ?? '1', '1');
+    // Header bar indicator toggle - moved here from its own section, kept
+    // as a Display option since it controls whether the Unraid header
+    // badge is rendered.
+    $new_cfg['HEADER_SHOW_BADGE']    = $yn($_POST['HEADER_SHOW_BADGE'] ?? '1', '1');
+    // Header click action - which Unraid page opens when the user
+    // clicks the indicator. Whitelisted to main / widget / settings;
+    // anything else falls back to 'main'. The JS polls the click
+    // action from the server every 30s, so changing this setting
+    // takes effect on the next poll without a page refresh.
+    $clickActionIn = (string)($_POST['HEADER_CLICK_ACTION'] ?? 'main');
+    $new_cfg['HEADER_CLICK_ACTION']  = in_array($clickActionIn, ['main','widget','settings'], true)
+        ? $clickActionIn : 'main';
+    // Pool severity highlight - when on, single-disk pool tiles whose
+    // used % crosses warning/critical threshold paint amber/red over
+    // the zebra background. Default off so the zebra reads as a clean
+    // table on fresh installs.
+    $new_cfg['POOL_HIGHLIGHT_USED']  = $yn($_POST['POOL_HIGHLIGHT_USED'] ?? '0', '1');
+    // FS badge on aggregate rows.
+    $new_cfg['SHOW_FS_BADGE']        = $yn($_POST['SHOW_FS_BADGE'] ?? '1', '1');
+    // Disk error indicator master switch (warning triangle in section
+    // headers + disk-silhouette tint on the Unraid header indicator).
+    // Default on - error detection is one of the most useful signals
+    // the widget provides, so it should be visible unless the user
+    // explicitly turns it off.
+    $new_cfg['SHOW_DISK_ERRORS']     = $yn($_POST['SHOW_DISK_ERRORS'] ?? '1', '1');
 
     // Space severity. Mode is a 3-option whitelist; the two custom percent
     // values are clamped to a sane band. Note: critical-must-exceed-warning
@@ -103,13 +126,6 @@ if (isset($_POST['#apply'])) {
         ? $mode_in : 'inherit';
     $new_cfg['SPACE_WARNING_PCT']   = $clamp_int($_POST['SPACE_WARNING_PCT']  ?? 70,  1,  99,  70);
     $new_cfg['SPACE_CRITICAL_PCT']  = $clamp_int($_POST['SPACE_CRITICAL_PCT'] ?? 90,  2, 100,  90);
-
-    // Header bar indicator
-    $new_cfg['HEADER_SHOW_BADGE']    = $yn($_POST['HEADER_SHOW_BADGE'] ?? '1', '1');
-    $new_cfg['HEADER_CLICK_ACTION']  = $clamp_action($_POST['HEADER_CLICK_ACTION'] ?? 'main');
-
-    // Spin button (on by default; backend guard blocks parity & multi-disk pool members)
-    $new_cfg['ENABLE_SPIN_BUTTON']   = $yn($_POST['ENABLE_SPIN_BUTTON'] ?? '1', '1');
 
     // Serialize. Each value goes through its own clamp/whitelist above, so
     // it cannot contain newlines or quotes by the time it reaches this
@@ -132,19 +148,21 @@ if (isset($_POST['#apply'])) {
 // Defaults
 $def = [
     'REFRESH_ENABLED'      => '1',
-    'REFRESH_INTERVAL'     => '30',
-    'RESPECT_SPINDOWN'     => '1',
+    'REFRESH_INTERVAL'     => '20',
     'DRAG_STEP_ROWS'       => '1',
-    'SHOW_UNASSIGNED'      => '1',
+    'ENABLE_SPIN_BUTTON'   => '1',
+    'SHOW_UNASSIGNED'      => '0',
     'SHOW_ARRAY'           => '1',
     'SHOW_CACHE'           => '1',
     'SHOW_POOLS'           => '1',
+    'HEADER_SHOW_BADGE'    => '1',
+    'HEADER_CLICK_ACTION'  => 'main',
+    'POOL_HIGHLIGHT_USED'  => '0',
+    'SHOW_FS_BADGE'        => '1',
+    'SHOW_DISK_ERRORS'     => '1',
     'SPACE_SEVERITY_MODE'  => 'inherit',
     'SPACE_WARNING_PCT'    => '70',
     'SPACE_CRITICAL_PCT'   => '90',
-    'HEADER_SHOW_BADGE'    => '1',
-    'HEADER_CLICK_ACTION'  => 'main',
-    'ENABLE_SPIN_BUTTON'   => '1',
 ];
 foreach ($def as $k => $v) {
     if (!isset($cfg[$k]) || $cfg[$k] === '') $cfg[$k] = $v;
@@ -189,16 +207,13 @@ if ($plugin_version === '') $plugin_version = 'dev';
 <!-- 2. Style includes & FOUC suppression -->
 <!-- ============================================================================ -->
 
-<style>.diskviewer-settings,.dv-credits-top{visibility:hidden;}</style>
+<style>.diskviewer-settings{visibility:hidden;}</style>
 <link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/settings.css">
 
 <!-- ============================================================================ -->
-<!-- 3. Top credits link -->
+<!-- 3. (Credits link moved into the footer row alongside Support Forum and    -->
+<!--    GitHub Issues - no longer floats top-right.)                            -->
 <!-- ============================================================================ -->
-
-<div class="dv-credits-top<?= $rootClasses ?>">
-  <a href="#" class="dv-credits" id="dvCreditsLink">Credits</a>
-</div>
 
 <form name="diskviewer_settings" method="post" class="diskviewer-settings<?= $rootClasses ?>" autocomplete="off">
 
@@ -249,18 +264,11 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         <div class="dv-r-label">Refresh interval</div>
         <div class="dv-r-field">
           <select name="REFRESH_INTERVAL" class="dv-select">
-            <?php foreach (['5','10','20','30','50','80','100','150','200','250','300'] as $s): ?>
-              <option value="<?= $s ?>" <?= $cfg['REFRESH_INTERVAL'] === $s ? 'selected' : '' ?>><?= $s ?>s<?= $s === '30' ? ' - Default' : '' ?></option>
+            <?php foreach (['5','10','20','30','50','80','100'] as $s): ?>
+              <option value="<?= $s ?>" <?= $cfg['REFRESH_INTERVAL'] === $s ? 'selected' : '' ?>><?= $s ?>s<?= $s === '20' ? ' - Default' : '' ?></option>
             <?php endforeach; ?>
           </select>
           <span class="dv-r-desc">How often to refresh the widget</span>
-        </div>
-      </div>
-      <div class="dv-r">
-        <div class="dv-r-label">Respect spindown</div>
-        <div class="dv-r-field">
-          <?= $toggle('RESPECT_SPINDOWN', $cfg['RESPECT_SPINDOWN'], '1') ?>
-          <span class="dv-r-warn">Never wake a standby disk to read temp or SMART</span>
         </div>
       </div>
       <div class="dv-r">
@@ -272,6 +280,13 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
             <?php endforeach; ?>
           </select>
           <span class="dv-r-desc">Disks revealed per drag step on the footer handle</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Allow spin actions</div>
+        <div class="dv-r-field">
+          <?= $toggle('ENABLE_SPIN_BUTTON', $cfg['ENABLE_SPIN_BUTTON'] ?? '1', '1') ?>
+          <span class="dv-r-warn">When enabled, the bolt icon becomes clickable on single-disk pool and unassigned devices to spin them up or down. ARRAY members (parity and data disks) and multi-disk pool members are always protected and show a static bolt regardless of this setting.</span>
         </div>
       </div>
     </div>
@@ -293,24 +308,63 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show cache section</div>
+        <div class="dv-r-label">Show RAID groups</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_CACHE', $cfg['SHOW_CACHE'], '1') ?>
-          <span class="dv-r-desc">Display multi-disk pools (cache RAID and similar)</span>
+          <span class="dv-r-desc">Display multi-disk pool and RAID groups (cache, mirror, raidz, etc)</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show pools section</div>
+        <div class="dv-r-label">Show pool section</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_POOLS', $cfg['SHOW_POOLS'], '1') ?>
-          <span class="dv-r-desc">Display single-disk pools combined under POOLS</span>
+          <span class="dv-r-desc">Display single-disk pool combined under POOL (cache or not)</span>
         </div>
       </div>
       <div class="dv-r">
         <div class="dv-r-label">Show unassigned section</div>
         <div class="dv-r-field">
-          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '1') ?>
-          <span class="dv-r-desc">Requires Unassigned Devices plugin</span>
+          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '0') ?>
+          <span class="dv-r-desc dv-r-desc--warn">Requires Unassigned Devices plugin</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Enable indicator</div>
+        <div class="dv-r-field">
+          <?= $toggle('HEADER_SHOW_BADGE', $cfg['HEADER_SHOW_BADGE'], '1') ?>
+          <span class="dv-r-desc">Icon appears in the Unraid header when any disk is critical</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Click action</div>
+        <div class="dv-r-field">
+          <select name="HEADER_CLICK_ACTION" class="dv-select">
+            <option value="main"     <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'main'     ? 'selected' : '' ?>>Open Main</option>
+            <option value="widget"   <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'widget'   ? 'selected' : '' ?>>Open Dashboard</option>
+            <option value="settings" <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'settings' ? 'selected' : '' ?>>Open Settings</option>
+          </select>
+          <span class="dv-r-desc">Where clicking the header indicator takes you</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Highlight pool disks by used %</div>
+        <div class="dv-r-field">
+          <?= $toggle('POOL_HIGHLIGHT_USED', $cfg['POOL_HIGHLIGHT_USED'] ?? '0', '1') ?>
+          <span class="dv-r-desc">Override the zebra background with amber/red on single-disk pool tiles whose used % crosses the warning or critical threshold</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show filesystem badge</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_FS_BADGE', $cfg['SHOW_FS_BADGE'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Display the small FS pill (xfs, btrfs, zfs, mixed) on ARRAY and pool aggregate rows</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show disk errors</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_DISK_ERRORS', $cfg['SHOW_DISK_ERRORS'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Show the warning triangle on section headers and tint the Unraid header disk icon when a pool member has BTRFS/ZFS errors</span>
         </div>
       </div>
       <div class="dv-r">
@@ -355,53 +409,6 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
     </div>
   </div>
 
-  <!-- ────── Section 3: Header bar indicator ────── -->
-  <div class="dv-sec closed" id="dvSecHeader">
-    <div class="dv-sec-hd">
-      <span>Header bar indicator</span>
-      <span class="dv-pill">Unraid top bar icon</span>
-      <span class="dv-sec-arrow">&#9650;</span>
-    </div>
-    <div class="dv-sec-bd">
-      <div class="dv-r">
-        <div class="dv-r-label">Enable indicator</div>
-        <div class="dv-r-field">
-          <?= $toggle('HEADER_SHOW_BADGE', $cfg['HEADER_SHOW_BADGE'], '1') ?>
-          <span class="dv-r-desc">Icon appears in the Unraid header when any disk is critical</span>
-        </div>
-      </div>
-      <div class="dv-r">
-        <div class="dv-r-label">Click action</div>
-        <div class="dv-r-field">
-          <select name="HEADER_CLICK_ACTION" class="dv-select">
-            <option value="main"     <?= $cfg['HEADER_CLICK_ACTION'] === 'main' ? 'selected' : '' ?>>Open Main</option>
-            <option value="widget"   <?= $cfg['HEADER_CLICK_ACTION'] === 'widget' ? 'selected' : '' ?>>Open Dashboard</option>
-            <option value="settings" <?= $cfg['HEADER_CLICK_ACTION'] === 'settings' ? 'selected' : '' ?>>Open Settings</option>
-          </select>
-          <span class="dv-r-desc">Where the header icon takes you</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ────── Section 4: Spin control ────── -->
-  <div class="dv-sec closed" id="dvSecSpin">
-    <div class="dv-sec-hd">
-      <span>Spin control</span>
-      <span class="dv-pill">Manual disk spin up and spin down</span>
-      <span class="dv-sec-arrow">&#9650;</span>
-    </div>
-    <div class="dv-sec-bd">
-      <div class="dv-r">
-        <div class="dv-r-label">Allow spin actions</div>
-        <div class="dv-r-field">
-          <?= $toggle('ENABLE_SPIN_BUTTON', $cfg['ENABLE_SPIN_BUTTON'] ?? '1', '1') ?>
-          <span class="dv-r-warn">When enabled, the bolt icon becomes clickable on single-disk pools and unassigned devices to spin them up or down. ARRAY members (parity and data disks) and multi-disk pool members are always protected and show a static bolt regardless of this setting.</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
 <!-- ============================================================================ -->
 <!-- 6. Action bar (Apply / Reset / Done) -->
 <!-- ============================================================================ -->
@@ -433,7 +440,17 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
 <!-- ============================================================================ -->
 
 <div class="dv-footer-row">
-  <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" id="dvSupportLink" class="dv-support-link" target="_blank" rel="noopener">Support</a>
+  <div class="dv-footer-links">
+    <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/"
+       id="dvSupportLink" class="dv-footer-link"
+       target="_blank" rel="noopener">Support Forum</a>
+    <span class="dv-footer-sep" aria-hidden="true"></span>
+    <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues"
+       class="dv-footer-link"
+       target="_blank" rel="noopener">GitHub Issues</a>
+    <span class="dv-footer-sep" aria-hidden="true"></span>
+    <a href="#" id="dvCreditsLink" class="dv-footer-link">Credits</a>
+  </div>
   <span class="dv-version-badge">v<?= htmlspecialchars((string)$plugin_version) ?></span>
 </div>
 
@@ -498,13 +515,16 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
             echo htmlspecialchars($_dvPluginVer ?: '');
           ?></span>
         </div>
-        <div class="dv-credits-desc">A real-time disk monitor for your Unraid array, cache, pools and unassigned devices.</div>
+        <div class="dv-credits-desc">A real-time disk monitor for your Unraid array, cache, pool and unassigned devices.</div>
         <div class="dv-credits-links">
           <a href="https://github.com/Lazaros-Chalkidis" target="_blank" rel="noopener" class="dv-credits-link">
-            <i class="fa fa-github"></i><span>Github profile</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+            <i class="fa fa-github"></i><span>GitHub Profile</span><i class="fa fa-external-link dv-credits-link-ext"></i>
           </a>
           <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" target="_blank" rel="noopener" class="dv-credits-link">
             <i class="fa fa-comments-o"></i><span>Plugin Support Thread</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+          </a>
+          <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues" target="_blank" rel="noopener" class="dv-credits-link">
+            <i class="fa fa-exclamation-circle"></i><span>GitHub Issues</span><i class="fa fa-external-link dv-credits-link-ext"></i>
           </a>
         </div>
       </div>
@@ -537,7 +557,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
       <div id="dvNoticeTitle" style="font-size:1.2em;font-weight:700;color:#fff;margin-bottom:0.6rem;">Notice</div>
       <div id="dvNoticeBody" style="font-size:0.95em;line-height:1.55;opacity:0.75;"></div>
     </div>
-    <div class="dv-credits-footer">
+    <div class="dv-credits-footer" style="justify-content:center;">
       <button type="button" id="dvNoticeOkBtn" style="background:#f47d42;border:1px solid #f47d42;color:#fff;padding:0.5rem 2.5rem;font-size:0.9em;font-weight:600;border-radius:4px;cursor:pointer;">OK</button>
     </div>
   </div>
@@ -635,19 +655,21 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
     // Unraid settings pages.
     var DV_DEFAULTS = {
         REFRESH_ENABLED:      '1',
-        REFRESH_INTERVAL:     '30',
-        RESPECT_SPINDOWN:     '1',
+        REFRESH_INTERVAL:     '20',
         DRAG_STEP_ROWS:       '1',
+        ENABLE_SPIN_BUTTON:   '1',
         SHOW_ARRAY:           '1',
         SHOW_CACHE:           '1',
         SHOW_POOLS:           '1',
-        SHOW_UNASSIGNED:      '1',
-        SPACE_SEVERITY_MODE:  'inherit',
-        SPACE_WARNING_PCT:    '70',
-        SPACE_CRITICAL_PCT:   '90',
+        SHOW_UNASSIGNED:      '0',
         HEADER_SHOW_BADGE:    '1',
         HEADER_CLICK_ACTION:  'main',
-        ENABLE_SPIN_BUTTON:   '1'
+        POOL_HIGHLIGHT_USED:  '0',
+        SHOW_FS_BADGE:        '1',
+        SHOW_DISK_ERRORS:     '1',
+        SPACE_SEVERITY_MODE:  'inherit',
+        SPACE_WARNING_PCT:    '70',
+        SPACE_CRITICAL_PCT:   '90'
     };
 
     function resetDefaults(){

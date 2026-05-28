@@ -63,6 +63,9 @@
     // The drag handle reveals additional rows on top of this baseline.
     var defaultExpandLevel = +cfg.defaultExpandRows || 0;
     var enableSpinButton  = !!cfg.enableSpinButton;
+    var poolHighlightUsed = !!cfg.poolHighlightUsed;
+    var showFsBadge       = cfg.showFsBadge !== false;
+    var showDiskErrors    = cfg.showDiskErrors !== false;
     var STORAGE_KEY  = 'dv_expand_v3';   // v1: row counts under different semantics
                                           // v2: extras above a fixed 8-row baseline
                                           // v3: extras above a section-level baseline (DEFAULT_EXPAND_ROWS as 0..3)
@@ -95,8 +98,14 @@
             if (v === null || v === '') return 0;
             var n = parseInt(v, 10);
             if (isNaN(n)) return 0;
-            // Guard against absurd stored values.
-            return Math.max(0, Math.min(100, n));
+            // Allow negative (user dragged below baseline) AND positive
+            // (extras above baseline). Only clamp the absolute magnitude
+            // to a sane band so an absurd stored value doesn't break
+            // layout. Previously this clamped to >= 0 which silently
+            // discarded the user's collapsed state on every page reload,
+            // making the widget snap back open to the full level baseline
+            // on each refresh.
+            return Math.max(-100, Math.min(100, n));
         } catch(e){ return 0; }
     }
 
@@ -141,6 +150,11 @@
     // ── SVG icons ───────────────────────────────────────────────────────
     var GEAR_SVG   = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 01-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 01.872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 012.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 012.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 01.872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 01-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 01-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 110-5.858 2.929 2.929 0 010 5.858z"/></svg>';
     var BOLT_SVG   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
+    // Stack icon for aggregate (summary) rows - two-layer stack glyph.
+    // Stroke-based so it visually differs from the filled bolt icon and
+    // reads as "synthesis of multiple things" at a glance. Sized to match
+    // the bolt so the column alignment stays identical.
+    var STACK_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l-9 4.5l9 4.5l9 -4.5l-9 -4.5"/><path d="M3 13.5l9 4.5l9 -4.5"/></svg>';
     var THUMB_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V10z"/></svg>';
     // Speed direction arrow glyphs. Sized at 12px - was 8px originally,
     // bumped to 10px in 2026.05.05t, now to 12px per user feedback that
@@ -151,6 +165,13 @@
     // SVG sharp without anti-aliasing softness.
     var ARROW_UP   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
     var ARROW_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>';
+
+    // Warning triangle with centred exclamation mark - shown next to a
+    // section header when one or more disks in that section have a
+    // non-zero error count (ZFS/BTRFS reported errors via numErrors).
+    // The same colour token (--dv-warn) is reused so the indicator
+    // tracks the rest of the warning palette across themes.
+    var WARN_TRIANGLE_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2L1 22h22L12 2zm0 4.45L19.95 20H4.05L12 6.45zM11 10v5h2v-5h-2zm0 6v2h2v-2h-2z"/></svg>';
 
 
     // ============================================================================
@@ -185,13 +206,20 @@
                 var sev = t.severity || 'ok';
                 if ((rank[sev] || 0) > (rank[worstPct] || 0)) worstPct = sev;
 
-                // Temperature - classify from raw number using same thresholds the row uses
+                // Temperature - classify from raw number using per-disk
+                // thresholds when the server emitted them, fall back to
+                // global. Per-disk values come from disks.ini hotTemp/
+                // maxTemp (set by the user on Main page per disk) or from
+                // NVMe-aware defaults the server picks when no override
+                // exists; either way the JS just trusts what arrives.
                 var raw = t.temp;
                 if (raw && raw !== '*' && raw !== '-') {
                     var n = parseInt(raw, 10);
                     if (!isNaN(n)) {
-                        var tsev = n >= tempCritical ? 'critical' :
-                                   n >= tempWarning  ? 'warning'  : 'ok';
+                        var tWarn = +t.temp_warning  || tempWarning;
+                        var tCrit = +t.temp_critical || tempCritical;
+                        var tsev = n >= tCrit ? 'critical' :
+                                   n >= tWarn ? 'warning'  : 'ok';
                         if ((rank[tsev] || 0) > (rank[worstTemp] || 0)) worstTemp = tsev;
                     }
                 }
@@ -217,14 +245,16 @@
     //   array            → 0
     //   pool_<name>      → 1   (multi-disk pools, the "cache" tier)
     //   pools            → 2   (single-disk pools aggregated)
-    //   unassigned       → 3
+    //   unassigned       → 2   (same baseline as pools so UD shows by default
+    //                           at default_expand_rows=2 - matches Unraid
+    //                           Main page where UD is always visible)
     // Anything else (defensive default) maps to the highest level so it
     // doesn't sneak into the baseline crop unintentionally.
     function levelOfSectionId(id){
         if (id === 'array') return 0;
         if (id && id.indexOf('pool_') === 0) return 1;
         if (id === 'pools') return 2;
-        if (id === 'unassigned') return 3;
+        if (id === 'unassigned') return 2;
         return 3;
     }
 
@@ -272,7 +302,7 @@
             '<span class="dv-colhd-free">FREE</span>' +
             '<span class="' + pctCls + '">Used</span>' +
             '<span></span>' +                                   // mini bar
-            '<span class="dv-colhd-speed">SPEED</span>' +
+            '<span class="dv-colhd-speed">SPEED R/W</span>' +
             '<span class="' + tempCls + '">TEMP</span>' +
             '<span class="' + healthCls + '">H</span>' +
             '<span class="dv-colhd-settings">S</span>' +        // gear column
@@ -281,20 +311,21 @@
 
     // Build the inner HTML for the speed column. Centralised so the live
     // speed poller (updateSpeeds) and the full renderer (renderRow) both
-    // produce byte-identical markup. Called per data row; summary tiles are
-    // handled by the !isSummary guard in the speed branch.
+    // produce byte-identical markup. Called per data row including
+    // parities (they have write activity during array writes) and summary
+    // aggregates (they sum all member tile speeds).
+    //
+    // Note: error counts used to hijack this cell ("1573 err" instead of
+    // a speed reading) when a disk had non-zero errors. Removed because
+    // the error information lives in the section-header warning triangle
+    // tooltip; the speed column should always show speed and never get
+    // overwritten by a different metric.
     function buildSpeedHtml(o){
-        var errors    = +o.errors || 0;
         var spun      = !!o.spun;
         var speed     = +o.speed || 0;
         var speedDir  = String(o.speedDir || '');
-        var isSummary = !!o.isSummary;
-        var isParity  = !!o.isParity;
 
-        if (errors > 0) {
-            return '<span class="dv-col-err" title="' + errors + ' errors">' + errors + ' err</span>';
-        }
-        if (spun && speed > 0 && !isSummary && !isParity) {
+        if (spun && speed > 0) {
             var isRead = (speedDir === 'r');
             var arrow  = isRead ? ARROW_DOWN : ARROW_UP;
             // Direction-specific class so the arrow can be coloured: green
@@ -309,7 +340,13 @@
     // ── Render a single row ────────────────────────────────────────────
     function renderRow(row, isMember){
         var rawName  = row.name || '';
-        var nameEsc  = escapeHtml(rawName);  // keep original case in DOM text
+        // Cosmetic label (set on multi-disk pool members as "Device 1",
+        // "Device 2", ...). Falls back to the real name for tiles that
+        // don't override it. The data-name attribute further down still
+        // uses rawName so the speed poller, spin handlers, and severity
+        // references continue to key off the real device name.
+        var displayName = row.display_name || rawName;
+        var nameEsc  = escapeHtml(displayName);  // keep original case in DOM text
         var devName  = encodeURIComponent(rawName);
         var pct      = Math.max(0, Math.min(100, +row.pct || 0));
         var isSummary = !!row.is_summary;
@@ -326,6 +363,13 @@
         var errors    = +row.errors || 0;
 
         var cls = 'dv-row';
+        // style_as_summary is a cosmetic-only flag on single-disk cache
+        // pool tiles. It used to drive the .dv-row--summary class (uniform
+        // grey); now it only drives the FS pill in the name cell - the
+        // grey background comes from the zebra nth-child CSS for the
+        // combined cache/pools sections, so we don't add .dv-row--summary
+        // here.
+        var stylesAsSummary = !!row.style_as_summary;
         if (isSummary)            cls += ' dv-row--summary';
         if (isMember)             cls += ' dv-row--member';
         if (severity === 'warning')  cls += ' dv-row--warn';
@@ -359,17 +403,31 @@
         var boltLabel = spun ? 'Click to spin down' : 'Click to spin up';
         var boltEl;
         var canBeButton = !isSummary && !isParity && !spinDisabled && enableSpinButton;
-        if (canBeButton) {
+        if (isSummary) {
+            // Summary tile renders the aggregate icon (stack-2 style)
+            // instead of a bolt. Bolt only makes sense on real devices
+            // (a spin state). Aggregate rows have no spin state. The
+            // icon visually signals "this row is a synthesis, not a disk".
+            boltEl = '<span class="dv-bolt dv-bolt--static" aria-hidden="true">' + STACK_SVG + '</span>';
+        } else if (canBeButton) {
             boltEl = '<button type="button" class="' + boltCls + '" aria-label="' + boltLabel + '" data-dv-spin="' + (spun ? 'down' : 'up') + '" data-dv-name="' + escapeHtml(row.name || '') + '">' + BOLT_SVG + '</button>';
         } else {
             boltEl = '<span class="' + boltCls + ' dv-bolt--static" aria-hidden="true">' + BOLT_SVG + '</span>';
         }
 
-        // Size / Free columns
+        // Size / Free / Pct columns. Capacity collapses to dashes on:
+        //   - Parity disks: no filesystem, no usable capacity
+        //   - Multi-disk pool members: data is replicated/striped across
+        //     disks so per-member usage isn't meaningful; the pool summary
+        //     row at the top of the section carries the real aggregate.
+        // Array data disks (DISK1, DISK2, ...) keep their capacity stats
+        // because each one has its own independent filesystem.
         var sizeText, freeText;
-        if (isParity) {
+        var isPoolMember = !!row.is_pool_member;
+        var collapseCapacity = isParity || isPoolMember;
+        if (collapseCapacity) {
             sizeText = escapeHtml(formatBytes(size));
-            freeText = 'parity';
+            freeText = '-';
         } else if (size > 0) {
             sizeText = escapeHtml(formatBytes(size));
             freeText = escapeHtml(formatBytes(free));
@@ -381,12 +439,12 @@
         // Percentage column
         var pctClass = severity === 'critical' ? 'dv-col-pct dv-col-pct--crit' :
                        severity === 'warning'  ? 'dv-col-pct dv-col-pct--warn' : 'dv-col-pct';
-        var pctDisplay = isParity ? '-' : (pct + '%');
+        var pctDisplay = collapseCapacity ? '-' : (pct + '%');
 
         // Mini progress bar
         var fillCls = severity === 'critical' ? 'dv-bar-fill dv-bar-fill--crit' :
                       severity === 'warning'  ? 'dv-bar-fill dv-bar-fill--warn' : 'dv-bar-fill dv-bar-fill--ok';
-        var barHtml = isParity
+        var barHtml = collapseCapacity
             ? '<div class="dv-col-bar dv-col-bar--empty"></div>'
             : '<div class="dv-col-bar"><div class="' + fillCls + '" style="width:' + pct + '%"></div></div>';
 
@@ -402,10 +460,17 @@
         if (temp && temp !== '*' && temp !== '-') {
             var n = parseInt(temp, 10);
             if (!isNaN(n)) {
+                // Per-disk warning/critical when emitted by the server
+                // (set by user on Main page, or NVMe-aware defaults for
+                // drives without an override). Fall back to the global
+                // for safety when fields are missing - keeps older
+                // cached models from before this fix still rendering.
+                var rowWarn = +row.temp_warning  || tempWarning;
+                var rowCrit = +row.temp_critical || tempCritical;
                 tempText = fmtTemp(n);
                 tempCls = 'dv-col-temp ' + (
-                    n >= tempCritical ? 'dv-temp-crit' :
-                    n >= tempWarning  ? 'dv-temp-warn' : 'dv-temp-ok'
+                    n >= rowCrit ? 'dv-temp-crit' :
+                    n >= rowWarn ? 'dv-temp-warn' : 'dv-temp-ok'
                 );
             }
         }
@@ -422,11 +487,21 @@
         var gearEl = '<a class="dv-col-gear" href="' + settingsHref + '" title="Disk settings" aria-label="Open disk settings">' + GEAR_SVG + '</a>';
 
         // Toast placeholder (populated on bolt hover)
+        // Filesystem pill - on rows that visually read as summaries
+        // (synthetic aggregates with is_summary, or single-disk cache
+        // pool tiles with style_as_summary). Shown inline next to the
+        // name as a small blue chip ("xfs", "btrfs", "zfs", "mixed").
+        // Empty / unknown FS skips rendering the pill entirely.
+        var nameHtml = nameEsc;
+        if ((isSummary || stylesAsSummary) && row.fs && showFsBadge) {
+            nameHtml += ' <span class="dv-fs-pill">' + escapeHtml(row.fs) + '</span>';
+        }
+
         var toastHtml = '<div class="dv-row-toast" role="tooltip" aria-hidden="true"></div>';
 
-        return '<div class="' + cls + '" data-name="' + escapeHtml(row.name || '') + '" data-severity="' + severity + '">' +
+        return '<div class="' + cls + '" data-name="' + escapeHtml(row.name || '') + '" data-severity="' + severity + '"' + (isSummary ? ' data-is-summary="1"' : '') + '>' +
             '<span class="dv-col-bolt">' + boltEl + '</span>' +
-            '<div class="dv-col-name">' + nameEsc + '</div>' +
+            '<div class="dv-col-name">' + nameHtml + '</div>' +
             '<span class="dv-col-size">' + sizeText + '</span>' +
             '<span class="dv-col-free">' + freeText + '</span>' +
             '<span class="' + pctClass + '">' + pctDisplay + '</span>' +
@@ -441,16 +516,64 @@
 
     // ── Render a section ────────────────────────────────────────────────
     function renderSection(sec){
-        var label = escapeHtml(sec.label || '');
-        var count = +sec.count || 0;
+        // Section header format: <LABEL> · DEVICES <N> · <RAID>
+        // (the "· RAID X" suffix is omitted when there's no RAID layer).
+        // Server stores singular root labels (ARRAY, CACHE, POOL, etc),
+        // JS appends "DEVICE" or "DEVICES" inline based on count, then
+        // joins everything with ' · ' separators. The CSS uppercases the
+        // resulting string so capitalisation here doesn't matter.
+        var rawLabel = sec.label || '';
+        var count    = +sec.count || 0;
+        var raid     = sec.raid || '';
+        var pieces = [];
+        if (rawLabel) pieces.push(rawLabel);
+        pieces.push((count === 1 ? 'DEVICE' : 'DEVICES') + ' ' + count);
+        if (raid) pieces.push(raid);
+        var label = escapeHtml(pieces.join(' · '));
         var rows  = sec.tiles || [];
         var secId = sec.id || '';
 
-        var hasSummary = rows.length > 0 && !!rows[0].is_summary;
+        var hasSummary = false;
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].is_summary) { hasSummary = true; break; }
+        }
+
+        // Build the per-section "disks with errors" list. Aggregate
+        // summary tiles are skipped - their errors field already sums
+        // the members, so including them would double-count. The label
+        // shown in the tooltip uses display_name (when set, e.g. multi-
+        // disk pool members rendered as "Device N") so the name in the
+        // tooltip matches what the user sees in the widget rows.
+        var badDisks = [];
+        if (showDiskErrors) {
+            for (var bi = 0; bi < rows.length; bi++) {
+                var bt = rows[bi];
+                if (bt.is_summary) continue;
+                var errCount = +bt.errors || 0;
+                if (errCount > 0) {
+                    var dlabel = bt.display_name || bt.name || '?';
+                    badDisks.push(dlabel + ' (' + errCount + ' error' + (errCount === 1 ? '' : 's') + ')');
+                }
+            }
+        }
+        var warnHtml = '';
+        if (badDisks.length > 0) {
+            // Custom toast (matches the dv-row-toast styling used
+            // elsewhere in the widget) instead of the browser-native
+            // title-attribute tooltip. The toast lives inside the
+            // wrapper span so a relative position on the parent keeps
+            // it anchored next to the triangle on hover.
+            var toastText = 'Disk errors: ' + badDisks.join(', ');
+            warnHtml = '<span class="dv-section-warn">'
+                     + WARN_TRIANGLE_SVG
+                     + '<span class="dv-row-toast dv-row-toast--warn">' + escapeHtml(toastText) + '</span>'
+                     + '</span>';
+        }
+
         var html = '<div class="dv-section" data-section="' + escapeHtml(secId) + '">';
         html += '<div class="dv-section-hd">';
         html += '<span class="dv-section-lbl">' + label + '</span>';
-        html += '<span class="dv-section-count">' + count + '</span>';
+        html += warnHtml;
 
         // Bulk spin actions: visible only on the POOLS section header,
         // and only when the spin-button setting is ON. The buttons act
@@ -525,6 +648,11 @@
             html = '<div class="dv-empty-state"><span>No disks to display</span></div>';
         }
         container.innerHTML = html;
+
+        // Pool severity highlight class - when on, CSS rules with higher
+        // specificity than the zebra paint warn/crit colours over the
+        // dv-row--warn / --crit rows in the cache and pool sections.
+        container.classList.toggle('dv-pool-highlight', poolHighlightUsed);
 
         // Clamp saved expandRows to the current model (disk count may
         // have changed since the value was stored). Using scrollHeight
@@ -732,17 +860,19 @@
             byName[d.name] = d;
         }
 
-        // Update only data rows. Summary tiles never display speed (the
-        // !isSummary guard inside buildSpeedHtml enforces this).
-        // Performance: skip the innerHTML write when the rendered HTML
-        // hasn't changed since the last poll - typical of disks that are
-        // spun down (speed=0, dir='') or that are reading at a steady rate.
-        // For a system with mostly idle disks this turns updateSpeeds()
-        // into a no-op for ~all rows, avoiding the layout/paint that an
-        // innerHTML write triggers even for byte-identical content.
+        // Update only data rows. Summary tiles are skipped explicitly
+        // via the data-is-summary attribute - their speed is the PHP
+        // aggregate of all member speeds, not any one member's value.
+        // Without this skip the poller's name-based lookup collides with
+        // the first pool member (both share data-name="cache") and
+        // overwrites the aggregate, dropping it down to a single member's
+        // speed. Performance: skip the innerHTML write when the rendered
+        // HTML hasn't changed since the last poll - typical of disks
+        // that are spun down (speed=0) or reading at a steady rate.
         var rows = document.querySelectorAll('.dv-row');
         for (var r = 0; r < rows.length; r++) {
             var row = rows[r];
+            if (row.getAttribute('data-is-summary') === '1') continue;
             var name = row.getAttribute('data-name') || '';
             var d = byName[name];
             if (!d) continue;
@@ -762,6 +892,44 @@
             if (cell._dvLastHtml === html) continue;
             cell._dvLastHtml = html;
             cell.innerHTML = html;
+        }
+
+        // Recompute summary row speed cells locally - sum of member tile
+        // speeds per section, dominant direction wins. Without this the
+        // summary value would freeze at whatever the last full render
+        // captured and look stale once members start showing live activity.
+        // We never call the backend for this - the data we need is right
+        // there in `byName` from the poll response.
+        var sections = document.querySelectorAll('.dv-section');
+        for (var si = 0; si < sections.length; si++) {
+            var sec = sections[si];
+            var summaryRow = sec.querySelector('.dv-row[data-is-summary="1"]');
+            if (!summaryRow) continue;
+            var summaryCell = summaryRow.querySelector('.dv-col-speed-wrap');
+            if (!summaryCell) continue;
+            var memberRows = sec.querySelectorAll('.dv-row:not([data-is-summary="1"])');
+            var sumR = 0, sumW = 0;
+            var anyMemberSpun = false;
+            for (var mi = 0; mi < memberRows.length; mi++) {
+                var memberName = memberRows[mi].getAttribute('data-name') || '';
+                var md = byName[memberName];
+                if (!md) continue;
+                var bps = +md.speed_bps || 0;
+                var mdir = md.speed_dir || '';
+                if (mdir === 'r') sumR += bps;
+                else if (mdir === 'w') sumW += bps;
+                if (md.spun) anyMemberSpun = true;
+            }
+            var totalSum = sumR + sumW;
+            var summaryHtml = buildSpeedHtml({
+                errors: 0,
+                spun: anyMemberSpun,
+                speed: totalSum,
+                speedDir: totalSum > 0 ? (sumR >= sumW ? 'r' : 'w') : ''
+            });
+            if (summaryCell._dvLastHtml === summaryHtml) continue;
+            summaryCell._dvLastHtml = summaryHtml;
+            summaryCell.innerHTML   = summaryHtml;
         }
 
         // Keep lastModel speed fields in sync so any future full render
@@ -1414,6 +1582,9 @@
             if (defaultExpandLevel < 0) defaultExpandLevel = 0;
             if (defaultExpandLevel > 3) defaultExpandLevel = 3;
             enableSpinButton  = !!cfg.enableSpinButton;
+            poolHighlightUsed = !!cfg.poolHighlightUsed;
+            showFsBadge       = cfg.showFsBadge !== false;
+            showDiskErrors    = cfg.showDiskErrors !== false;
 
             // Re-bind handlers on the new DOM nodes. Without this, the drag
             // handle in the new tile fragment has no listeners attached.

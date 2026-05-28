@@ -82,6 +82,13 @@
   --dv-crit-text:       #ff6a6a;
 
   --dv-member:          #42a5f5;
+
+  /* Zebra row colours for combined CACHE / POOL sections. Solid colours
+     matching the settings page palette so widget and settings rows feel
+     visually identical when the user toggles between them. Replaced the
+     previous rgba(255,255,255,X%) overlays which read too bright. */
+  --dv-row-odd:         #1e1e1e;
+  --dv-row-even:        #1a1a1a;
 }
 
 .dv-light {
@@ -104,6 +111,9 @@
   --dv-crit-text:       #c62828;
 
   --dv-member:          #1976d2;
+
+  --dv-row-odd:         #f0f1f3;
+  --dv-row-even:        #fafbfc;
 }
 
 
@@ -134,6 +144,9 @@
 .dv-theme-azure {
   --dv-c-bg-sticky:     #eef3f8;
   --dv-member:          #1565c0;
+
+  --dv-row-odd:         #f0f4f8;
+  --dv-row-even:        #f9fbfd;
 }
 
 /* Gray: medium-dark theme. The Unraid Gray theme has a system background
@@ -157,6 +170,9 @@
   --dv-c-bg-summary:    rgba(255,255,255,.07);
   --dv-c-bg-track:      rgba(255,255,255,.12);
   --dv-c-bg-sticky:     #2e2e2e;
+
+  --dv-row-odd:         #2e2e2e;
+  --dv-row-even:        #2a2a2a;
 }
 
 
@@ -257,7 +273,11 @@
   align-items: center;
   gap: 6px;
   margin-top: -16px;
-  padding-left: calc(32px + 1rem);
+  /* Shifted ~11px further right (extra 0.7rem) to nudge the
+     "N Devices" subtitle one position past the title's leading edge.
+     The base 32px + 1rem aligned it under the logo; the extra 0.7rem
+     drops it under the title text instead. */
+  padding-left: calc(32px + 1.7rem);
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -371,7 +391,7 @@
 
 
 /* ==============================================================================
-   8. Section Headers (ARRAY / CACHE / POOLS / etc.)
+   8. Section Headers (ARRAY / CACHE / POOL / etc.)
    ============================================================================== */
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -398,15 +418,43 @@
 
 .dv-section-lbl { text-transform: uppercase; }
 
-.dv-section-count {
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--dv-c-text-faint);
+/* Warning triangle in the section header - shown next to the label
+   when one or more disks in the section have a non-zero error count.
+   Uses the same --dv-warn palette as the rest of the warning UI for
+   visual consistency. Hosts an absolutely-positioned dv-row-toast
+   child that appears on hover, replacing the previous browser-native
+   title attribute with the same custom popup styling that the spin
+   buttons use. */
+.dv-section-warn {
+  display: inline-flex;
+  align-items: center;
+  color: var(--dv-warn);
+  cursor: help;
+  line-height: 0;
+  position: relative;
+}
+.dv-section-warn svg {
+  display: block;
+}
+.dv-section-warn:hover .dv-row-toast {
+  display: block;
 }
 
-.dv-section-count::before { content: "· "; opacity: .6; }
+/* Toast positioning override for the warning triangle in section headers.
+   Floats ABOVE the icon, matching the spin-button toast pattern users
+   already know (image 1 of the user feedback). Padding stays wide so
+   long error text gets breathing room. */
+.dv-section-warn .dv-row-toast {
+  bottom: calc(100% + 6px);
+  top: auto;
+  left: 0;
+  padding: 7px 12px;
+}
 
-/* Bulk action group on the right side of a section header (POOLS only).
+/* (dv-section-count removed 2026.05.24: count is now part of the
+   section label text "LABEL · DEVICES N · RAID X", composed in JS.) */
+
+/* Bulk action group on the right side of a section header (POOL only).
    Mirrors the Aegis-style compact action button look. */
 .dv-section-actions {
   margin-left: auto;
@@ -428,7 +476,7 @@
 
 
 /* ==============================================================================
-   9. Bulk Spin Buttons (POOLS section header)
+   9. Bulk Spin Buttons (POOL section header)
    ============================================================================== */
 
 .dv-bulk-spin {
@@ -586,11 +634,99 @@
 
 .dv-row--summary:hover { background: var(--dv-c-bg-summary); }
 
+/* Filesystem chip next to summary tile name. Small, muted blue, fits
+   between letters of the table without throwing alignment off. Skipped
+   entirely when the tile has no FS value (renderRow guards on row.fs). */
+.dv-fs-pill {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 500;
+  background: rgba(74,144,226,.15);
+  color: #6bb3ff;
+  border: 1px solid rgba(74,144,226,.35);
+  border-radius: 2px;
+  padding: 0 5px;
+  margin-left: 6px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  line-height: 1.6;
+  vertical-align: 1px;
+}
+
+/* Light-theme variant. The default light-blue text (#6bb3ff) is meant
+   to pop on dark surfaces but washes out against white or azure
+   backgrounds. Switch to a deeper blue here, matching the rest of the
+   light palette's accent tone. */
+.dv-light .dv-fs-pill {
+  background: rgba(21,101,192,.10);
+  color: #1565c0;
+  border: 1px solid rgba(21,101,192,.30);
+}
+
 .dv-row--warn   { background: color-mix(in srgb, var(--dv-warn)   14%, transparent); }
 
 .dv-row--crit   { background: color-mix(in srgb, var(--dv-crit)   14%, transparent); }
 
 .dv-row--member { background: color-mix(in srgb, var(--dv-member)  10%, transparent); }
+
+/* Multi-disk pool members (and ARRAY members) keep their member-blue
+   colour on hover - the user wanted a stable look for RAID members so
+   they read as a coherent group, not as interactive list items. */
+.dv-row--member:hover {
+  background: color-mix(in srgb, var(--dv-member) 10%, transparent);
+}
+
+/* Combined single-disk sections (cache and pool) - rows alternate
+   between two shades for a table-like zebra pattern, locked on hover.
+   The id selectors match the section ids the server emits: 'cache' for
+   the combined single-disk cache pool section, 'pool' for the combined
+   non-cache pool section. Multi-disk pool sections use 'pool_<name>'
+   ids and are NOT included here - those keep the summary + member-blue
+   pattern.
+
+   Colours come from --dv-row-odd / --dv-row-even theme tokens, the
+   same values the settings page zebra uses. Solid surface colours
+   rather than alpha overlays so contrast is consistent regardless of
+   what's behind the widget. Severity colour classes (.dv-row--warn /
+   --crit) override these when the disk crosses warning/critical AND
+   the user has the "Highlight critical pool disks" toggle enabled. */
+.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(odd),
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(odd) {
+  background: var(--dv-row-odd);
+}
+.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(even),
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(even) {
+  background: var(--dv-row-even);
+}
+.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(odd):hover,
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(odd):hover {
+  background: var(--dv-row-odd);
+}
+.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(even):hover,
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(even):hover {
+  background: var(--dv-row-even);
+}
+
+/* Pool severity highlight override - when the container carries
+   .dv-pool-highlight (toggled by the JS based on POOL_HIGHLIGHT_USED),
+   rows that crossed warning or critical paint with the severity
+   colour over the zebra. Specificity here is higher than the zebra
+   rule above (extra .dv-pool-highlight ancestor + .dv-row--warn class
+   instead of :nth-child), so the warn/crit fill wins. Without the
+   class on the container, these rules don't match and the zebra
+   stays clean. */
+.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--warn,
+.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--warn,
+.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--warn:hover,
+.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--warn:hover {
+  background: color-mix(in srgb, var(--dv-warn) 14%, transparent);
+}
+.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--crit,
+.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--crit,
+.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--crit:hover,
+.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--crit:hover {
+  background: color-mix(in srgb, var(--dv-crit) 14%, transparent);
+}
 
 /* Kill any ambient outline/button styling from the Unraid dashboard wrapper.
    Some Unraid versions auto-decorate spans that look like disk names with
@@ -652,6 +788,12 @@
   background: color-mix(in srgb, var(--dv-ok) 30%, #000);
   border: 1px solid color-mix(in srgb, var(--dv-ok) 55%, transparent);
   color: var(--dv-ok-text);
+}
+
+.dv-row-toast--warn {
+  background: color-mix(in srgb, var(--dv-warn) 35%, #000);
+  border: 1px solid color-mix(in srgb, var(--dv-warn) 60%, transparent);
+  color: var(--dv-warn-text);
 }
 
 
@@ -800,6 +942,24 @@
   align-items: center;
   gap: 2px;
   color: var(--dv-c-text-mid);
+  line-height: 14px;
+}
+
+/* Speed arrows match the rest of the inline icons in the widget at 13px,
+   sized via CSS so any caller using the same ARROW_UP / ARROW_DOWN
+   constants outside the speed column keeps the original 12px from the
+   SVG width attribute. The 13px size is the sweet spot from 12px (too
+   thin to read) and 16px (overflowed the column and bumped row height
+   on every speed tick). */
+.dv-col-speed svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.dv-col-speed-na {
+  line-height: 14px;
+  color: var(--dv-c-text-faint);
 }
 
 /* Direction-specific arrow colour: green for reads, red for writes.
@@ -810,10 +970,6 @@
 .dv-col-speed--r svg           { color: var(--dv-ok); }
 
 .dv-col-speed--w svg           { color: var(--dv-crit); }
-
-.dv-col-speed-na { color: var(--dv-c-text-faint); }
-
-.dv-col-err { color: var(--dv-crit-text); font-weight: 600; }
 
 .dv-col-temp {
   text-align: right;
@@ -1089,7 +1245,7 @@
   .dv-drag-grip {
     padding: 4px 36px;
   }
-  /* Bulk-spin buttons in section headers (POOLS bulk control). Bigger tap
+  /* Bulk-spin buttons in section headers (POOL bulk control). Bigger tap
      target without inflating the visible chrome too much. */
   .dv-bulk-spin {
     padding: 5px 8px !important;

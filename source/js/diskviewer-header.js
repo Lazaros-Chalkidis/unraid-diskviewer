@@ -35,10 +35,13 @@ function DiskViewerButton(){
     // 1. Module state
     // ============================================================================
 
-    var navItem = null;
-    var thermo  = null;  // top-left:   temperature severity
-    var health  = null;  // top-centre: SMART health severity
-    var pctMark = null;  // top-right:  utilization severity
+    var navItem     = null;
+    var thermo      = null;  // top-left:   temperature severity
+    var health      = null;  // top-centre: SMART health severity
+    var pctMark     = null;  // top-right:  utilization severity
+    var diskIcon    = null;  // the main hdd silhouette - tinted by errors_severity
+    var diskTooltip   = null;  // custom hover tooltip showing per-disk issue rows
+    var tooltipText   = '#ddd'; // fallback text colour, set from theme palette in setup()
 
 
     // ============================================================================
@@ -174,6 +177,7 @@ function DiskViewerButton(){
 
                 var iconColor = getComputedStyle(link).color || '#ccc';
                 svg.setAttribute('stroke', iconColor);
+                diskIcon = svg;
 
                 link.style.position = 'relative';
             } else {
@@ -286,35 +290,178 @@ function DiskViewerButton(){
 
         poll();
         setInterval(poll, 30000);
+
+        // Custom hover tooltip - structured per-disk issue panel that
+        // replaces the browser-native title-attribute popup.
+        //
+        // Two design choices that matter for reliability:
+        //   1. Tooltip is appended to document.body (NOT to navItem).
+        //      Some Unraid themes wrap the navbar in containers with
+        //      overflow:hidden, transform, or contain:layout which would
+        //      either clip a child-of-navItem tooltip or break its
+        //      coordinate system. Living at body level under
+        //      position:fixed sidesteps all of that.
+        //   2. Hover is caught with both mouseenter and mouseover, and
+        //      released with mouseleave + mouseout. Some Unraid themes
+        //      block hover on the inner anchor and the SVG inside it
+        //      eats pointer events - so the more event types we listen
+        //      for, the harder it is for the popup to silently never
+        //      fire. The dedup is implicit: showTooltip() is idempotent
+        //      (sets display:block over and over, harmless).
+        //
+        // Theme adaptation: Unraid attaches a class on <body> matching
+        // the active theme name (black/white/azure/gray). We read it
+        // here and pick a matching palette so the panel doesn't look
+        // alien on light pages. Falls back to dark if no recognised
+        // theme class is found, since the legacy default is dark.
+        var themePalette = {
+            black: { bg: '#1a1a1a', border: '#555',    text: '#dddddd' },
+            gray:  { bg: '#2a2a2a', border: '#555',    text: '#e8e8e8' },
+            white: { bg: '#ffffff', border: '#cdcdcd', text: '#222222' },
+            azure: { bg: '#fbfdff', border: '#bcd2e8', text: '#1a3149' }
+        };
+        var bodyClasses = (document.body && document.body.className || '').split(/\s+/);
+        var unraidTheme = 'black';
+        for (var ti = 0; ti < bodyClasses.length; ti++) {
+            if (themePalette[bodyClasses[ti]]) { unraidTheme = bodyClasses[ti]; break; }
+        }
+        var pal = themePalette[unraidTheme];
+        tooltipText = pal.text;
+
+        diskTooltip = document.createElement('div');
+        diskTooltip.style.cssText =
+            'position:fixed;' +
+            'display:none;' +
+            'z-index:2147483647;' +
+            'background:' + pal.bg + ';' +
+            'border:1px solid ' + pal.border + ';' +
+            'border-radius:5px;' +
+            'padding:8px 12px;' +
+            'box-shadow:0 4px 14px rgba(0,0,0,0.5);' +
+            'color:' + pal.text + ';' +
+            'font-size:11px;' +
+            'font-family:system-ui,-apple-system,"Segoe UI",sans-serif;' +
+            'line-height:1.5;' +
+            'white-space:nowrap;' +
+            'pointer-events:none;' +
+            'min-width:220px;' +
+            'max-width:360px;';
+        document.body.appendChild(diskTooltip);
+
+        // Show/hide helpers. show() positions the panel relative to the
+        // navItem's current viewport rect every time, so the tooltip
+        // stays correctly anchored even if the navbar shifts on scroll
+        // or the page resizes.
+        function showHeaderTooltip(){
+            if (!diskTooltip || !navItem) return;
+            var rect = navItem.getBoundingClientRect();
+            // Display before measuring so getBoundingClientRect on the
+            // tooltip returns its real width.
+            diskTooltip.style.display = 'block';
+            var tipW = diskTooltip.offsetWidth || 220;
+            // Right-align under the icon, then clamp so we never spill
+            // past the right edge (or the left, on extremely narrow
+            // viewports). Vertical anchor: 8px below the icon.
+            var leftPx = rect.right - tipW;
+            var maxLeft = window.innerWidth - tipW - 8;
+            if (leftPx > maxLeft) leftPx = maxLeft;
+            if (leftPx < 8)      leftPx = 8;
+            diskTooltip.style.left = leftPx + 'px';
+            diskTooltip.style.top  = (rect.bottom + 8) + 'px';
+        }
+        function hideHeaderTooltip(){
+            if (diskTooltip) diskTooltip.style.display = 'none';
+        }
+
+        // Belt-and-suspenders event hookup. We listen on the navItem
+        // (the <li>) AND the link inside it. mouseenter/leave handle
+        // the simple cases; mouseover/out plus a relatedTarget check
+        // catch themes that block enter/leave or themes whose child SVG
+        // breaks bubbling. Either path eventually fires the same
+        // show/hide pair, so duplication is harmless.
+        navItem.addEventListener('mouseenter', showHeaderTooltip);
+        navItem.addEventListener('mouseleave', hideHeaderTooltip);
+        navItem.addEventListener('mouseover',  showHeaderTooltip);
+        navItem.addEventListener('mouseout',   function(ev){
+            // Only hide when the pointer truly leaves the nav item -
+            // moving from the link to a child SVG fires mouseout on
+            // the link with relatedTarget inside the navItem, which
+            // we want to keep showing.
+            if (!navItem.contains(ev.relatedTarget)) hideHeaderTooltip();
+        });
+        if (link) {
+            link.addEventListener('mouseenter', showHeaderTooltip);
+            link.addEventListener('mouseover',  showHeaderTooltip);
+            // Strip any pre-existing browser-title text so it doesn't
+            // compete with the custom panel.
+            link.removeAttribute('title');
+        }
+
+        // Convenience hook for manual verification from devtools:
+        // run `diskviewerShowTooltip()` in the console; if the panel
+        // appears, the DOM/CSS path is fine and the issue is purely
+        // event delivery (a theme stripping hover events on the navbar
+        // somehow). If it doesn't, the panel itself isn't getting
+        // built correctly.
+        window.diskviewerShowTooltip = showHeaderTooltip;
+        window.diskviewerHideTooltip = hideHeaderTooltip;
     }
 
     // ============================================================================
-    // 4. buildTooltip() — hover-tooltip text picker
+    // 3b. renderTooltip() — paint the custom hover panel from disk_issues
     // ============================================================================
 
-    // Tooltip phrasing is intentionally vague: tell the user something is
-    // off, point them at the disks, but don't reveal which axis or which
-    // disk - that's what the widget is for. When everything is green we say
-    // so explicitly so the user knows the indicator is live and not stale.
-    function buildTooltip(t, h, u){
-        var bad = [];
-        if (t !== 'ok') bad.push('temperature');
-        if (h !== 'ok') bad.push('health');
-        if (u !== 'ok') bad.push('utilization');
-        if (bad.length === 0) return 'Disk Viewer: everything is ok';
-        // Single axis - mention it once
-        if (bad.length === 1) return 'Disk Viewer: check your disks (' + bad[0] + ')';
-        // Multiple axes - generic catch-all
-        return 'Disk Viewer: check your disks';
+    // Builds the panel content from a list of {name, axis, severity, label}
+    // entries. Each row is name | axis | value, colour-tinted by severity.
+    // Empty list renders a single green "All disks OK" message. The list is
+    // already sorted server-side (axis priority then severity) so iteration
+    // order is final.
+    function renderTooltip(issues){
+        if (!diskTooltip) return;
+        if (!issues || issues.length === 0) {
+            diskTooltip.innerHTML =
+                '<div style="color:#4caf50;font-weight:600;text-align:center;padding:2px 0;">' +
+                'All disks are OK</div>';
+            return;
+        }
+        var axisLabel = { health: 'HEALTH', errors: 'ERRORS', temp: 'TEMP', used: 'USED' };
+        var sevColor  = { critical: '#f44336', warning: '#ffb300' };
+        var rows = '';
+        for (var i = 0; i < issues.length; i++) {
+            var it    = issues[i] || {};
+            var color = sevColor[it.severity] || tooltipText;
+            var name  = String(it.name  || '?');
+            var ax    = axisLabel[it.axis] || String(it.axis || '').toUpperCase();
+            var label = String(it.label || '');
+            rows +=
+                '<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:2px 0;color:' + color + ';">' +
+                  '<span style="font-weight:600;text-align:left;">'                                 + escapeHtml(name)  + '</span>' +
+                  '<span style="opacity:0.9;font-size:10px;font-weight:700;letter-spacing:0.04em;">' + escapeHtml(ax)    + '</span>' +
+                  '<span style="font-weight:700;text-align:right;">'                                + escapeHtml(label) + '</span>' +
+                '</div>';
+        }
+        diskTooltip.innerHTML = rows;
+    }
+
+    // Cheap HTML escape - disk names from disks.ini are user-controlled
+    // (the user names their pools) and end up as innerHTML, so an unsafe
+    // pool name like </span><script>...</script> would otherwise execute.
+    function escapeHtml(s){
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     // ============================================================================
-    // 5. applyState() — paint markers from polled severity values
+    // 4. applyState() — paint markers from polled severity values
     // ============================================================================
 
-    function applyState(temp, healthSev, util){
+    function applyState(temp, healthSev, util, errorsSev, issues){
         // 'off' from any axis (i.e. HEADER_SHOW_BADGE=0) means hide entirely.
-        if (temp === 'off' || healthSev === 'off' || util === 'off') {
+        if (temp === 'off' || healthSev === 'off' || util === 'off' || errorsSev === 'off') {
             navItem.style.display = 'none';
             return;
         }
@@ -323,17 +470,36 @@ function DiskViewerButton(){
         // is just as readable as a red one.
         navItem.style.display = '';
 
-        if (thermo)  thermo.style.color  = SEV_COLOR[temp]      || SEV_COLOR.ok;
-        if (pctMark) pctMark.style.color = SEV_COLOR[util]      || SEV_COLOR.ok;
+        if (thermo)  thermo.style.color  = SEV_COLOR[temp] || SEV_COLOR.ok;
+        if (pctMark) pctMark.style.color = SEV_COLOR[util] || SEV_COLOR.ok;
         if (health) {
+            // Health element reflects ONLY the SMART health axis. Disk
+            // errors don't bleed into here - a SMART-healthy disk with
+            // BTRFS errors keeps the thumb green; the errors signal
+            // lives on the disk silhouette below instead.
             health.style.color = SEV_COLOR[healthSev] || SEV_COLOR.ok;
-            // Thumb flips to "down" only on critical; warning keeps the up
-            // glyph because it's still salvageable, just amber.
             health.innerHTML = (healthSev === 'critical') ? THUMB_DOWN_SVG : THUMB_UP_SVG;
         }
 
-        var link = navItem.querySelector('a');
-        if (link) link.setAttribute('title', buildTooltip(temp, healthSev, util));
+        // Disk silhouette - tinted by the errors axis. Falls back to the
+        // ambient nav link colour when errors are clean, so the icon
+        // matches whatever the user's Unraid theme paints the rest of
+        // the header bar in. When errors_severity raises to warning,
+        // the silhouette goes amber; reserves red for a future
+        // critical state (currently errors top out at warning).
+        if (diskIcon) {
+            if (errorsSev === 'warning' || errorsSev === 'critical') {
+                diskIcon.setAttribute('stroke', SEV_COLOR[errorsSev]);
+            } else {
+                var iconColor = getComputedStyle(navItem.querySelector('a') || navItem).color || '#ccc';
+                diskIcon.setAttribute('stroke', iconColor);
+            }
+        }
+
+        // Repaint the hover tooltip from the latest disk_issues. The
+        // custom panel replaces the browser-native title attribute and
+        // shows one row per problem.
+        renderTooltip(issues);
     }
 
     // ============================================================================
@@ -347,11 +513,21 @@ function DiskViewerButton(){
         x.onload = function(){
             try {
                 var r = JSON.parse(x.responseText) || {};
-                var t = typeof r.temp_severity   === 'string' ? r.temp_severity   : 'ok';
-                var h = typeof r.health_severity === 'string' ? r.health_severity : 'ok';
-                var u = typeof r.util_severity   === 'string' ? r.util_severity   : 'ok';
-                applyState(t, h, u);
-            } catch(e){
+                var t = typeof r.temp_severity    === 'string' ? r.temp_severity    : 'ok';
+                var h = typeof r.health_severity  === 'string' ? r.health_severity  : 'ok';
+                var u = typeof r.util_severity    === 'string' ? r.util_severity    : 'ok';
+                var e = typeof r.errors_severity  === 'string' ? r.errors_severity  : 'ok';
+                // Header click action - publish to window so the click
+                // handler (lines 20-28 of this file) can route the user
+                // to their chosen page. Read on every poll so a setting
+                // change takes effect within one poll cycle without a
+                // browser refresh.
+                var ca = (typeof r.click_action === 'string') ? r.click_action : 'main';
+                if (ca !== 'main' && ca !== 'widget' && ca !== 'settings') ca = 'main';
+                window.diskviewerHeaderAction = ca;
+                var issues = Array.isArray(r.disk_issues) ? r.disk_issues : [];
+                applyState(t, h, u, e, issues);
+            } catch(e2){
                 navItem.style.display = 'none';
             }
         };

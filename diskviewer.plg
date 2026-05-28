@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.05.21">
+ <!ENTITY version   "2026.05.28">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "3d244eb3d58e382fa0b617cea69d142e">
+ <!ENTITY md5       "7ca3fbe2bab4483fef06e7ff4aa716d3">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,38 @@ A compact dashboard widget that replaces Unraid's default per-pool disk widgets 
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.05.28
+
+### Fixed
+- Pool disk errors are now actually detected and flagged.
+- SSD and NVMe drives use their own temperature thresholds instead of the HDD ones.
+- Per-disk temperature overrides set in Unraid SMART settings are honoured.
+- Failed or disabled array disks are now flagged as critical.
+- Unassigned drives are visible by default.
+- Header click action setting now works.
+- Array data disks show their correct capacity.
+- Parity disks now show their I/O activity, and aggregate rows show real totals.
+- Hover tooltip works reliably across all themes.
+- Filesystem badge stays readable on light themes.
+
+### New Features
+- Hover the header icon to see exactly which disks have issues and why.
+- Warning triangle next to a section header when any disk in that group has errors.
+- RAID type shown in section headers (RAID 6, BTRFS RAID 1, ZFS Mirror, and so on).
+- Click action setting for the header icon: Open Main, Dashboard, or Settings.
+- New toggles: highlight pool disks by used %, show filesystem badge, show disk errors.
+- Per-disk free-space overrides honoured (set from the Main page).
+
+### Improvements
+- ARRAY section redesigned: parity, data disks, and aggregate row.
+- CACHE section now shows the pools actually used as cache, not just the one named "cache".
+- Multi-disk pool members shown as DEVICE 1, 2, ... with the totals on the summary row.
+- Cleaner zebra striping in combined sections.
+- Default refresh interval is now 20 seconds.
+- Show Unassigned defaults to off.
+- Hover tooltip colours match your active Unraid theme.
+- Bigger, clearer speed arrows without bouncing the row height.
 
 ## Version 2026.05.21
 

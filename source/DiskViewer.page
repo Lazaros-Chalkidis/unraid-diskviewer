@@ -95,6 +95,9 @@ $tile_config = [
     'tempCritical'        => $cfg['temp_critical'],
     'tempUnit'            => $cfg['temp_unit'],
     'enableSpinButton'    => $cfg['enable_spin_button'],
+    'poolHighlightUsed'   => $cfg['pool_highlight_used'],
+    'showFsBadge'         => $cfg['show_fs_badge'],
+    'showDiskErrors'      => $cfg['show_disk_errors'],
     'isResponsive'        => $isResponsiveWebgui,
     'initialModel'        => $initial_model,
 ];
@@ -132,7 +135,7 @@ $render_subtitle = static function(): string {
 <div class="dv-header-meta">
     <span class="dv-badge-devices" id="dv-badge-devices" title="Total devices">
         <span id="dv-device-count">0</span>
-        <span class="dv-badge-label">devices</span>
+        <span class="dv-badge-label">Devices</span>
     </span>
 </div>
 HTML;
