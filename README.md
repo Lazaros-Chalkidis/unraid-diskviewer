@@ -5,6 +5,7 @@ A compact dashboard widget that replaces Unraid's default per-pool disk widgets 
 <p align="center">
   <img src="https://img.shields.io/github/v/release/Lazaros-Chalkidis/unraid-diskviewer?label=Latest%20Version&color=blue" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/last-commit/Lazaros-Chalkidis/unraid-diskviewer?label=Last%20Update" style="margin: 4px;" />&nbsp;
+  <img src="https://img.shields.io/github/issues/Lazaros-Chalkidis/unraid-diskviewer?label=Issues" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/downloads/Lazaros-Chalkidis/unraid-diskviewer/total?label=Downloads&color=brightgreen" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/license/Lazaros-Chalkidis/unraid-diskviewer?label=License" style="margin: 4px;" />
 </p>
