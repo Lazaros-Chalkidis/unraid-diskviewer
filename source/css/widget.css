@@ -83,12 +83,16 @@
 
   --dv-member:          #42a5f5;
 
-  /* Zebra row colours for combined CACHE / POOL sections. Solid colours
-     matching the settings page palette so widget and settings rows feel
-     visually identical when the user toggles between them. Replaced the
-     previous rgba(255,255,255,X%) overlays which read too bright. */
-  --dv-row-odd:         #1e1e1e;
-  --dv-row-even:        #1a1a1a;
+  /* Zebra row colours for combined CACHE / POOL sections. Lightened so the
+     striping reads softer: the base is less black and the alternate is a
+     fainter grey. Solid tokens (not live overlays) so the contrast is
+     independent of whatever sits behind the widget.
+
+     PREVIOUS VALUES (revert here if needed):
+       zebra.png step:  odd #1a1a1a / even #1f1f1f
+       original:        odd #1e1e1e / even #1a1a1a */
+  --dv-row-odd:         #232323;
+  --dv-row-even:        #2b2b2b;
 }
 
 .dv-light {
@@ -112,8 +116,14 @@
 
   --dv-member:          #1976d2;
 
-  --dv-row-odd:         #f0f1f3;
-  --dv-row-even:        #fafbfc;
+  /* Zebra (light). From zebra.png: odd rows are the panel base
+     (#fafafa), even rows get rgba(0,0,0,.025) overlay resolving to
+     roughly #f3f3f3.
+     PREVIOUS VALUES (revert here if needed):
+       --dv-row-odd:  #f0f1f3;
+       --dv-row-even: #fafbfc; */
+  --dv-row-odd:         #fafafa;
+  --dv-row-even:        #f3f3f3;
 }
 
 
@@ -425,30 +435,78 @@
    child that appears on hover, replacing the previous browser-native
    title attribute with the same custom popup styling that the spin
    buttons use. */
-.dv-section-warn {
+.dv-section-ind {
   display: inline-flex;
   align-items: center;
-  color: var(--dv-warn);
   cursor: help;
   line-height: 0;
   position: relative;
+  margin-left: 5px;
 }
-.dv-section-warn svg {
+.dv-section-ind svg {
   display: block;
 }
-.dv-section-warn:hover .dv-row-toast {
+.dv-section-ind:hover .dv-row-toast {
   display: block;
 }
 
-/* Toast positioning override for the warning triangle in section headers.
-   Floats ABOVE the icon, matching the spin-button toast pattern users
-   already know (image 1 of the user feedback). Padding stays wide so
-   long error text gets breathing room. */
-.dv-section-warn .dv-row-toast {
-  bottom: calc(100% + 6px);
-  top: auto;
+/* Per-axis colours. Errors always amber (matches the warning triangle
+   convention). Temp and health take warn/crit modifiers driven by the
+   worst affected disk in that section. */
+.dv-section-ind--err   { color: var(--dv-warn); }
+.dv-section-ind--warn  { color: var(--dv-warn); }
+.dv-section-ind--crit  { color: var(--dv-crit); }
+
+/* Critical temperature 10%+ over threshold: pulse the indicator every 2s to
+   draw the eye. Respects reduced-motion preferences. */
+@keyframes dv-ind-blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+/* Pulse only the icon and count badge, not the whole indicator - otherwise the
+   hover tooltip (a child of the indicator) would blink along with it. */
+.dv-section-ind--blink > svg,
+.dv-section-ind--blink > .dv-section-ind-badge { animation: dv-ind-blink 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dv-section-ind--blink > svg,
+  .dv-section-ind--blink > .dv-section-ind-badge { animation: none; }
+}
+
+/* Health thumb points down (bad health). The base THUMB_SVG is the
+   thumbs-up shape reused from the H column; rotating 180deg flips it. */
+.dv-section-ind--health svg { transform: rotate(180deg); }
+
+/* Count next to the icon's top-right corner. No pill/circle - just the
+   number, coloured to match its icon for the severity. */
+.dv-section-ind-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+/* Per-severity number colour, matching the icon. */
+.dv-section-ind--err  .dv-section-ind-badge,
+.dv-section-ind--warn .dv-section-ind-badge {
+  color: var(--dv-warn);
+}
+.dv-section-ind--crit .dv-section-ind-badge {
+  color: var(--dv-crit);
+}
+.dv-section-ind:hover .dv-row-toast {
+  display: block;
+}
+
+/* Toast positioning for section-header indicators. Floats ABOVE the
+   icon, matching the spin-button toast pattern. Padding stays wide so
+   long disk lists get breathing room. */
+.dv-section-ind .dv-row-toast {
+  top: calc(100% + 6px);
+  bottom: auto;
   left: 0;
   padding: 7px 12px;
+  z-index: 10;
 }
 
 /* (dv-section-count removed 2026.05.24: count is now part of the
@@ -541,7 +599,11 @@
    10. Column Header Row (DISK SIZE FREE USED ...)
    ============================================================================== */
 
-/* Column grid shared by colhd + rows (10 columns) */
+/* Column grid shared by colhd + rows (9 columns).
+   Slot 5 is the composite USED cell: contains the percent line on top
+   (with optional bytes inline when SHOW_USED_COLUMN is on) and the
+   mini progress bar stacked below it. The cell takes the combined
+   width of what used to be two separate slots (% column + mini-bar). */
 .dv-colhd,
 .dv-row {
   display: grid;
@@ -550,8 +612,7 @@
     minmax(110px, 1.4fr)      /* name        */
     62px                      /* size        */
     62px                      /* free        */
-    46px                      /* %           */
-    minmax(52px, 1.6fr)       /* mini-bar    */
+    minmax(82px, 1.6fr)       /* used (pct + bytes + bar) */
     68px                      /* speed       */
     38px                      /* temp        */
     19px                      /* thumb       */
@@ -577,7 +638,7 @@
 
 .dv-colhd > span { white-space: nowrap; }
 
-.dv-colhd-pct      { text-align: right; }
+.dv-colhd-used     { text-align: left; }
 
 .dv-colhd-speed    { text-align: right; }
 
@@ -597,7 +658,7 @@
    ever needed this). `font-weight: 600` lifts the lit-up header above
    the neutral siblings since the small caps colhd font (10px) loses
    some legibility at lower opacity. */
-.dv-colhd-pct--warn,
+.dv-colhd-used--warn,
 .dv-colhd-temp--warn,
 .dv-colhd-health--warn {
   color: var(--dv-warn-text) !important;
@@ -605,7 +666,7 @@
   font-weight: 600 !important;
 }
 
-.dv-colhd-pct--crit,
+.dv-colhd-used--crit,
 .dv-colhd-temp--crit,
 .dv-colhd-health--crit {
   color: var(--dv-crit-text) !important;
@@ -643,7 +704,7 @@
   font-weight: 500;
   background: rgba(74,144,226,.15);
   color: #6bb3ff;
-  border: 1px solid rgba(74,144,226,.35);
+  border: 0;
   border-radius: 2px;
   padding: 0 5px;
   margin-left: 6px;
@@ -660,7 +721,7 @@
 .dv-light .dv-fs-pill {
   background: rgba(21,101,192,.10);
   color: #1565c0;
-  border: 1px solid rgba(21,101,192,.30);
+  border: 0;
 }
 
 .dv-row--warn   { background: color-mix(in srgb, var(--dv-warn)   14%, transparent); }
@@ -778,6 +839,19 @@
 
 .dv-row-toast--show { display: block; }
 
+.dv-row-toast .dv-toast-title {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 7px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(255,255,255,.18);
+  opacity: .95;
+}
+.dv-row-toast .dv-toast-item {
+  display: block;
+  line-height: 1.6;
+}
+
 .dv-row-toast--crit {
   background: color-mix(in srgb, var(--dv-crit) 35%, #000);
   border: 1px solid color-mix(in srgb, var(--dv-crit) 60%, transparent);
@@ -892,25 +966,59 @@
 
 .dv-col-free { color: var(--dv-c-text); }
 
-.dv-col-pct {
-  text-align: right;
-  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: .02em;
-  color: var(--dv-c-text);
-  line-height: 1;
+/* USED composite cell. Single grid slot holding the percent + optional
+   bytes on the top line, with the mini progress bar stacked beneath.
+   The text line is a flex row with space-between so bytes hug the left
+   and the percent hugs the right - mirrors the visual rhythm of the
+   adjacent SIZE / FREE columns where the value sits at the column edge.
+   When the Show used column toggle is off, only the percent renders on
+   the top line; visually it still sits at the right edge thanks to the
+   space-between, matching the legacy position. */
+.dv-col-used {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.1;
+  overflow: hidden;
 }
 
-.dv-col-pct--warn { color: var(--dv-warn-text); }
+.dv-col-used-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
 
-.dv-col-pct--crit { color: var(--dv-crit-text); }
+.dv-col-used-bytes {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: 11px;
+  color: var(--dv-c-text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 
-/* Mini progress bar in its own column */
+.dv-col-used-pct {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .02em;
+  color: var(--dv-c-text-mid);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dv-col-used-pct--warn { color: var(--dv-warn-text); }
+.dv-col-used-pct--crit { color: var(--dv-crit-text); }
+
+/* Mini progress bar - now nested inside .dv-col-used rather than a
+   standalone grid slot. Visual rules unchanged. */
 .dv-col-bar {
-  height: 5px;
+  height: 4px;
   background: var(--dv-c-bg-track);
-  border-radius: 2.5px;
+  border-radius: 2px;
   overflow: hidden;
 }
 
@@ -919,7 +1027,7 @@
 .dv-bar-fill {
   height: 100%;
   transition: width .3s ease;
-  border-radius: 2.5px;
+  border-radius: 2px;
 }
 
 .dv-bar-fill--ok   { background: var(--dv-ok);   }
@@ -961,6 +1069,7 @@
   line-height: 14px;
   color: var(--dv-c-text-faint);
 }
+.dv-col-speed-num { line-height: 14px; }
 
 /* Direction-specific arrow colour: green for reads, red for writes.
    Default rule below acts as a fallback for older markup that lacks
@@ -985,6 +1094,22 @@
 .dv-temp-crit { color: var(--dv-crit-text); font-weight: 700; }
 
 .dv-temp-na   { color: var(--dv-c-text-faint); }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Small font option. When the Font size setting is "small", the wrapper
+   gets .dv-font-small and every disk-info cell drops to 80% of its
+   default size. Only the data cells scale - the column headers
+   (.dv-colhd) and the section labels (.dv-section-lbl) keep their sizes
+   so the structural chrome stays legible while the rows compact.
+   Values: 13 -> 10.4, 12.5 -> 10, 12 -> 9.6, 11 -> 8.8. */
+.dv-font-small .dv-row            { font-size: 10.4px; }
+.dv-font-small .dv-col-name       { font-size: 10.4px; }
+.dv-font-small .dv-col-size,
+.dv-font-small .dv-col-free       { font-size: 10px; }
+.dv-font-small .dv-col-used-bytes { font-size: 8.8px; }
+.dv-font-small .dv-col-used-pct   { font-size: 8.8px; }
+.dv-font-small .dv-col-speed-wrap { font-size: 9.6px; }
+.dv-font-small .dv-col-temp       { font-size: 9.6px; }
 
 .dv-col-thumb {
   display: inline-flex;
@@ -1166,7 +1291,7 @@
   .dv-colhd,
   .dv-row {
     grid-template-columns:
-      22px minmax(80px, 110px) 60px 60px 46px 52px 38px 16px 18px;
+      22px minmax(80px, 110px) 60px 60px minmax(82px, 1fr) 38px 16px 18px;
   }
   .dv-colhd-speed,
   .dv-col-speed-wrap { display: none; }
@@ -1176,12 +1301,10 @@
   .dv-colhd,
   .dv-row {
     grid-template-columns:
-      20px minmax(70px, 100px) 60px 60px 42px 16px 18px;
+      20px minmax(70px, 100px) 60px 60px 1fr 16px 18px;
   }
   .dv-colhd-temp,
-  .dv-col-temp,
-  .dv-col-bar,
-  .dv-colhd span:nth-child(6) { display: none; }
+  .dv-col-temp { display: none; }
   /* Smaller font in headers and rows reclaims a few horizontal pixels. */
   .dv-colhd { font-size: 9px; }
   .dv-row   { font-size: 12px; }

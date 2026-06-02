@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.05.28">
+ <!ENTITY version   "2026.06.02">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "7ca3fbe2bab4483fef06e7ff4aa716d3">
+ <!ENTITY md5       "3c3ce6eb82e29787e8d256ddc7cd82c5">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -19,7 +19,7 @@
 
 <DESCRIPTION>
 <![CDATA[
-A compact dashboard widget that replaces Unraid's default per-pool disk widgets with a single grid showing all array disks, pool disks, and unassigned devices. Designed for servers with many disks where the stock widgets consume too much screen space.
+A compact dashboard widget that replaces Unraid's per-pool disk widgets with a single grid of all array, pool, and unassigned devices. Adds a full-page Tools view with detailed SMART, temperature, and capacity columns. Ideal for servers with many disks.
 ]]>
 </DESCRIPTION>
 
@@ -27,6 +27,27 @@ A compact dashboard widget that replaces Unraid's default per-pool disk widgets 
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.06.02
+
+### Fixed
+- Disk sizes now match the Unraid Main page (a 2 TB drive reads as 2 TB).
+- Disk Viewer page column headers now stay pinned while scrolling.
+- Live read/write speed updates again on its own fast cadence.
+- Used column and decimal percentage now display correctly right after a fresh install.
+- Empty Parity 2 slot no longer appears on single-parity arrays.
+
+### New Features
+- Disk Viewer page: a new full-page view under Tools > Disk Viewer with a wide table of every disk, including detailed SMART, temperature, capacity, scrub and health columns.
+- Separate Widget and Tool settings: Settings now has Widget and Tool tabs, each configured independently with its own Apply and Reset.
+- USED column now shows the used bytes next to the percentage, with optional one-decimal precision.
+- Section header indicators: small icons next to ARRAY, CACHE, RAID and POOL show how many disks have errors, high temperature, or bad health, with a tooltip listing them.
+- Font size option to shrink the disk rows and fit more on screen.
+
+### Improvements
+- Critical temperatures now stand out: a separate red indicator sits next to the amber one and pulses when a disk runs well over its limit, in both the widget and the header badge.
+- Used bytes and one-decimal percentage are now shown by default.
+- Refreshed zebra striping for a cleaner look across all themes.
 
 ## Version 2026.05.28
 
@@ -104,10 +125,9 @@ if [[ -f /boot/config/plugins/&name;/&name;.cfg ]]; then cp /boot/config/plugins
 <FILE Name="/boot/config/plugins/&name;/&name;.cfg" Mode="0644">
   <INLINE>
 REFRESH_ENABLED="1"
-REFRESH_INTERVAL="30"
-RESPECT_SPINDOWN="1"
+REFRESH_INTERVAL="20"
 DRAG_STEP_ROWS="1"
-SHOW_UNASSIGNED="1"
+SHOW_UNASSIGNED="0"
 SHOW_ARRAY="1"
 SHOW_CACHE="1"
 DEFAULT_EXPAND_ROWS="0"

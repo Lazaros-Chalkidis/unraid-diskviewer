@@ -40,6 +40,7 @@ function DiskViewerButton(){
     var health      = null;  // top-centre: SMART health severity
     var pctMark     = null;  // top-right:  utilization severity
     var diskIcon    = null;  // the main hdd silhouette - tinted by errors_severity
+    var thermoBlink = null;  // Web Animations handle for the critical-temp pulse
     var diskTooltip   = null;  // custom hover tooltip showing per-disk issue rows
     var tooltipText   = '#ddd'; // fallback text colour, set from theme palette in setup()
 
@@ -431,7 +432,9 @@ function DiskViewerButton(){
             var it    = issues[i] || {};
             var color = sevColor[it.severity] || tooltipText;
             var name  = String(it.name  || '?');
-            var ax    = axisLabel[it.axis] || String(it.axis || '').toUpperCase();
+            // The errors row's value already reads "N errors", so the middle
+            // axis label would be redundant there; blank it for that axis only.
+            var ax    = (it.axis === 'errors') ? '' : (axisLabel[it.axis] || String(it.axis || '').toUpperCase());
             var label = String(it.label || '');
             rows +=
                 '<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:2px 0;color:' + color + ';">' +
@@ -470,7 +473,25 @@ function DiskViewerButton(){
         // is just as readable as a red one.
         navItem.style.display = '';
 
-        if (thermo)  thermo.style.color  = SEV_COLOR[temp] || SEV_COLOR.ok;
+        if (thermo) {
+            thermo.style.color = SEV_COLOR[temp] || SEV_COLOR.ok;
+            // Critical temperature pulses the thermometer the same way the
+            // widget section indicator does (opacity 1 -> .2 -> 1 over 2s).
+            // Driven via the Web Animations API so the header badge needs no
+            // injected stylesheet; widget.css is not loaded on every page.
+            var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            var wantBlink = (temp === 'critical') && !reduceMotion;
+            if (wantBlink && !thermoBlink && thermo.animate) {
+                thermoBlink = thermo.animate(
+                    [{ opacity: 1 }, { opacity: 0.2 }, { opacity: 1 }],
+                    { duration: 2000, iterations: Infinity, easing: 'ease-in-out' }
+                );
+            } else if (!wantBlink && thermoBlink) {
+                thermoBlink.cancel();
+                thermoBlink = null;
+                thermo.style.opacity = '1';
+            }
+        }
         if (pctMark) pctMark.style.color = SEV_COLOR[util] || SEV_COLOR.ok;
         if (health) {
             // Health element reflects ONLY the SMART health axis. Disk

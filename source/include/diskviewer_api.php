@@ -45,11 +45,40 @@ final class DiskViewerEndpoint
     // field in disks.ini and the UD device id), with hotTemp/maxTemp
     // keys carrying the per-disk values.
     private const SMART_ONE_FILE     = '/boot/config/smart-one.cfg';
+
+    // When true, config() remaps TOOL_*-prefixed cfg keys over their base
+    // counterparts so the standalone tool page renders with its own
+    // independent settings. Set around buildModel() in the tool_overview
+    // action and reset immediately after, so widget polling is unaffected.
+    private static bool $toolMode = false;
+
     private const CACHE_FILE         = '/tmp/diskviewer_cache/state.json';
     private const HEADER_COUNT_FILE  = '/tmp/diskviewer_cache/header_count';
     private const HEADER_NAMES_FILE  = '/tmp/diskviewer_cache/header_names';
     private const HEADER_TEMP_FILE   = '/tmp/diskviewer_cache/header_temp';
     private const HEADER_HEALTH_FILE = '/tmp/diskviewer_cache/header_health';
+
+    // Widget heartbeat. The dashboard widget polls the 'state' action on its
+    // refresh cadence; each poll touches this file. The settings page reads
+    // it to tell whether the widget is in active use - if the heartbeat is
+    // older than WIDGET_HEARTBEAT_TTL (or absent), the Tool tab unlocks the
+    // header-indicator options as the fallback owner. 48h gives a weekend of
+    // slack so a user who checks the dashboard a couple of times a week is
+    // still counted as an active widget user.
+    private const HEARTBEAT_FILE        = '/tmp/diskviewer_cache/widget_heartbeat';
+    private const WIDGET_HEARTBEAT_TTL  = 172800;
+
+    // Deep SMART attribute cache. smartctl is run with -n standby (never
+    // wakes a sleeping disk) and the parsed attributes are cached per device
+    // for SMART_ATTRS_TTL seconds, so opening the tool page does not spawn a
+    // subprocess storm or keep 30 disks spinning. Attributes change slowly,
+    // so an hour-old read is fine.
+    private const SMART_ATTRS_CACHE     = '/boot/config/plugins/diskviewer/smart_attrs.json';
+    private const SMART_ATTRS_TTL       = 3600;
+    private const SCRUB_CACHE           = '/tmp/diskviewer_cache/scrub_status.json';
+    private const SCRUB_TTL             = 3600;
+    private const SCRUB_SCHED_CACHE     = '/tmp/diskviewer_cache/scrub_sched.json';
+    private const SCRUB_SCHED_TTL       = 600;
     private const HEADER_UTIL_FILE   = '/tmp/diskviewer_cache/header_util';
     private const HEADER_ERRORS_FILE = '/tmp/diskviewer_cache/header_errors';
     // Per-disk per-axis issue rows for the header tooltip. JSON-encoded
@@ -538,6 +567,51 @@ final class DiskViewerEndpoint
         return $cache[$key] = $errors;
     }
 
+    // Scrub + fragmentation status for a btrfs/zfs pool. Reads saved state
+    // only (btrfs scrub status / zpool status / zpool list) - never starts a
+    // scrub. Cached per device list TTL in smartAttrsForDevices' sibling file.
+    // Returns ['last_ts' => int|null, 'frag' => string|null, 'next_ts' => null].
+    public static function scrubStatus(string $pool, string $fs): array
+    {
+        $res = ['last_ts' => null, 'frag' => null, 'next_ts' => null];
+        $fs  = strtolower($fs);
+        $mount = '/mnt/' . $pool;
+
+        if ($fs === 'btrfs') {
+            if (!is_dir($mount)) return $res;
+            $out = @shell_exec('btrfs scrub status ' . escapeshellarg($mount) . ' 2>/dev/null');
+            if (is_string($out) && $out !== '') {
+                // Newer: "Scrub started:    Sun May 25 03:00:01 2026"
+                // Older: "scrub started at Sun May 25 03:00:01 2026 and finished"
+                if (preg_match('/Scrub started:\s*(.+)$/im', $out, $m)
+                    || preg_match('/scrub started at\s+(.+?)\s+and/i', $out, $m)) {
+                    $ts = strtotime(trim($m[1]));
+                    if ($ts) $res['last_ts'] = $ts;
+                }
+            }
+            // btrfs has no cheap fragmentation percentage; leave null.
+        } elseif ($fs === 'zfs') {
+            $out = @shell_exec('zpool status ' . escapeshellarg($pool) . ' 2>/dev/null');
+            if (is_string($out) && $out !== '') {
+                // "scan: scrub repaired 0B ... on Sun May 25 03:23:46 2026"
+                if (preg_match('/scan:.*\bon\s+(.+)$/im', $out, $m)) {
+                    $ts = strtotime(trim($m[1]));
+                    if ($ts) $res['last_ts'] = $ts;
+                }
+            }
+            $frag = @shell_exec('zpool list -H -o frag ' . escapeshellarg($pool) . ' 2>/dev/null');
+            if (is_string($frag)) {
+                $frag = trim($frag);
+                if ($frag !== '' && $frag !== '-') $res['frag'] = $frag;
+            }
+        }
+
+        // next_ts: Unraid has no built-in per-pool scrub scheduler we can read
+        // reliably, so this stays null (rendered as a dash) until a schedule
+        // source is wired.
+        return $res;
+    }
+
 
     // ── Per-disk utilization (free space) thresholds ──────────────────────
     // Mirrors diskTempThresholds() but for disk fill levels. Picks up
@@ -612,6 +686,19 @@ final class DiskViewerEndpoint
     public static function config(): array
     {
         $cfg  = self::cachedIniRead(self::CFG_FILE);
+
+        // Tool mode: overlay TOOL_*-prefixed values onto their base keys so
+        // the rest of this function (and everything it feeds) reads the
+        // tool's independent settings without any other change. Operates on
+        // the local copy, never the cached array.
+        if (self::$toolMode) {
+            foreach ($cfg as $k => $v) {
+                if (strncmp($k, 'TOOL_', 5) === 0) {
+                    $cfg[substr($k, 5)] = $v;
+                }
+            }
+        }
+
         $temp = self::nativeTempThresholds();
         $util = self::nativeUtilThresholds();
 
@@ -672,7 +759,7 @@ final class DiskViewerEndpoint
             // raw Celsius reading either way.
             'temp_unit'           => self::nativeTempUnit(),
             'refresh_enabled'     => ($cfg['REFRESH_ENABLED']  ?? '1') === '1',
-            'refresh_interval'    => max(5, (int)($cfg['REFRESH_INTERVAL'] ?? 30)),
+            'refresh_interval'    => max(5, (int)($cfg['REFRESH_INTERVAL'] ?? 20)),
             'drag_step_rows'      => max(1, min(5, (int)($cfg['DRAG_STEP_ROWS'] ?? 1))),
             'show_unassigned'     => ($cfg['SHOW_UNASSIGNED'] ?? '0') === '1',
             'show_array'          => ($cfg['SHOW_ARRAY']      ?? '1') === '1',
@@ -694,6 +781,23 @@ final class DiskViewerEndpoint
             // the disk-silhouette tint on the Unraid header indicator,
             // and the errors_severity axis itself. Default on.
             'show_disk_errors'    => ($cfg['SHOW_DISK_ERRORS'] ?? '1') === '1',
+            // USED % decimal precision. When on, the % column shows one
+            // decimal place ("65.4%") instead of integer ("65%"). Useful on
+            // large drives where 1% rounds to over 100 GB.
+            'show_decimal_pct'    => ($cfg['SHOW_DECIMAL_PCT']  ?? '1') === '1',
+            // USED bytes column. When on, an extra column is inserted
+            // between SIZE and FREE showing the absolute used capacity,
+            // matching the Unraid Main page column layout. Default off
+            // to keep the compact layout existing users are used to.
+            'show_used_column'    => ($cfg['SHOW_USED_COLUMN']  ?? '1') === '1',
+            // Section-header indicators (errors triangle, high-temp
+            // thermometer, bad-health thumb with per-axis disk counts).
+            // Default on - they're the at-a-glance health summary.
+            'show_section_indicators' => ($cfg['SHOW_SECTION_INDICATORS'] ?? '1') === '1',
+            // Widget font size for the disk-info rows. 'small' scales the
+            // data cells to 80%; 'default' is the baseline. Headers and
+            // section labels are unaffected either way.
+            'font_size'           => (($cfg['FONT_SIZE'] ?? 'default') === 'small') ? 'small' : 'default',
             // default_expand_rows was a user-facing dropdown until 2026.05.05v
             // when it was removed in favour of the drag handle on the footer.
             // The value here still drives the JS-side baseline expansion level:
@@ -844,7 +948,7 @@ final class DiskViewerEndpoint
                 'size'   => $fsSize,
                 'used'   => $fsUsed,
                 'free'   => $fsFree,
-                'pct'    => $fsSize > 0 ? (int)round($fsUsed / $fsSize * 100) : 0,
+                'pct'    => $fsSize > 0 ? round($fsUsed / $fsSize * 100, 2) : 0,
                 'speed_bps'    => $speed['bps'],
                 'speed_dir'    => $speed['dir'],
                 'errors'       => 0,
@@ -988,8 +1092,16 @@ final class DiskViewerEndpoint
         $name = (string)($d['name'] ?? '');
         $type = strtolower((string)($d['type'] ?? ''));
 
-        // Parity
+        // Parity. Skip empty parity slots (single-parity arrays still have a
+        // parity2 entry in disks.ini with size=0 and no device assigned).
+        // Without this, the widget would render a ghost PARITY2 row with
+        // dashes everywhere for users who only run one parity disk.
         if ($type === 'parity' || strpos($name, 'parity') === 0) {
+            $rawSize = (int)($d['size']   ?? 0);
+            $rawDev  = trim((string)($d['device'] ?? ''));
+            if ($rawSize <= 0 && $rawDev === '') {
+                return ['kind' => 'skip', 'group' => '', 'is_parity' => true];
+            }
             return ['kind' => 'array', 'group' => 'array', 'is_parity' => true];
         }
         // Array data
@@ -1085,7 +1197,7 @@ final class DiskViewerEndpoint
                 // For parity (or unmounted) use raw disk size
                 $fsSize = (int)($d['size'] ?? 0) * 1024;
             }
-            $pct = $fsSize > 0 ? (int)round($fsUsed / $fsSize * 100) : 0;
+            $pct = $fsSize > 0 ? round($fsUsed / $fsSize * 100, 2) : 0;
 
             // Read live speed from /proc/diskstats (bytes/sec + dominant direction)
             $devPath = (string)($d['device'] ?? '');
@@ -1297,7 +1409,7 @@ final class DiskViewerEndpoint
                 }
             }
             $free = max(0, $total - $used);
-            $pct  = $total > 0 ? (int)round($used / $total * 100) : 0;
+            $pct  = $total > 0 ? round($used / $total * 100, 2) : 0;
             $severity = $pct >= $crit ? 'critical' : ($pct >= $warn ? 'warning' : 'ok');
             $totalSpeed = $sumR + $sumW;
             return [
@@ -1773,6 +1885,9 @@ final class DiskViewerEndpoint
                 'enable_spin_button'      => $cfg['enable_spin_button'],
                 'pool_highlight_used'     => $cfg['pool_highlight_used'],
                 'show_fs_badge'           => $cfg['show_fs_badge'],
+                'show_used_column'        => $cfg['show_used_column'],
+                'show_decimal_pct'        => $cfg['show_decimal_pct'],
+                'font_size'               => $cfg['font_size'],
             ],
         ];
     }
@@ -1796,6 +1911,365 @@ final class DiskViewerEndpoint
         // endpoint and forwarded to JS. Empty array if no issues - JS
         // uses that to switch the tooltip to its "all OK" mode.
         @file_put_contents(self::HEADER_ISSUES_FILE, json_encode($model['disk_issues'] ?? [], JSON_UNESCAPED_SLASHES));
+    }
+
+    // Run smartctl -n standby for one device and parse the attributes we
+    // surface on the tool page: power-on hours (9), reallocated sectors (5),
+    // current pending sectors (197), UDMA CRC errors (199), and SSD wear
+    // for NVMe. -n standby leaves a sleeping disk asleep and reports nothing,
+    // so we return null and the row shows a dash rather than waking the drive.
+    private static function parseSmartctl(string $device): ?array
+    {
+        $dev = $device;
+        if (strncmp($dev, '/dev/', 5) !== 0) $dev = '/dev/' . $dev;
+        if (strpos($dev, 'nvme') !== false) {
+            $dev = preg_replace('/p\d+$/', '', $dev);
+        } else {
+            $dev = preg_replace('/\d+$/', '', $dev);
+        }
+
+        $bin = is_executable('/usr/sbin/smartctl') ? '/usr/sbin/smartctl'
+             : (is_executable('/sbin/smartctl') ? '/sbin/smartctl' : 'smartctl');
+        $cmd = $bin . ' -n standby -A -i ' . escapeshellarg($dev) . ' 2>/dev/null';
+        $out = @shell_exec($cmd);
+        if (!is_string($out) || $out === '') return null;
+
+        // A sleeping disk prints a STANDBY notice and no attribute table.
+        if (stripos($out, 'STANDBY') !== false
+            && stripos($out, 'Power_On_Hours') === false
+            && stripos($out, 'Power On Hours') === false) {
+            return null;
+        }
+
+        $attrs = ['age_hours' => null, 'realloc' => null, 'pending' => null, 'crc' => null, 'wear_pct' => null];
+
+        // NVMe health page is key:value, not the SATA attribute table.
+        if (stripos($out, 'Percentage Used') !== false || stripos($out, 'Power On Hours') !== false) {
+            if (preg_match('/Power On Hours:\s*([\d,]+)/i', $out, $m)) {
+                $attrs['age_hours'] = (int)str_replace(',', '', $m[1]);
+            }
+            if (preg_match('/Percentage Used:\s*(\d+)%/i', $out, $m)) {
+                $attrs['wear_pct'] = (int)$m[1];
+            }
+            if (preg_match('/Media and Data Integrity Errors:\s*([\d,]+)/i', $out, $m)) {
+                $attrs['pending'] = (int)str_replace(',', '', $m[1]);
+            }
+            return $attrs;
+        }
+
+        // SATA/SAS attribute table. Each data row:
+        //   ID# NAME FLAG VALUE WORST THRESH TYPE UPDATED WHEN_FAILED RAW
+        // Take the last numeric field as the raw value.
+        $rawById = [];
+        foreach (preg_split('/\r?\n/', $out) as $line) {
+            if (!preg_match('/^\s*(\d+)\s+\S+\s+0x[0-9a-f]+\s+.*?(\d[\d,]*)\s*$/i', $line, $m)) continue;
+            $rawById[(int)$m[1]] = (int)str_replace(',', '', $m[2]);
+        }
+        if (isset($rawById[9]))   $attrs['age_hours'] = $rawById[9];
+        if (isset($rawById[5]))   $attrs['realloc']   = $rawById[5];
+        if (isset($rawById[197])) $attrs['pending']   = $rawById[197];
+        if (isset($rawById[199])) $attrs['crc']       = $rawById[199];
+
+        if ($attrs['age_hours'] === null && $attrs['realloc'] === null
+            && $attrs['pending'] === null && $attrs['crc'] === null) {
+            return null;
+        }
+        return $attrs;
+    }
+
+    // Next scheduled scrub per pool, derived from cron. Unraid pool scrubs are
+    // scheduled through cron (the built-in scheduler, the User Scripts plugin,
+    // or a hand-written entry), so we scan the cron sources for scrub commands,
+    // map each to the pool(s) it targets, and compute the next fire time from
+    // the cron expression. Result: [ poolName => next_run_unix_ts ]. Cached for
+    // SCRUB_SCHED_TTL because schedules change rarely.
+    private static function scrubScheduleForPools(array $pools): array
+    {
+        if (empty($pools)) return [];
+        $names = array_keys($pools);
+        $now   = time();
+
+        $raw = @file_get_contents(self::SCRUB_SCHED_CACHE);
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && isset($decoded['ts'])
+                && ($now - (int)$decoded['ts']) < self::SCRUB_SCHED_TTL
+                && isset($decoded['map']) && is_array($decoded['map'])) {
+                // Only return entries for pools we currently know about.
+                $out = [];
+                foreach ($names as $n) {
+                    if (isset($decoded['map'][$n])) $out[$n] = (int)$decoded['map'][$n];
+                }
+                return $out;
+            }
+        }
+
+        // Gather cron text from the common Unraid sources.
+        $cronText = '';
+        foreach ((glob('/etc/cron.d/*') ?: []) as $f) {
+            if (is_file($f)) { $c = @file_get_contents($f); if (is_string($c)) $cronText .= "\n" . $c; }
+        }
+        foreach (['/var/spool/cron/crontabs/root', '/etc/crontab'] as $f) {
+            if (is_file($f)) { $c = @file_get_contents($f); if (is_string($c)) $cronText .= "\n" . $c; }
+        }
+
+        $sched = [];
+        foreach (preg_split('/\r?\n/', $cronText) as $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#') continue;
+            // 5 schedule fields followed by the command. Skip "@reboot" etc.
+            if (!preg_match('/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+)$/', $line, $m)) continue;
+            $fields = [$m[1], $m[2], $m[3], $m[4], $m[5]];
+            $cmd    = $m[6];
+
+            $targets = self::scrubTargetsFromCommand($cmd, $names);
+            if (empty($targets)) continue;
+            $next = self::cronNextTs($fields, $now);
+            if ($next === null) continue;
+            foreach ($targets as $pool) {
+                if (!isset($sched[$pool]) || $next < $sched[$pool]) $sched[$pool] = $next;
+            }
+        }
+
+        @mkdir('/tmp/diskviewer_cache', 0755, true);
+        @file_put_contents(self::SCRUB_SCHED_CACHE, json_encode(['ts' => $now, 'map' => $sched], JSON_UNESCAPED_SLASHES));
+        return $sched;
+    }
+
+    // Identify which known pools a cron command scrubs. Handles direct
+    // `zpool scrub <pool>` and `btrfs scrub start [...] /mnt/<pool>` commands,
+    // and follows a User Scripts cron line into its script file (one level) to
+    // find the scrub command inside.
+    private static function scrubTargetsFromCommand(string $cmd, array $poolNames): array
+    {
+        $found = [];
+        $scan = function (string $text) use (&$found, $poolNames) {
+            // zpool scrub <name> [<name> ...]
+            if (preg_match_all('/zpool\s+scrub\s+(?:-\S+\s+)*([^\s;&|]+)/i', $text, $mm)) {
+                foreach ($mm[1] as $p) { $p = trim($p); if (in_array($p, $poolNames, true)) $found[$p] = true; }
+            }
+            // btrfs scrub start ... /mnt/<name>
+            if (preg_match_all('#btrfs\s+scrub\s+start[^\n;&|]*?/mnt/([^\s/;&|]+)#i', $text, $mm)) {
+                foreach ($mm[1] as $p) { $p = trim($p); if (in_array($p, $poolNames, true)) $found[$p] = true; }
+            }
+            // Generic /mnt/<name> appearing on a line that also mentions scrub.
+            if (stripos($text, 'scrub') !== false
+                && preg_match_all('#/mnt/([A-Za-z0-9_.\-]+)#', $text, $mm)) {
+                foreach ($mm[1] as $p) { $p = trim($p); if (in_array($p, $poolNames, true)) $found[$p] = true; }
+            }
+        };
+
+        $scan($cmd);
+
+        // Follow a User Scripts invocation into the referenced script file.
+        if (stripos($cmd, 'user.scripts') !== false
+            && preg_match('#(/boot/config/plugins/user\.scripts/scripts/[^\s"\']+/script)#', $cmd, $sm)) {
+            $sf = $sm[1];
+            if (is_file($sf)) { $body = @file_get_contents($sf); if (is_string($body)) $scan($body); }
+        }
+
+        return array_keys($found);
+    }
+
+    // Next Unix timestamp (>= $from, minute resolution) matching a 5-field cron
+    // expression [min hour dom mon dow]. Supports *, lists, ranges and steps.
+    // Day-of-month and day-of-week follow cron's OR rule when both are set.
+    private static function cronNextTs(array $fields, int $from): ?int
+    {
+        if (count($fields) !== 5) return null;
+        $min  = self::cronField($fields[0], 0, 59);
+        $hour = self::cronField($fields[1], 0, 23);
+        $dom  = self::cronField($fields[2], 1, 31);
+        $mon  = self::cronField($fields[3], 1, 12);
+        $dowF = $fields[4];
+        $dow  = self::cronField($dowF, 0, 7);
+        if ($min === null || $hour === null || $dom === null || $mon === null || $dow === null) return null;
+        if (isset($dow[7])) { $dow[0] = true; }      // 7 == Sunday == 0
+        $domRestricted = (trim($fields[2]) !== '*');
+        $dowRestricted = (trim($dowF) !== '*');
+
+        // Start at the next whole minute.
+        $t = (intdiv($from, 60) + 1) * 60;
+        $limit = $from + 366 * 86400;
+        for (; $t <= $limit; $t += 60) {
+            $mn = (int)date('i', $t);
+            if (!isset($min[$mn])) continue;
+            $hr = (int)date('G', $t);
+            if (!isset($hour[$hr])) continue;
+            $mo = (int)date('n', $t);
+            if (!isset($mon[$mo])) continue;
+            $dm = (int)date('j', $t);
+            $dw = (int)date('w', $t);   // 0..6, Sun=0
+            $domOk = isset($dom[$dm]);
+            $dowOk = isset($dow[$dw]);
+            $dayOk = ($domRestricted && $dowRestricted) ? ($domOk || $dowOk)
+                   : (($domRestricted ? $domOk : true) && ($dowRestricted ? $dowOk : true));
+            if (!$dayOk) continue;
+            return $t;
+        }
+        return null;
+    }
+
+    // Expand one cron field into a set [value => true]. Returns null on parse
+    // error.
+    private static function cronField(string $f, int $lo, int $hi): ?array
+    {
+        $f = trim($f);
+        if ($f === '') return null;
+        $set = [];
+        foreach (explode(',', $f) as $part) {
+            $part = trim($part);
+            if ($part === '') continue;
+            $step = 1;
+            if (strpos($part, '/') !== false) {
+                [$part, $stepStr] = explode('/', $part, 2);
+                $step = (int)$stepStr;
+                if ($step < 1) return null;
+            }
+            if ($part === '*' || $part === '') {
+                $start = $lo; $end = $hi;
+            } elseif (strpos($part, '-') !== false) {
+                [$a, $b] = explode('-', $part, 2);
+                if (!is_numeric($a) || !is_numeric($b)) return null;
+                $start = (int)$a; $end = (int)$b;
+            } else {
+                if (!is_numeric($part)) return null;
+                $start = $end = (int)$part;
+            }
+            if ($start > $end) return null;
+            for ($v = $start; $v <= $end; $v += $step) {
+                if ($v >= $lo && $v <= $hi) $set[$v] = true;
+            }
+        }
+        return $set ?: null;
+    }
+
+    // Cache-aware batch read. Fresh cache entries are reused; stale/missing
+    // ones trigger one smartctl call each, then the cache is written once.
+    private static function smartAttrsForDevices(array $devices): array
+    {
+        $now = time();
+        $cache = [];
+        $raw = @file_get_contents(self::SMART_ATTRS_CACHE);
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) $cache = $decoded;
+        }
+
+        $result = [];
+        $dirty = false;
+        foreach (array_unique($devices) as $dev) {
+            if ($dev === '') continue;
+            $entry = $cache[$dev] ?? null;
+            if (is_array($entry) && isset($entry['ts']) && ($now - (int)$entry['ts']) < self::SMART_ATTRS_TTL) {
+                $result[$dev] = $entry['attrs'] ?? null;
+                continue;
+            }
+            $attrs = self::parseSmartctl($dev);
+            if ($attrs === null) {
+                // smartctl returned nothing (disk in standby or momentarily
+                // unreadable).
+                $prev = (is_array($entry) && isset($entry['attrs']) && is_array($entry['attrs'])) ? $entry['attrs'] : null;
+                if ($prev !== null) {
+                    // Preserve the last-known good reading rather than wiping it
+                    // to null, so the SMART columns keep showing the most recent
+                    // values instead of going blank when a media disk spins
+                    // down. Refresh ts so we retry at most once per TTL.
+                    $cache[$dev]  = ['ts' => $now, 'attrs' => $prev, 'stale' => true];
+                    $result[$dev] = $prev;
+                } else {
+                    // Never read successfully yet: leave the entry expired so we
+                    // retry on the next load and pick it up the moment the disk
+                    // is awake (smartctl -n standby does not wake it).
+                    $cache[$dev]  = ['ts' => 0, 'attrs' => null];
+                    $result[$dev] = null;
+                }
+            } else {
+                $cache[$dev]  = ['ts' => $now, 'attrs' => $attrs];
+                $result[$dev] = $attrs;
+            }
+            $dirty = true;
+        }
+
+        if ($dirty) {
+            // SMART cache lives on flash (/boot) so the last-known values
+            // survive reboots and plugin reinstalls. Written at most once per
+            // TTL, and atomically (temp + rename) so an interrupted write can
+            // never leave a half-written JSON on the flash device.
+            $dir = dirname(self::SMART_ATTRS_CACHE);
+            @mkdir($dir, 0755, true);
+            $tmp = self::SMART_ATTRS_CACHE . '.tmp';
+            if (@file_put_contents($tmp, json_encode($cache, JSON_UNESCAPED_SLASHES)) !== false) {
+                @rename($tmp, self::SMART_ATTRS_CACHE);
+            }
+        }
+        return $result;
+    }
+
+    // Composite verdict from the parsed attributes. Conservative: only flags
+    // when a signal is meaningful. Returns [label, severity].
+    private static function smartVerdict(?array $a): array
+    {
+        if (!is_array($a)) return ['', 'na'];
+        $age  = $a['age_hours'];
+        $rea  = $a['realloc'];
+        $pen  = $a['pending'];
+        $crc  = $a['crc'];
+        $wear = $a['wear_pct'];
+
+        if ($pen !== null && $pen > 0)     return ['Replace soon', 'critical'];
+        if ($rea !== null && $rea > 10)    return ['Replace soon', 'critical'];
+        if ($rea !== null && $rea > 0)     return ['Aging', 'warning'];
+        if ($wear !== null && $wear >= 90) return ['Replace soon', 'critical'];
+        if ($wear !== null && $wear >= 75) return ['Aging', 'warning'];
+        if ($crc !== null && $crc > 100)   return ['Check cable', 'warning'];
+        if ($age !== null && $age > 43800) return ['Aging', 'warning'];
+        if ($age === null && $rea === null && $pen === null && $crc === null) return ['', 'na'];
+        return ['Healthy', 'ok'];
+    }
+
+    // Cache-aware batch scrub read. pools is a map poolName => fsType.
+    private static function scrubStatusForPools(array $pools): array
+    {
+        $now = time();
+        $cache = [];
+        $raw = @file_get_contents(self::SCRUB_CACHE);
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) $cache = $decoded;
+        }
+
+        $result = [];
+        $dirty = false;
+        foreach ($pools as $name => $fs) {
+            $key = $name . '|' . $fs;
+            $entry = $cache[$key] ?? null;
+            if (is_array($entry) && isset($entry['ts']) && ($now - (int)$entry['ts']) < self::SCRUB_TTL) {
+                $result[$name] = $entry['data'] ?? null;
+                continue;
+            }
+            $data = self::scrubStatus($name, $fs);
+            $cache[$key] = ['ts' => $now, 'data' => $data];
+            $result[$name] = $data;
+            $dirty = true;
+        }
+
+        if ($dirty) {
+            @mkdir('/tmp/diskviewer_cache', 0755, true);
+            @file_put_contents(self::SCRUB_CACHE, json_encode($cache, JSON_UNESCAPED_SLASHES));
+        }
+        return $result;
+    }
+
+    // Is the dashboard widget in active use? True when the heartbeat exists
+    // and is newer than the staleness window. The settings page uses this to
+    // decide whether the Tool tab's header-indicator options stay locked
+    // (widget owns the indicator) or unlock (tool becomes the fallback owner).
+    public static function widgetActive(): bool
+    {
+        $ts = @file_get_contents(self::HEARTBEAT_FILE);
+        if ($ts === false || $ts === '') return false;
+        return (time() - (int)$ts) < self::WIDGET_HEARTBEAT_TTL;
     }
 
 
@@ -1934,6 +2408,10 @@ final class DiskViewerEndpoint
                 case 'state':
                     $model = self::buildModel();
                     self::writeHeaderCache($model);
+                    // Mark the widget as active (drives the Tool tab header
+                    // unlock). Only the dashboard widget polls 'state'.
+                    @mkdir('/tmp/diskviewer_cache', 0755, true);
+                    @file_put_contents(self::HEARTBEAT_FILE, (string)time());
                     echo json_encode($model, JSON_UNESCAPED_SLASHES);
                     return;
 
@@ -1947,6 +2425,141 @@ final class DiskViewerEndpoint
                         'health_severity' => $model['health_severity'] ?? 'ok',
                         'util_severity'   => $model['util_severity']   ?? 'ok',
                     ], JSON_UNESCAPED_SLASHES);
+                    return;
+
+                case 'tool_overview':
+                    // Standalone tool page Overview tab. Returns the same model
+                    // the widget renders, plus a pre-computed summary block for
+                    // the metric cards so the JS doesn't recompute aggregates.
+                    // toolMode makes config() read the TOOL_ settings for this
+                    // build only.
+                    self::$toolMode = true;
+                    $model = self::buildModel();
+                    self::$toolMode = false;
+
+                    // Deep SMART attributes for the tool table. Gather the
+                    // device path of every real disk, batch-read (cached,
+                    // standby-safe), and merge the attributes + verdict into
+                    // the tiles so the JS just renders them.
+                    $devList = [];
+                    $poolMap = [];
+                    foreach (($model['sections'] ?? []) as $sec) {
+                        foreach (($sec['tiles'] ?? []) as $t) {
+                            if (!empty($t['is_summary'])) {
+                                // Aggregate tiles carry the pool-level scrub data.
+                                $fs = strtolower((string)($t['fs'] ?? ''));
+                                if (($fs === 'btrfs' || $fs === 'zfs') && !empty($t['name'])) {
+                                    $poolMap[(string)$t['name']] = $fs;
+                                }
+                                continue;
+                            }
+                            $dev = (string)($t['device'] ?? '');
+                            if ($dev !== '') $devList[] = $dev;
+                            // Standalone single-disk pools (no summary tile) also
+                            // hold scrub data under their own name.
+                            if (empty($t['is_parity']) && empty($t['is_pool_member'])) {
+                                $fs = strtolower((string)($t['fs'] ?? ''));
+                                if (($fs === 'btrfs' || $fs === 'zfs') && !empty($t['name'])) {
+                                    $poolMap[(string)$t['name']] = $fs;
+                                }
+                            }
+                        }
+                    }
+                    $smartMap = self::smartAttrsForDevices($devList);
+                    $scrubMap = self::scrubStatusForPools($poolMap);
+                    $schedMap = self::scrubScheduleForPools($poolMap);
+                    // NOTE: iterate the real arrays directly, NOT `$x ?? []`.
+                    // `foreach (($arr['k'] ?? []) as &$ref)` references a throwaway
+                    // copy produced by `??`, so the by-reference writes below are
+                    // discarded and never reach $model. That silently dropped all
+                    // smart_attrs / verdict / scrub fields.
+                    if (!empty($model['sections']) && is_array($model['sections'])) {
+                        foreach ($model['sections'] as &$secRef) {
+                            if (empty($secRef['tiles']) || !is_array($secRef['tiles'])) continue;
+                            foreach ($secRef['tiles'] as &$tRef) {
+                                // Scrub data attaches to whichever tile names the pool.
+                                $scrub = $scrubMap[(string)($tRef['name'] ?? '')] ?? null;
+                                $tRef['scrub_last_ts'] = $scrub['last_ts'] ?? null;
+                                $tRef['scrub_frag']    = $scrub['frag'] ?? null;
+                                $tRef['scrub_next_ts'] = $schedMap[(string)($tRef['name'] ?? '')] ?? null;
+
+                                if (!empty($tRef['is_summary'])) {
+                                    $tRef['smart_attrs'] = null;
+                                    $tRef['verdict'] = '';
+                                    $tRef['verdict_sev'] = 'na';
+                                    continue;
+                                }
+                                $dev = (string)($tRef['device'] ?? '');
+                                $attrs = $smartMap[$dev] ?? null;
+                                $tRef['smart_attrs'] = $attrs;
+                                [$vLabel, $vSev] = self::smartVerdict($attrs);
+                                $tRef['verdict'] = $vLabel;
+                                $tRef['verdict_sev'] = $vSev;
+                            }
+                            unset($tRef);
+                        }
+                        unset($secRef);
+                    }
+
+                    $totalSize = 0; $totalUsed = 0; $totalFree = 0;
+                    $healthy = 0; $warning = 0; $critical = 0;
+                    $hotTemp = -999; $hotName = '';
+                    $rank = ['ok' => 0, 'warning' => 1, 'critical' => 2];
+
+                    foreach (($model['sections'] ?? []) as $sec) {
+                        $tiles = $sec['tiles'] ?? [];
+
+                        // Capacity: prefer the section's summary tile (it already
+                        // sums its members); if the section has none, add the
+                        // standalone non-parity non-member tiles individually.
+                        $summary = null;
+                        foreach ($tiles as $t) {
+                            if (!empty($t['is_summary'])) { $summary = $t; break; }
+                        }
+                        if ($summary) {
+                            $totalSize += (int)($summary['size'] ?? 0);
+                            $totalUsed += (int)($summary['used'] ?? 0);
+                            $totalFree += (int)($summary['free'] ?? 0);
+                        } else {
+                            foreach ($tiles as $t) {
+                                if (!empty($t['is_parity']) || !empty($t['is_pool_member'])) continue;
+                                $totalSize += (int)($t['size'] ?? 0);
+                                $totalUsed += (int)($t['used'] ?? 0);
+                                $totalFree += (int)($t['free'] ?? 0);
+                            }
+                        }
+
+                        // Health + temperature over the real disks (skip
+                        // aggregates so we don't count a section twice).
+                        foreach ($tiles as $t) {
+                            if (!empty($t['is_summary'])) continue;
+                            $smart = (string)($t['smart'] ?? 'unknown');
+                            if ($smart === 'critical')      $critical++;
+                            elseif ($smart === 'warning')   $warning++;
+                            elseif ($smart === 'healthy')   $healthy++;
+
+                            $rawT = $t['temp'] ?? '';
+                            if ($rawT !== '' && $rawT !== '*' && $rawT !== '-') {
+                                $n = (int)$rawT;
+                                if ($n > $hotTemp) { $hotTemp = $n; $hotName = (string)($t['display_name'] ?? $t['name'] ?? ''); }
+                            }
+                        }
+                    }
+
+                    $model['overview'] = [
+                        'total_size'    => $totalSize,
+                        'total_used'    => $totalUsed,
+                        'total_free'    => $totalFree,
+                        'used_pct'      => $totalSize > 0 ? round($totalUsed / $totalSize * 100, 1) : 0,
+                        'healthy'       => $healthy,
+                        'warning'       => $warning,
+                        'critical'      => $critical,
+                        'hottest_temp'  => $hotTemp > -999 ? $hotTemp : null,
+                        'hottest_name'  => $hotName,
+                        'device_count'  => (int)($model['total_devices'] ?? 0),
+                        'temp_unit'     => $model['cfg']['temp_unit'] ?? 'C',
+                    ];
+                    echo json_encode($model, JSON_UNESCAPED_SLASHES);
                     return;
 
                 case 'speeds':

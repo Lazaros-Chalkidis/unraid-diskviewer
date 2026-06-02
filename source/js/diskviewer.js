@@ -24,7 +24,7 @@
     var cfg = window.diskviewerConfig || {};
     var dragStepRows    = +cfg.dragStepRows || 1;
     var refreshEnabled  = cfg.refreshEnabled !== false;
-    var refreshInterval = +cfg.refreshInterval || 30000;
+    var refreshInterval = +cfg.refreshInterval || 20000;
     var warningPct      = +cfg.warningPct  || 95;
     var criticalPct     = +cfg.criticalPct || 98;
     var tempWarning     = +cfg.tempWarning  || 45;
@@ -66,6 +66,10 @@
     var poolHighlightUsed = !!cfg.poolHighlightUsed;
     var showFsBadge       = cfg.showFsBadge !== false;
     var showDiskErrors    = cfg.showDiskErrors !== false;
+    var showDecimalPct    = !!cfg.showDecimalPct;
+    var showUsedColumn    = !!cfg.showUsedColumn;
+    var showSectionIndicators = cfg.showSectionIndicators !== false;
+    var fontSize          = cfg.fontSize === 'small' ? 'small' : 'default';
     var STORAGE_KEY  = 'dv_expand_v3';   // v1: row counts under different semantics
                                           // v2: extras above a fixed 8-row baseline
                                           // v3: extras above a section-level baseline (DEFAULT_EXPAND_ROWS as 0..3)
@@ -119,13 +123,20 @@
     // ============================================================================
 
     // ── Helpers ────────────────────────────────────────────────────────
+    // formatBytes uses decimal (1000-based) units, not binary (1024-based).
+    // This matches the convention Unraid's Main page uses and the marketing
+    // size printed on the drive itself: a 2TB drive reads as 2 TB, a 16TB
+    // drive reads as 16 TB - not 1.8 TB / 14.6 TB which is the same physical
+    // capacity expressed in binary GiB/TiB. Keeping the GB/TB labels (rather
+    // than the technically-correct GiB/TiB) since that's the convention
+    // every consumer-facing Unraid surface uses too.
     function formatBytes(bytes, precision){
         if (!bytes || bytes <= 0) return '0 B';
         if (precision === undefined) precision = 1;
         var units = ['B','KB','MB','GB','TB','PB'];
-        var i = Math.floor(Math.log(bytes) / Math.log(1024));
+        var i = Math.floor(Math.log(bytes) / Math.log(1000));
         i = Math.min(i, units.length - 1);
-        var val = bytes / Math.pow(1024, i);
+        var val = bytes / Math.pow(1000, i);
         var str;
         if (i >= 3) {
             str = val.toFixed(precision).replace(/\.?0+$/, '');
@@ -172,6 +183,9 @@
     // The same colour token (--dv-warn) is reused so the indicator
     // tracks the rest of the warning palette across themes.
     var WARN_TRIANGLE_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2L1 22h22L12 2zm0 4.45L19.95 20H4.05L12 6.45zM11 10v5h2v-5h-2zm0 6v2h2v-2h-2z"/></svg>';
+
+    // Thermometer glyph for the section-header high-temperature indicator.
+    var THERMO_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0zm-3-9a1 1 0 0 1 1 1v3h-2V5a1 1 0 0 1 1-1z"/></svg>';
 
 
     // ============================================================================
@@ -292,7 +306,7 @@
     // colour means "look here, something is off".
     function renderColumnHeaders(colSev){
         colSev = colSev || { pct: 'ok', temp: 'ok', health: 'ok' };
-        var pctCls    = 'dv-colhd-pct'    + severityModifier('dv-colhd-pct',    colSev.pct);
+        var usedCls   = 'dv-colhd-used'   + severityModifier('dv-colhd-used',   colSev.pct);
         var tempCls   = 'dv-colhd-temp'   + severityModifier('dv-colhd-temp',   colSev.temp);
         var healthCls = 'dv-colhd-health' + severityModifier('dv-colhd-health', colSev.health);
         return '<div class="dv-colhd">' +
@@ -300,8 +314,7 @@
             '<span class="dv-colhd-name">DISK</span>' +
             '<span class="dv-colhd-size">SIZE</span>' +
             '<span class="dv-colhd-free">FREE</span>' +
-            '<span class="' + pctCls + '">Used</span>' +
-            '<span></span>' +                                   // mini bar
+            '<span class="' + usedCls + '">USED</span>' +
             '<span class="dv-colhd-speed">SPEED R/W</span>' +
             '<span class="' + tempCls + '">TEMP</span>' +
             '<span class="' + healthCls + '">H</span>' +
@@ -332,9 +345,33 @@
             // for reads, red for writes. The number itself stays in the
             // default text colour - only the arrow takes the accent.
             var dirCls = isRead ? 'dv-col-speed--r' : 'dv-col-speed--w';
-            return '<span class="dv-col-speed ' + dirCls + '">' + arrow + formatBytes(speed) + '/s</span>';
+            return '<span class="dv-col-speed ' + dirCls + '">' + arrow
+                 + '<span class="dv-col-speed-num">' + formatBytes(speed) + '/s</span></span>';
         }
         return '<span class="dv-col-speed-na">-</span>';
+    }
+
+    // Update a speed cell in place. When the disk keeps reading/writing in the
+    // same direction we only rewrite the number text, leaving the arrow element
+    // alone, so steady throughput reads as a smooth flow rather than the whole
+    // cell flashing on every poll. Start/stop or a direction flip rebuilds.
+    function updateSpeedCell(cell, o){
+        var spun  = !!o.spun;
+        var speed = +o.speed || 0;
+        if (!(spun && speed > 0)) {
+            if (!cell.querySelector('.dv-col-speed-na')) cell.innerHTML = '<span class="dv-col-speed-na">-</span>';
+            return;
+        }
+        var wantCls = (String(o.speedDir || '') === 'r') ? 'dv-col-speed--r' : 'dv-col-speed--w';
+        var span = cell.querySelector('.dv-col-speed');
+        var numTxt = formatBytes(speed) + '/s';
+        if (span && span.className.indexOf(wantCls) !== -1) {
+            var numEl = span.querySelector('.dv-col-speed-num');
+            if (numEl) { if (numEl.textContent !== numTxt) numEl.textContent = numTxt; }
+            else cell.innerHTML = buildSpeedHtml(o);
+        } else {
+            cell.innerHTML = buildSpeedHtml(o);
+        }
     }
 
     // ── Render a single row ────────────────────────────────────────────
@@ -422,31 +459,65 @@
         //     row at the top of the section carries the real aggregate.
         // Array data disks (DISK1, DISK2, ...) keep their capacity stats
         // because each one has its own independent filesystem.
-        var sizeText, freeText;
+        var sizeText, freeText, usedText;
         var isPoolMember = !!row.is_pool_member;
         var collapseCapacity = isParity || isPoolMember;
         if (collapseCapacity) {
             sizeText = escapeHtml(formatBytes(size));
             freeText = '-';
+            usedText = '-';
         } else if (size > 0) {
             sizeText = escapeHtml(formatBytes(size));
             freeText = escapeHtml(formatBytes(free));
+            usedText = escapeHtml(formatBytes(size - free));
         } else {
             sizeText = '-';
             freeText = '-';
+            usedText = '-';
         }
 
-        // Percentage column
-        var pctClass = severity === 'critical' ? 'dv-col-pct dv-col-pct--crit' :
-                       severity === 'warning'  ? 'dv-col-pct dv-col-pct--warn' : 'dv-col-pct';
-        var pctDisplay = collapseCapacity ? '-' : (pct + '%');
+        // USED composite cell. Combines the percent (always) and bytes
+        // (when the Show used column toggle is on) into a single inline
+        // line, with the mini-bar stacked directly below. The bytes value
+        // is the primary number (default text colour, monospace 13px);
+        // the percent is a smaller subtext on the right of the same line
+        // and carries the severity colour so the alert function survives
+        // the visual demotion.
+        var pctText;
+        if (showDecimalPct) {
+            pctText = pct.toFixed(1) + '%';
+        } else {
+            pctText = Math.round(pct) + '%';
+        }
 
-        // Mini progress bar
+        var usedPctCls = 'dv-col-used-pct' +
+                         (severity === 'critical' ? ' dv-col-used-pct--crit' :
+                          severity === 'warning'  ? ' dv-col-used-pct--warn' : '');
+
         var fillCls = severity === 'critical' ? 'dv-bar-fill dv-bar-fill--crit' :
                       severity === 'warning'  ? 'dv-bar-fill dv-bar-fill--warn' : 'dv-bar-fill dv-bar-fill--ok';
-        var barHtml = collapseCapacity
-            ? '<div class="dv-col-bar dv-col-bar--empty"></div>'
-            : '<div class="dv-col-bar"><div class="' + fillCls + '" style="width:' + pct + '%"></div></div>';
+
+        var usedCellHtml;
+        if (collapseCapacity) {
+            // Parity / pool member rows have no meaningful per-disk usage
+            // (parity protects, pool members share storage). Render a single
+            // dash with the empty bar slot, matching how SIZE/FREE collapse.
+            usedCellHtml =
+                '<div class="dv-col-used">' +
+                    '<div class="dv-col-used-line"><span class="dv-col-used-pct">-</span></div>' +
+                    '<div class="dv-col-bar dv-col-bar--empty"></div>' +
+                '</div>';
+        } else {
+            var bytesSpan = showUsedColumn ? '<span class="dv-col-used-bytes">' + usedText + '</span>' : '';
+            usedCellHtml =
+                '<div class="dv-col-used">' +
+                    '<div class="dv-col-used-line">' +
+                        bytesSpan +
+                        '<span class="' + usedPctCls + '">' + pctText + '</span>' +
+                    '</div>' +
+                    '<div class="dv-col-bar"><div class="' + fillCls + '" style="width:' + pct + '%"></div></div>' +
+                '</div>';
+        }
 
         // Speed / errors column
         var speedHtml = buildSpeedHtml({
@@ -504,8 +575,7 @@
             '<div class="dv-col-name">' + nameHtml + '</div>' +
             '<span class="dv-col-size">' + sizeText + '</span>' +
             '<span class="dv-col-free">' + freeText + '</span>' +
-            '<span class="' + pctClass + '">' + pctDisplay + '</span>' +
-            barHtml +
+            usedCellHtml +
             '<span class="dv-col-speed-wrap">' + speedHtml + '</span>' +
             '<span class="' + tempCls + '">' + escapeHtml(tempText) + '</span>' +
             '<span class="dv-col-thumb">' + thumbHtml + '</span>' +
@@ -538,37 +608,106 @@
             if (rows[i].is_summary) { hasSummary = true; break; }
         }
 
-        // Build the per-section "disks with errors" list. Aggregate
-        // summary tiles are skipped - their errors field already sums
-        // the members, so including them would double-count. The label
-        // shown in the tooltip uses display_name (when set, e.g. multi-
-        // disk pool members rendered as "Device N") so the name in the
-        // tooltip matches what the user sees in the widget rows.
-        var badDisks = [];
-        if (showDiskErrors) {
-            for (var bi = 0; bi < rows.length; bi++) {
-                var bt = rows[bi];
-                if (bt.is_summary) continue;
+        // Build the per-section indicator lists for the three axes shown
+        // next to the section label: errors, high temperature, bad health.
+        // Each entry records a human label so the hover toast can name the
+        // affected disks. Summary tiles are skipped (their fields already
+        // roll up members, so counting them would double-count).
+        var rankS = { ok: 0, warning: 1, critical: 2 };
+        var errDisks = [], healthDisks = [];
+        var tempWarnDisks = [], tempCritDisks = [];
+        var tempCritBlink = false;
+        var healthWorst = 'warning';
+
+        for (var bi = 0; bi < rows.length; bi++) {
+            var bt = rows[bi];
+            if (bt.is_summary) continue;
+            var dlabel = bt.display_name || bt.name || '?';
+
+            // Errors
+            if (showDiskErrors) {
                 var errCount = +bt.errors || 0;
                 if (errCount > 0) {
-                    var dlabel = bt.display_name || bt.name || '?';
-                    badDisks.push(dlabel + ' (' + errCount + ' error' + (errCount === 1 ? '' : 's') + ')');
+                    errDisks.push(dlabel + ' (' + errCount + ' error' + (errCount === 1 ? '' : 's') + ')');
                 }
             }
+
+            // Temperature - classify from the raw value with per-disk
+            // thresholds, same logic as the column-header severity. Warning
+            // and critical are tracked separately so each gets its own
+            // indicator. A disk more than 10% over its critical threshold
+            // flags the critical indicator to blink.
+            var raw = bt.temp;
+            if (raw && raw !== '*' && raw !== '-') {
+                var n = parseInt(raw, 10);
+                if (!isNaN(n)) {
+                    var tWarn = +bt.temp_warning  || tempWarning;
+                    var tCrit = +bt.temp_critical || tempCritical;
+                    if (n >= tCrit) {
+                        tempCritDisks.push(dlabel + ' (' + n + '\u00b0)');
+                        if (n >= tCrit * 1.10) tempCritBlink = true;
+                    } else if (n >= tWarn) {
+                        tempWarnDisks.push(dlabel + ' (' + n + '\u00b0)');
+                    }
+                }
+            }
+
+            // SMART health
+            var smart = bt.smart || 'unknown';
+            var hsev = smart === 'critical' ? 'critical' : smart === 'warning' ? 'warning' : 'ok';
+            if (hsev !== 'ok') {
+                healthDisks.push(dlabel);
+                if (rankS[hsev] > rankS[healthWorst]) healthWorst = hsev;
+            }
         }
-        var warnHtml = '';
-        if (badDisks.length > 0) {
-            // Custom toast (matches the dv-row-toast styling used
-            // elsewhere in the widget) instead of the browser-native
-            // title-attribute tooltip. The toast lives inside the
-            // wrapper span so a relative position on the parent keeps
-            // it anchored next to the triangle on hover.
-            var toastText = 'Disk errors: ' + badDisks.join(', ');
-            warnHtml = '<span class="dv-section-warn">'
-                     + WARN_TRIANGLE_SVG
-                     + '<span class="dv-row-toast dv-row-toast--warn">' + escapeHtml(toastText) + '</span>'
-                     + '</span>';
+
+        // Assemble the indicator cluster. Each indicator is an icon plus a
+        // small count badge pinned to its top-right, and a hover toast that
+        // names the affected disks. The whole cluster is gated behind the
+        // Show section indicators toggle.
+        var indHtml = '';
+        // Build a toast body as a title line followed by one disk per line, so
+        // the affected disks stack vertically (same shape as the header badge
+        // tooltip) instead of running together on one comma-separated line.
+        function toastInner(title, items) {
+            var s = '<span class="dv-toast-title">' + escapeHtml(title) + '</span>';
+            for (var i = 0; i < items.length; i++) {
+                s += '<span class="dv-toast-item">' + escapeHtml(items[i]) + '</span>';
+            }
+            return s;
         }
+        if (showSectionIndicators) {
+            if (errDisks.length > 0) {
+                indHtml += '<span class="dv-section-ind dv-section-ind--err">'
+                         + WARN_TRIANGLE_SVG
+                         + '<span class="dv-section-ind-badge">' + errDisks.length + '</span>'
+                         + '<span class="dv-row-toast dv-row-toast--warn">' + toastInner('Disk errors', errDisks) + '</span>'
+                         + '</span>';
+            }
+            if (tempWarnDisks.length > 0) {
+                indHtml += '<span class="dv-section-ind dv-section-ind--warn">'
+                         + THERMO_SVG
+                         + '<span class="dv-section-ind-badge">' + tempWarnDisks.length + '</span>'
+                         + '<span class="dv-row-toast dv-row-toast--warn">' + toastInner('High temp (warning)', tempWarnDisks) + '</span>'
+                         + '</span>';
+            }
+            if (tempCritDisks.length > 0) {
+                var critBlinkCls = tempCritBlink ? ' dv-section-ind--blink' : '';
+                indHtml += '<span class="dv-section-ind dv-section-ind--crit' + critBlinkCls + '">'
+                         + THERMO_SVG
+                         + '<span class="dv-section-ind-badge">' + tempCritDisks.length + '</span>'
+                         + '<span class="dv-row-toast dv-row-toast--crit">' + toastInner('High temp (critical)', tempCritDisks) + '</span>'
+                         + '</span>';
+            }
+            if (healthDisks.length > 0) {
+                indHtml += '<span class="dv-section-ind dv-section-ind--crit dv-section-ind--health">'
+                         + THUMB_SVG
+                         + '<span class="dv-section-ind-badge">' + healthDisks.length + '</span>'
+                         + '<span class="dv-row-toast dv-row-toast--crit">' + toastInner('Health', healthDisks) + '</span>'
+                         + '</span>';
+            }
+        }
+        var warnHtml = indHtml;
 
         var html = '<div class="dv-section" data-section="' + escapeHtml(secId) + '">';
         html += '<div class="dv-section-hd">';
@@ -653,6 +792,7 @@
         // specificity than the zebra paint warn/crit colours over the
         // dv-row--warn / --crit rows in the cache and pool sections.
         container.classList.toggle('dv-pool-highlight', poolHighlightUsed);
+        container.classList.toggle('dv-font-small', fontSize === 'small');
 
         // Clamp saved expandRows to the current model (disk count may
         // have changed since the value was stored). Using scrollHeight
@@ -878,20 +1018,11 @@
             if (!d) continue;
             var cell = row.querySelector('.dv-col-speed-wrap');
             if (!cell) continue;
-            var html = buildSpeedHtml({
-                errors:    d.errors,
-                spun:      d.spun,
-                speed:     d.speed_bps,
-                speedDir:  d.speed_dir,
-                isSummary: false,         // not present in the response
-                isParity:  d.is_parity
+            updateSpeedCell(cell, {
+                spun:     d.spun,
+                speed:    d.speed_bps,
+                speedDir: d.speed_dir
             });
-            // Compare against the cached HTML on the cell DOM node itself.
-            // Stash on a non-standard attribute so it survives between calls
-            // without us having to maintain a parallel WeakMap.
-            if (cell._dvLastHtml === html) continue;
-            cell._dvLastHtml = html;
-            cell.innerHTML = html;
         }
 
         // Recompute summary row speed cells locally - sum of member tile
@@ -921,15 +1052,11 @@
                 if (md.spun) anyMemberSpun = true;
             }
             var totalSum = sumR + sumW;
-            var summaryHtml = buildSpeedHtml({
-                errors: 0,
+            updateSpeedCell(summaryCell, {
                 spun: anyMemberSpun,
                 speed: totalSum,
                 speedDir: totalSum > 0 ? (sumR >= sumW ? 'r' : 'w') : ''
             });
-            if (summaryCell._dvLastHtml === summaryHtml) continue;
-            summaryCell._dvLastHtml = summaryHtml;
-            summaryCell.innerHTML   = summaryHtml;
         }
 
         // Keep lastModel speed fields in sync so any future full render
@@ -1571,7 +1698,7 @@
             cfg = window.diskviewerConfig || {};
             dragStepRows    = +cfg.dragStepRows || 1;
             refreshEnabled  = cfg.refreshEnabled !== false;
-            refreshInterval = +cfg.refreshInterval || 30000;
+            refreshInterval = +cfg.refreshInterval || 20000;
             warningPct      = +cfg.warningPct  || 95;
             criticalPct     = +cfg.criticalPct || 98;
             tempWarning     = +cfg.tempWarning  || 45;
@@ -1585,6 +1712,10 @@
             poolHighlightUsed = !!cfg.poolHighlightUsed;
             showFsBadge       = cfg.showFsBadge !== false;
             showDiskErrors    = cfg.showDiskErrors !== false;
+            showDecimalPct    = !!cfg.showDecimalPct;
+            showUsedColumn    = !!cfg.showUsedColumn;
+            showSectionIndicators = cfg.showSectionIndicators !== false;
+            fontSize          = cfg.fontSize === 'small' ? 'small' : 'default';
 
             // Re-bind handlers on the new DOM nodes. Without this, the drag
             // handle in the new tile fragment has no listeners attached.

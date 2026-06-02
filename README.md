@@ -1,39 +1,46 @@
 # Disk Viewer for Unraid
 
-A compact dashboard widget that replaces Unraid's default per-pool disk widgets with a single, scannable grid showing all array disks, pool disks, and unassigned devices. Designed for servers with many disks where the stock widgets consume too much screen space.
+A compact dashboard widget that replaces Unraid's per-pool disk widgets with a single grid of all array, pool, and unassigned devices. Adds a full-page Tools view with detailed SMART, temperature, and capacity columns. Ideal for servers with many disks.
 
 <p align="center">
   <img src="https://img.shields.io/github/v/release/Lazaros-Chalkidis/unraid-diskviewer?label=Latest%20Version&color=blue" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/last-commit/Lazaros-Chalkidis/unraid-diskviewer?label=Last%20Update" style="margin: 4px;" />&nbsp;
-  <img src="https://img.shields.io/github/downloads/Lazaros-Chalkidis/unraid-diskviewer/total?label=Downloads&color=brightgreen" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/issues/Lazaros-Chalkidis/unraid-diskviewer?label=Issues" style="margin: 4px;" />&nbsp;
+  <img src="https://img.shields.io/github/downloads/Lazaros-Chalkidis/unraid-diskviewer/total?label=Downloads&color=brightgreen" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/license/Lazaros-Chalkidis/unraid-diskviewer?label=License" style="margin: 4px;" />
 </p>
 
 ## Features
 
-- Dashboard Widget: Monitor every disk on your Unraid server in real-time from the dashboard
+- Dashboard Widget: Monitor every disk on your Unraid server in real time from the dashboard
+- Tools Page: A full-page view under Tools > Disk Viewer with a wide table of every disk and detailed SMART, temperature, capacity, scrub, and health columns, with its own independent settings
 - Section Organisation: Disks grouped under ARRAY, CACHE, POOLS, and UNASSIGNED with independent show/hide toggles
 - At-a-Glance Stats: Capacity, free space, used percentage, temperature, current read/write speed, and SMART health per disk
 - Drag-to-Resize: Footer handle to reveal more rows or shrink the widget back down without leaving the dashboard
-- Manual Spin Control: Per-disk bolt button to spin up or spin down on demand, with bulk controls at section headers for groups
-- Spindown Respect: Skips waking disks to read temperature or SMART when they are asleep, configurable
-- Header Bar Indicator: Thumb-up icon in the WebGUI top bar showing worst current state across all disks, click-action configurable
-- Severity Highlighting: Used percentage and temperature colour-shift to warning or critical based on Unraid's native Display thresholds
-- Auto Refresh: Configurable polling interval from 5 to 300 seconds for live disk state updates
+- Manual Spin Control: Per-disk bolt button to spin a disk up or down on demand, with bulk controls at section headers. Array members and multi-disk pool members stay protected
+- Spindown Aware: Does not wake sleeping disks just to read temperature or SMART, and keeps showing the last-known values while they sleep
+- Header Bar Indicator: A compact disk badge in the WebGUI top bar with temperature, health, and utilization markers reflecting the worst current state, with a configurable click action
+- Severity Highlighting: Used percentage and temperature shift to warning or critical colours, either inheriting Unraid's native Display thresholds or using your own
+- Auto Refresh: Configurable polling interval for live disk state, set separately for the widget and the tool
 - Theme-Aware: Inherits the active Unraid theme (black, white, azure, gray) without override hacks
 - Mobile Responsive: Works on all screen sizes including the Unraid 7.2+ responsive WebGUI
-- Performance Friendly: Per-request memoisation, request-frame-throttled drag, CSS containment on the tile, lightweight polling
-- Settings Page: Standalone settings at Settings > Disk Viewer Settings with browser-native form submission for instant Apply
+- Persistent SMART Cache: Last-known SMART values are stored on the flash config so they survive reboots and plugin updates
+- Settings Page: Standalone settings at Settings > Disk Viewer, with per-tab Apply and Reset and browser-native form submission
 
-**Dashboard Widget**
+**Dashboard Widget Screenshot**
 
 ![Dashboard](screenshots/pc/widget1.png)
+
+**Tool page Screenshot**
+
+![Tool](screenshots/pc/tool1.png)
 
 ## Requirements
 
 - Unraid 7.2.0 or later (the widget uses the responsive tile registration API). Earlier versions render a legacy fallback.
-- Optional: the **Unassigned Devices** plugin, if you want unassigned devices to appear in the widget.
+- Optional: the **Unassigned Devices** plugin, if you want unassigned devices to appear.
+
+## Installation
 
 **Via Community Applications (recommended)**
 1. Open Community Applications in Unraid
@@ -43,55 +50,47 @@ A compact dashboard widget that replaces Unraid's default per-pool disk widgets 
 **Manual Installation**
 1. Go to Plugins in Unraid
 2. Click Install Plugin
-3. Paste the following URL:
+3. Paste the following URL and click Install:
    ```
    https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/diskviewer.plg
    ```
-3. Click **Install**.
 
-Open the dashboard. You can hide the default per-pool disk widgets from the dashboard layout editor.
+After installing, open the dashboard. You can hide the default per-pool disk widgets from the dashboard layout editor. The full table lives under Tools > Disk Viewer.
 
 ## Settings
 
-**Settings > Disk Viewer** exposes four sections:
-
-**Thresholds**
-- Warning threshold (percent, default 95)
-- Critical threshold (percent, default 98)
-- Temperature warning (Celsius, default 45)
-- Temperature critical (Celsius, default 55)
+**Settings > Disk Viewer** has two tabs, **Widget** and **Tool**, each with its own independent options and its own Apply and Reset buttons. Applying or resetting one tab never affects the other.
 
 **Behavior**
-- Automatic refresh on or off (default on)
-- Refresh interval in seconds (default 30)
-- Respect spindown on or off (default on)
-- Drag step size in rows (default 1)
+- Automatic refresh on or off
+- Refresh interval in seconds (widget default 20, tool default 10)
+- Drag step size in rows, widget only (default 1)
+- Allow spin actions: makes the bolt clickable on single-disk pool and unassigned devices. Array members and multi-disk pool members are always protected
 
 **Display**
-- Tiles per row (3 to 8, default 5)
-- Show array section
-- Show unassigned section
-- Show criticals list in header
-- Default expanded rows (default 0)
-- Section order
+- Show array, RAID groups, pool, and unassigned sections, each toggled independently
+- Header bar indicator on or off, with a click action (Open Main, Open Dashboard, or Open Settings)
+- Highlight pool disks by used percentage (widget only)
+- Show filesystem badge, disk errors, and section indicators (widget only)
+- Show used column and Decimal in used percentage (both on by default)
+- Font size (default or small)
+- Space severity highlighting: Inherit (use Unraid's native Display thresholds), Custom (your own warning and critical percentages, defaults 70 and 90), or Disabled
+
+Temperature warning and critical thresholds are read from Unraid's native Display settings.
 
 **Settings Page**
 
 ![Settings](screenshots/pc/settings1.png)
 
-**Header bar indicator**
-- Enable indicator
-- Click action: Open Main, Open Dashboard, or Open Settings
-
 **Header Badge**
 
-![Settings](screenshots/pc/header-badge.png)
+![Header badge](screenshots/pc/header-badge.png)
 
 ## How it works
 
-Disk Viewer reads `/var/local/emhttp/disks.ini` (Unraid's live disk state) and `/boot/config/pools/*.cfg` to classify each device into array, cache (or other multi-disk pool), single-disk pool, or unassigned. Unassigned devices are read from `/var/local/emhttp/plugins/unassigned.devices/unassigned.devices.ini` when the Unassigned Devices plugin is installed.
+Disk Viewer reads `/var/local/emhttp/disks.ini` (Unraid's live disk state) and `/boot/config/pools/*.cfg` to classify each device into array, cache or another multi-disk pool, single-disk pool, or unassigned. Unassigned devices are read from the Unassigned Devices plugin's ini when that plugin is installed.
 
-The widget polls the backend at the configured interval. The backend also writes a small cache file under `/tmp/diskviewer_cache/` that the header-bar button reads on its own schedule, so the header icon is responsive without depending on the widget being open.
+The widget and the tool poll the backend at their configured intervals. The backend writes a small runtime cache under `/tmp/diskviewer_cache/` that the header bar badge reads on its own schedule, so the header icon stays responsive without the widget being open. Last-known SMART attributes are cached under `/boot/config/plugins/diskviewer/` so they persist across reboots and plugin updates, keeping the SMART columns populated even while disks are asleep.
 
 ## Development
 
@@ -103,7 +102,7 @@ The widget polls the backend at the configured interval. The backend also writes
 ```bash
 ./build.sh                  # release build
 ./build.sh "" dev           # dev build
-./build.sh "" "" local      # local build (embeds .txz in .plg)
+./build.sh "" local         # local build (embeds .txz in .plg)
 ```
 
 ### Project structure
@@ -113,9 +112,11 @@ unraid-diskviewer/
 ├── source/
 │   ├── css/
 │   │   ├── widget.css
+│   │   ├── tool.css
 │   │   └── settings.css
 │   ├── js/
 │   │   ├── diskviewer.js
+│   │   ├── diskviewer-tool.js
 │   │   └── diskviewer-header.js
 │   ├── include/
 │   │   ├── diskviewer_api.php
@@ -128,7 +129,10 @@ unraid-diskviewer/
 │   ├── event/
 │   │   ├── started
 │   │   └── stopped
+│   ├── scripts/
+│   │   └── merge_cfg.sh
 │   ├── DiskViewer.page
+│   ├── DiskViewerTool.page
 │   ├── DiskViewerButton.page
 │   └── DiskViewerSettings.page
 ├── screenshots/
@@ -136,7 +140,6 @@ unraid-diskviewer/
 ├── CHANGELOG.md
 ├── ca_profile.xml
 ├── diskviewer.xml
-├── diskviewer.plg
 └── README.md
 ```
 

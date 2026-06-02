@@ -28,6 +28,14 @@ LETTER_SUFFIX="${1}"
 STAGE_INPUT="${2}"
 LOCAL_INSTALL="${3:-}"
 
+# Accept "local" as either the 2nd or 3rd positional so both documented forms
+# work: ./build.sh "" local  and  ./build.sh a dev local. Without this the
+# 2nd-arg form fell through to a release build with a bogus "-local" version.
+if [[ "$STAGE_INPUT" == "local" ]]; then
+    LOCAL_INSTALL="local"
+    STAGE_INPUT=""
+fi
+
 STAGE_SUFFIX=""
 if [[ -n "$STAGE_INPUT" && "$STAGE_INPUT" != "release" ]]; then
     STAGE_SUFFIX="-${STAGE_INPUT}"
@@ -128,10 +136,9 @@ b64_nolf() {
 # ── Default config (written to flash on first install only) ───────────────────
 read -r -d '' DEFAULT_CFG << 'CFGEOF'
 REFRESH_ENABLED="1"
-REFRESH_INTERVAL="30"
-RESPECT_SPINDOWN="1"
+REFRESH_INTERVAL="20"
 DRAG_STEP_ROWS="1"
-SHOW_UNASSIGNED="1"
+SHOW_UNASSIGNED="0"
 SHOW_ARRAY="1"
 SHOW_CACHE="1"
 DEFAULT_EXPAND_ROWS="0"
@@ -141,7 +148,7 @@ ENABLE_SPIN_BUTTON="1"
 CFGEOF
 
 # ── Shared PLG sections ───────────────────────────────────────────────────────
-PLG_DESCRIPTION="A compact dashboard widget that replaces Unraid's default per-pool disk widgets with a single grid showing all array disks, pool disks, and unassigned devices. Designed for servers with many disks where the stock widgets consume too much screen space."
+PLG_DESCRIPTION="A compact dashboard widget that replaces Unraid's per-pool disk widgets with a single grid of all array, pool, and unassigned devices. Adds a full-page Tools view with detailed SMART, temperature, and capacity columns. Ideal for servers with many disks."
 
 PLG_INSTALL_SCRIPT='# Fix ownership and permissions
 chown -R root:root /usr/local/emhttp/plugins/&name;

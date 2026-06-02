@@ -1,6 +1,27 @@
 
 # Disk Viewer
 
+## Version 2026.06.02
+
+### Fixed
+- Disk sizes now match the Unraid Main page (a 2 TB drive reads as 2 TB).
+- Disk Viewer page column headers now stay pinned while scrolling.
+- Live read/write speed updates again on its own fast cadence.
+- Used column and decimal percentage now display correctly right after a fresh install.
+- Empty Parity 2 slot no longer appears on single-parity arrays.
+
+### New Features
+- Disk Viewer page: a new full-page view under Tools > Disk Viewer with a wide table of every disk, including detailed SMART, temperature, capacity, scrub and health columns.
+- Separate Widget and Tool settings: Settings now has Widget and Tool tabs, each configured independently with its own Apply and Reset.
+- USED column now shows the used bytes next to the percentage, with optional one-decimal precision.
+- Section header indicators: small icons next to ARRAY, CACHE, RAID and POOL show how many disks have errors, high temperature, or bad health, with a tooltip listing them.
+- Font size option to shrink the disk rows and fit more on screen.
+
+### Improvements
+- Critical temperatures now stand out: a separate red indicator sits next to the amber one and pulses when a disk runs well over its limit, in both the widget and the header badge.
+- Used bytes and one-decimal percentage are now shown by default.
+- Refreshed zebra striping for a cleaner look across all themes.
+
 ## Version 2026.05.28
 
 ### Fixed

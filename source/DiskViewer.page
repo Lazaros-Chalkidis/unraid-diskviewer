@@ -98,6 +98,10 @@ $tile_config = [
     'poolHighlightUsed'   => $cfg['pool_highlight_used'],
     'showFsBadge'         => $cfg['show_fs_badge'],
     'showDiskErrors'      => $cfg['show_disk_errors'],
+    'showDecimalPct'      => $cfg['show_decimal_pct'],
+    'showUsedColumn'      => $cfg['show_used_column'],
+    'showSectionIndicators' => $cfg['show_section_indicators'],
+    'fontSize'            => $cfg['font_size'],
     'isResponsive'        => $isResponsiveWebgui,
     'initialModel'        => $initial_model,
 ];
@@ -122,6 +126,9 @@ $render_controls = static function(bool $responsive): string {
     return $wrapOpen . <<<HTML
 <a id="dv-manual-refresh" href="#" title="Refresh" aria-label="Refresh">
     <i class="fa fa-fw fa-refresh control" aria-hidden="true"></i>
+</a>
+<a id="dv-tool-icon" href="/Tools/DiskViewerTool" title="Open Disk Viewer page" aria-label="Open Disk Viewer page">
+    <i class="fa fa-fw fa-hdd-o control" aria-hidden="true"></i>
 </a>
 <a id="dv-settings-icon" href="/Settings/DiskViewerSettings" title="Disk Viewer Settings" aria-label="Disk Viewer Settings">
     <i class="fa fa-fw fa-cog control" aria-hidden="true"></i>

@@ -248,7 +248,7 @@
 .diskviewer-settings .dv-settings-panel {
   background: var(--dv-panel-bg);
   border: 1px solid var(--dv-c-border);
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
   overflow: hidden;
   padding: 0;
 }
@@ -1100,3 +1100,72 @@
 }
 
 
+
+/* ──────────────────────────────────────────────────────────────────────
+   Settings tabs (Widget / Tool). Same rounded-top tab language as the
+   tool page, orange active accent for cross-surface consistency. */
+.dv-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: .4rem;
+  margin: 0 0 -1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dv-tabs::-webkit-scrollbar { display: none; }
+.dv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .55rem .9rem;
+  border: 1px solid var(--dv-c-border);
+  border-bottom: 0;
+  border-radius: .55rem .55rem 0 0;
+  background: var(--dv-c-bg-subtle);
+  color: var(--dv-c-text-mid);
+  cursor: pointer;
+  font-weight: 700;
+  user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background .25s ease, color .25s ease, border-color .25s ease;
+}
+.dv-tab .dv-tabicon { opacity: .9; }
+.dv-tab:hover { background: var(--dv-c-bg-hover); color: var(--dv-c-text); }
+.dv-tab.active {
+  background: var(--dv-panel-bg);
+  color: var(--dv-c-text);
+  border-color: rgba(244,125,66,.55);
+  position: relative;
+  z-index: 1;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Dimmed settings block (Tool tab header-indicator options). Faded and
+   non-interactive by default; a JS heartbeat check (Phase 3) removes the
+   .dv-dimmed-block state when no dashboard widget is active, unlocking
+   these as the fallback owner of the header indicator. */
+.dv-dimmed-block {
+  position: relative;
+  opacity: .6;
+  pointer-events: none;
+  border: 1px dashed var(--dv-c-border);
+  border-radius: 6px;
+  padding: .5rem .75rem;
+  margin: .5rem 0;
+}
+.dv-dimmed-block.dv-unlocked {
+  opacity: 1;
+  pointer-events: auto;
+  border-style: solid;
+}
+.dv-dimmed-note {
+  font-size: .95rem;
+  color: var(--dv-c-text);
+  font-weight: 500;
+  padding: .25rem 0 .5rem;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+.dv-dimmed-note .fa { font-size: .95em; }
