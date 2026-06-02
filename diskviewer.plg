@@ -7,7 +7,7 @@
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "3c3ce6eb82e29787e8d256ddc7cd82c5">
+ <!ENTITY md5       "db8d5d1f69490c2c944bfd50481fd6b9">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
