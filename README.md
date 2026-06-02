@@ -29,11 +29,11 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 
 **Dashboard Widget Screenshot**
 
-![Dashboard](screenshots/pc/widget1.png)
+
 
 **Tool page Screenshot**
 
-![Tool](screenshots/pc/tool1.png)
+
 
 ## Requirements
 
@@ -80,11 +80,11 @@ Temperature warning and critical thresholds are read from Unraid's native Displa
 
 **Settings Page**
 
-![Settings](screenshots/pc/settings1.png)
+
 
 **Header Badge**
 
-![Header badge](screenshots/pc/header-badge.png)
+
 
 ## How it works
 
