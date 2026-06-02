@@ -80,11 +80,11 @@ Temperature warning and critical thresholds are read from Unraid's native Displa
 
 **Settings Page**
 
-
+![Settings](screenshots/pc/settings1.png)
 
 **Header Badge**
 
-
+![Header badge](screenshots/pc/header-badge.png)
 
 ## How it works
 
