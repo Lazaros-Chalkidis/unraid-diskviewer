@@ -1,0 +1,103 @@
+Menu="SystemInformation"
+Name="Disk Viewer"
+Icon="img/diskviewer.png"
+Type="xmenu"
+Tabs="false"
+Title="Disk Viewer"
+---
+<?php
+/* Disk Viewer -- Tool page (System Information).
+   Standalone deep-status page, fully separate from the dashboard widget.
+   Its own page / js (diskviewer-tool.js) / css (tool.css). The shared data
+   layer is diskviewer_api.php, reached via ?action= routes the same way the
+   widget polls it. */
+
+require_once '/usr/local/emhttp/plugins/dynamix/include/Helpers.php';
+require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php';
+
+$cfg = @parse_plugin_cfg('diskviewer', true) ?: [];
+
+// Theme detection. Mirror the widget convention: white + azure read as the
+// light family, black + gray as dark. The tool uses a single dvt-light class
+// (two-state) rather than the widget's four-theme tuning - the tool surfaces
+// are simpler and don't need per-theme accent shifts.
+$dynamix_cfg  = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+$unraid_theme = $dynamix_cfg['display']['theme'] ?? '';
+$dvt_light    = in_array($unraid_theme, ['white', 'azure'], true);
+$lightClass   = $dvt_light ? ' dvt-light' : '';
+
+$tool_config = [
+    'dvToken'    => DiskViewerEndpoint::generateNonce(),
+    'csrfToken'  => (string)($var['csrf_token'] ?? ''),
+    'lightTheme' => $dvt_light,
+];
+$tool_config_json = json_encode($tool_config, JSON_UNESCAPED_SLASHES);
+?>
+
+<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/tool.css">
+<script>window.diskviewerToolConfig = <?= $tool_config_json ?>;</script>
+
+<div class="dvt-wrapper<?= $lightClass ?>">
+
+  <div class="dvt-panel">
+
+    <!-- ── OVERVIEW TAB ───────────────────────────────────────────────── -->
+    <div class="dvt-tab-panel" id="dvtPanelOverview">
+      <div class="dvt-header">
+        <div class="dvt-header__left">
+          <img src="/plugins/diskviewer/img/diskviewer.png" class="dvt-header__icon" alt="">
+          <div>
+            <h2 class="dvt-header__title">Disk Viewer</h2>
+            <span class="dvt-header__sub" id="dvt-subtitle"></span>
+          </div>
+        </div>
+        <div class="dvt-header__right">
+          <div class="dvt-header__icons">
+            <a href="/Settings/DiskViewerSettings" title="Settings"><i class="fa fa-cog" aria-hidden="true"></i></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="dvt-overview-disks" id="dvt-overview-disks">
+        <!-- disk sections render here -->
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script defer src="/plugins/diskviewer/js/diskviewer-tool.js"></script>
+
+<script>
+/*
+ * Page width unlocker. The dynamix template wraps standalone plugin pages in
+ * a content container with a max-width around 1180px, leaving large gutters
+ * on 2K/4K monitors. This walks up from .dvt-wrapper and removes any
+ * max-width on ancestors narrower than the viewport. No-op when the wrapper
+ * is absent. Same approach as the StreamViewer tool page.
+ */
+(function() {
+    'use strict';
+    function unlockAncestors() {
+        var wrap = document.querySelector('.dvt-wrapper');
+        if (!wrap) return;
+        var vw = window.innerWidth || document.documentElement.clientWidth;
+        var el = wrap.parentElement;
+        while (el && el !== document.documentElement) {
+            var cs = window.getComputedStyle(el);
+            var mw = parseFloat(cs.maxWidth);
+            if (!isNaN(mw) && mw > 0 && mw < vw) {
+                el.style.setProperty('max-width', 'none', 'important');
+            }
+            el = el.parentElement;
+        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', unlockAncestors);
+    } else {
+        unlockAncestors();
+    }
+    window.addEventListener('resize', unlockAncestors);
+})();
+</script>

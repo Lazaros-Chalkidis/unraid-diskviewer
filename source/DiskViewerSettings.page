@@ -1,0 +1,1184 @@
+Menu="Utilities"
+Icon="img/diskviewer.png"
+Title="Disk Viewer Settings"
+---
+<?php
+/* ============================================================================
+   DISK VIEWER  -  Settings Page
+   /plugins/diskviewer/DiskViewerSettings.page
+
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+
+   Renders Settings > Utilities > Disk Viewer Settings. Handles its own
+   POST submission (write diskviewer.cfg) and emits the form HTML plus
+   the inline JavaScript that wires AJAX apply, reset-to-defaults, and
+   the credits modal.
+
+   Section ordering:
+     1. Server-side: sanitizers, POST handler, defaults, theme, version
+     2. Style includes & FOUC suppression
+     3. Top credits link
+     4. Form helpers (toggle closures)
+     5. Settings panel sections (Behavior / Display / Header / Spin)
+     6. Action bar (Apply / Reset / Done)
+     7. Footer row (support + version)
+     8. Credits modal markup
+     9. Inline JavaScript (section collapse, AJAX apply, reset, modal)
+   ========================================================================= */
+
+require_once '/usr/local/emhttp/plugins/dynamix/include/Helpers.php';
+require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php';
+
+const DV_PLUGIN   = 'diskviewer';
+const DV_CFG_FILE = '/boot/config/plugins/diskviewer/diskviewer.cfg';
+
+
+// ============================================================================
+// 1. Server-side: sanitizers, POST handler, defaults, theme, version
+// ============================================================================
+
+// ── Sanitizers ─────────────────────────────────────────────────────────────
+$yn = static fn($v, $d = '0') => ((string)($v ?? $d) === '1') ? '1' : '0';
+
+$clamp_int = static function($v, int $min, int $max, int $default): string {
+    $n = is_numeric($v) ? (int)$v : $default;
+    if ($n < $min) $n = $min;
+    if ($n > $max) $n = $max;
+    return (string)$n;
+};
+
+$clamp_interval = static function($v): string {
+    $allowed = ['5','10','20','30','50','80','100'];
+    return in_array((string)$v, $allowed, true) ? (string)$v : '20';
+};
+
+// ── POST handler ───────────────────────────────────────────────────────────
+// Simple browser POST submission, matching the pattern Logs Viewer (and
+// Stream Viewer) use. The form submits natively (no AJAX, no
+// preventDefault), this block writes the cfg file, and execution falls
+// through to the rest of the page which re-reads the cfg and renders
+// every field at its persisted value. The browser sees a normal 200 OK
+// and displays the response.
+//
+// Why no CSRF: emhttpd's session auth gates the WebGUI in front of
+// every plugin page, and /boot/config is root-write-only at the
+// filesystem level. Other Unraid plugins (Logs Viewer, Stream Viewer,
+// the official dynamix.* settings pages) follow the same convention -
+// adding a CSRF check here was breaking Apply with no actual
+// security improvement to show for it, since cross-origin POSTs are
+// already blocked by emhttpd's session cookie + same-site policy.
+//
+// Why no AJAX: the previous AJAX flow tried to keep the user on the
+// page and reload via JS, but ran into race conditions with CSRF
+// rotation, browser caching of POST responses, and the dashboard
+// auto-refresh DOM swap. A plain submit Just Works.
+if (isset($_POST['#apply'])) {
+    // Per-tab apply: load the settings already on disk and overlay only the
+    // keys of the tab that was actually submitted, so applying the Widget tab
+    // never overwrites Tool settings and vice versa. DV_ACTIVE_TAB is global.
+    $new_cfg = @parse_ini_file(DV_CFG_FILE) ?: [];
+
+    $tabIn = (string)($_POST['dv_active_tab'] ?? 'widget');
+    $tabIn = in_array($tabIn, ['widget','tool'], true) ? $tabIn : 'widget';
+    $new_cfg['DV_ACTIVE_TAB'] = $tabIn;
+
+    if ($tabIn === 'widget') {
+    // Behavior
+    $new_cfg['REFRESH_ENABLED']   = $yn($_POST['REFRESH_ENABLED']  ?? '1', '1');
+    $new_cfg['REFRESH_INTERVAL']  = $clamp_interval($_POST['REFRESH_INTERVAL'] ?? 20);
+    $new_cfg['DRAG_STEP_ROWS']    = $clamp_int($_POST['DRAG_STEP_ROWS'] ?? 1, 1, 5, 1);
+    // Allow spin actions (moved here from the removed Spin control section).
+    // The backend guard inside diskviewer_api.php still blocks parity and
+    // multi-disk pool members regardless of this toggle.
+    $new_cfg['ENABLE_SPIN_BUTTON']   = $yn($_POST['ENABLE_SPIN_BUTTON'] ?? '1', '1');
+
+    // Display
+    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '0', '0');
+    $new_cfg['SHOW_ARRAY']           = $yn($_POST['SHOW_ARRAY']           ?? '1', '1');
+    $new_cfg['SHOW_CACHE']           = $yn($_POST['SHOW_CACHE']           ?? '1', '1');
+    $new_cfg['SHOW_POOLS']           = $yn($_POST['SHOW_POOLS']           ?? '1', '1');
+    // Header bar indicator toggle - moved here from its own section, kept
+    // as a Display option since it controls whether the Unraid header
+    // badge is rendered.
+    $new_cfg['HEADER_SHOW_BADGE']    = $yn($_POST['HEADER_SHOW_BADGE'] ?? '1', '1');
+    // Header click action - which Unraid page opens when the user
+    // clicks the indicator. Whitelisted to main / widget / settings;
+    // anything else falls back to 'main'. The JS polls the click
+    // action from the server every 30s, so changing this setting
+    // takes effect on the next poll without a page refresh.
+    $clickActionIn = (string)($_POST['HEADER_CLICK_ACTION'] ?? 'main');
+    $new_cfg['HEADER_CLICK_ACTION']  = in_array($clickActionIn, ['main','widget','tool','settings'], true)
+        ? $clickActionIn : 'main';
+    // Pool severity highlight - when on, single-disk pool tiles whose
+    // used % crosses warning/critical threshold paint amber/red over
+    // the zebra background. Default off so the zebra reads as a clean
+    // table on fresh installs.
+    $new_cfg['POOL_HIGHLIGHT_USED']  = $yn($_POST['POOL_HIGHLIGHT_USED'] ?? '0', '1');
+    // FS badge on aggregate rows.
+    $new_cfg['SHOW_FS_BADGE']        = $yn($_POST['SHOW_FS_BADGE'] ?? '1', '1');
+    // Disk error indicator master switch (warning triangle in section
+    // headers + disk-silhouette tint on the Unraid header indicator).
+    // Default on - error detection is one of the most useful signals
+    // the widget provides, so it should be visible unless the user
+    // explicitly turns it off.
+    $new_cfg['SHOW_DISK_ERRORS']     = $yn($_POST['SHOW_DISK_ERRORS'] ?? '1', '1');
+    // Decimal precision on the USED % column. Default off - integer
+    // percent ("65%") stays the baseline; enabling it shows one decimal
+    // ("65.4%") which is useful on multi-TB drives where 1% can hide
+    // over 100 GB of capacity.
+    $new_cfg['SHOW_DECIMAL_PCT']     = $yn($_POST['SHOW_DECIMAL_PCT'] ?? '1', '1');
+    // USED bytes column. Default off so the upgrade doesn't disrupt
+    // the layout existing users are used to. When on, an extra column
+    // is inserted between SIZE and FREE showing the absolute used
+    // bytes (matches Unraid Main page column order).
+    $new_cfg['SHOW_USED_COLUMN']     = $yn($_POST['SHOW_USED_COLUMN'] ?? '1', '1');
+    // Section-header indicators (errors / high-temp / bad-health icons
+    // with disk counts next to ARRAY/CACHE/RAID/POOL labels). Default on.
+    $new_cfg['SHOW_SECTION_INDICATORS'] = $yn($_POST['SHOW_SECTION_INDICATORS'] ?? '1', '1');
+    // Widget font size for disk-info rows. Whitelisted; anything unknown
+    // falls back to default.
+    $new_cfg['FONT_SIZE']            = in_array($_POST['FONT_SIZE'] ?? 'default', ['default','large'], true) ? $_POST['FONT_SIZE'] : 'default';
+
+    // Space severity. Mode is a 3-option whitelist; the two custom percent
+    // values are clamped to a sane band. Note: critical-must-exceed-warning
+    // is enforced on the read side (DiskViewerEndpoint::config) too, so a
+    // user typing identical values won't break colour coding - the resolver
+    // bumps critical to warning+1 silently.
+    $mode_in = strtolower((string)($_POST['SPACE_SEVERITY_MODE'] ?? 'inherit'));
+    $new_cfg['SPACE_SEVERITY_MODE'] = in_array($mode_in, ['inherit','custom','disabled'], true)
+        ? $mode_in : 'inherit';
+    $new_cfg['SPACE_WARNING_PCT']   = $clamp_int($_POST['SPACE_WARNING_PCT']  ?? 70,  1,  99,  70);
+    $new_cfg['SPACE_CRITICAL_PCT']  = $clamp_int($_POST['SPACE_CRITICAL_PCT'] ?? 90,  2, 100,  90);
+
+    } else {
+    // ── TOOL PAGE SETTINGS (independent of the widget) ──────────────────
+    // Same options as the widget, configured separately for the standalone
+    // Disk Viewer page. Same clamps/whitelists. DRAG_STEP_ROWS is not
+    // mirrored - the tool shows every row, there is no drag-to-expand.
+    $new_cfg['TOOL_REFRESH_ENABLED']     = $yn($_POST['TOOL_REFRESH_ENABLED'] ?? '1', '1');
+    $new_cfg['TOOL_REFRESH_INTERVAL']    = $clamp_interval($_POST['TOOL_REFRESH_INTERVAL'] ?? 10);
+    $new_cfg['TOOL_ENABLE_SPIN_BUTTON']  = $yn($_POST['TOOL_ENABLE_SPIN_BUTTON'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_UNASSIGNED']     = $yn($_POST['TOOL_SHOW_UNASSIGNED'] ?? '0', '0');
+    $new_cfg['TOOL_SHOW_ARRAY']          = $yn($_POST['TOOL_SHOW_ARRAY'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_CACHE']          = $yn($_POST['TOOL_SHOW_CACHE'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_POOLS']          = $yn($_POST['TOOL_SHOW_POOLS'] ?? '1', '1');
+    // Header indicator settings: shown dimmed in the Tool tab, only meaningful
+    // as a fallback when the dashboard widget is not active. Persisted either
+    // way so the value is ready if the tool ever takes over the indicator.
+    $new_cfg['TOOL_HEADER_SHOW_BADGE']   = $yn($_POST['TOOL_HEADER_SHOW_BADGE'] ?? '1', '1');
+    $toolClickIn = (string)($_POST['TOOL_HEADER_CLICK_ACTION'] ?? 'main');
+    $new_cfg['TOOL_HEADER_CLICK_ACTION'] = in_array($toolClickIn, ['main','widget','tool','settings'], true) ? $toolClickIn : 'main';
+    $new_cfg['TOOL_SHOW_DECIMAL_PCT']    = $yn($_POST['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_USED_COLUMN']    = $yn($_POST['TOOL_SHOW_USED_COLUMN'] ?? '1', '1');
+    $new_cfg['TOOL_FONT_SIZE']           = in_array($_POST['TOOL_FONT_SIZE'] ?? 'default', ['small','default'], true) ? $_POST['TOOL_FONT_SIZE'] : 'default';
+    $toolModeIn = strtolower((string)($_POST['TOOL_SPACE_SEVERITY_MODE'] ?? 'inherit'));
+    $new_cfg['TOOL_SPACE_SEVERITY_MODE'] = in_array($toolModeIn, ['inherit','custom','disabled'], true) ? $toolModeIn : 'inherit';
+    $new_cfg['TOOL_SPACE_WARNING_PCT']   = $clamp_int($_POST['TOOL_SPACE_WARNING_PCT']  ?? 70, 1,  99,  70);
+    $new_cfg['TOOL_SPACE_CRITICAL_PCT']  = $clamp_int($_POST['TOOL_SPACE_CRITICAL_PCT'] ?? 90, 2, 100,  90);
+    }
+
+    // Serialize. Each value goes through its own clamp/whitelist above, so
+    // it cannot contain newlines or quotes by the time it reaches this
+    // loop - but defense in depth: strip control chars and escape any
+    // embedded double quotes.
+    $ini = '';
+    foreach ($new_cfg as $k => $v) {
+        $v = preg_replace('/[\x00-\x1f\x7f]/', '', (string)$v);
+        $v = str_replace('"', '\\"', $v);
+        $ini .= "{$k}=\"{$v}\"\n";
+    }
+    @mkdir(dirname(DV_CFG_FILE), 0755, true);
+    file_put_contents(DV_CFG_FILE, $ini);
+
+    $cfg = $new_cfg;
+} else {
+    $cfg = @parse_ini_file(DV_CFG_FILE) ?: [];
+}
+
+// Defaults
+$def = [
+    'REFRESH_ENABLED'      => '1',
+    'DV_ACTIVE_TAB'        => 'widget',
+    'REFRESH_INTERVAL'     => '20',
+    'DRAG_STEP_ROWS'       => '1',
+    'ENABLE_SPIN_BUTTON'   => '1',
+    'SHOW_UNASSIGNED'      => '0',
+    'SHOW_ARRAY'           => '1',
+    'SHOW_CACHE'           => '1',
+    'SHOW_POOLS'           => '1',
+    'HEADER_SHOW_BADGE'    => '1',
+    'HEADER_CLICK_ACTION'  => 'main',
+    'POOL_HIGHLIGHT_USED'  => '0',
+    'SHOW_FS_BADGE'        => '1',
+    'SHOW_DISK_ERRORS'     => '1',
+    'SHOW_DECIMAL_PCT'     => '1',
+    'SHOW_USED_COLUMN'     => '1',
+    'SHOW_SECTION_INDICATORS' => '1',
+    'FONT_SIZE'            => 'default',
+    'SPACE_SEVERITY_MODE'  => 'inherit',
+    'SPACE_WARNING_PCT'    => '70',
+    'SPACE_CRITICAL_PCT'   => '90',
+    // Tool page settings (independent of widget)
+    'TOOL_REFRESH_ENABLED'      => '1',
+    'TOOL_REFRESH_INTERVAL'     => '10',
+    'TOOL_ENABLE_SPIN_BUTTON'   => '1',
+    'TOOL_SHOW_UNASSIGNED'      => '0',
+    'TOOL_SHOW_ARRAY'           => '1',
+    'TOOL_SHOW_CACHE'           => '1',
+    'TOOL_SHOW_POOLS'           => '1',
+    'TOOL_HEADER_SHOW_BADGE'    => '1',
+    'TOOL_HEADER_CLICK_ACTION'  => 'main',
+    'TOOL_SHOW_DECIMAL_PCT'     => '1',
+    'TOOL_SHOW_USED_COLUMN'     => '1',
+    'TOOL_FONT_SIZE'            => 'default',
+    'TOOL_SPACE_SEVERITY_MODE'  => 'inherit',
+    'TOOL_SPACE_WARNING_PCT'    => '70',
+    'TOOL_SPACE_CRITICAL_PCT'   => '90',
+];
+foreach ($def as $k => $v) {
+    if (!isset($cfg[$k]) || $cfg[$k] === '') $cfg[$k] = $v;
+}
+
+// Active settings tab (Widget / Tool).
+$active_tab = (string)($cfg['DV_ACTIVE_TAB'] ?? 'widget');
+if (!in_array($active_tab, ['widget','tool'], true)) $active_tab = 'widget';
+
+// Whether the dashboard widget is in active use. When it is not, the Tool
+// tab's header-indicator options unlock (the tool becomes the fallback
+// owner of the Unraid header indicator).
+$widget_active = DiskViewerEndpoint::widgetActive();
+$headerBlockCls = 'dv-dimmed-block' . ($widget_active ? '' : ' dv-unlocked');
+
+// Theme detection. See DiskViewer.page for the full rationale - same
+// black/white/azure/gray scheme, same dv-theme-{name} class, plus dv-light
+// retained as an alias for white/azure so the legacy two-state CSS that
+// already exists in settings.css continues to apply without rewriting.
+$dynamix_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+$unraid_theme  = $dynamix_cfg['display']['theme'] ?? '';
+$valid_themes  = ['black','white','azure','gray'];
+$dv_theme      = in_array($unraid_theme, $valid_themes, true) ? $unraid_theme : 'black';
+$dv_light      = in_array($dv_theme, ['white','azure'], true);
+$themeClass    = ' dv-theme-' . $dv_theme;
+$lightClass    = $dv_light ? ' dv-light' : '';
+$rootClasses   = $themeClass . $lightClass;
+
+// Plugin version - mirrors StreamViewer's dual-source pattern. Primary
+// is the VERSION file at the canonical installed location (written by
+// build.sh on every build), so the badge always reflects the running
+// plugin even when the .plg metadata went stale (manual installs, edits
+// during testing). Fallback to the .plg ENTITY for legacy installs that
+// predate the VERSION file. Final fallback: literal 'dev' so the badge
+// never appears empty - useful while developing out of the source tree.
+$plugin_version = '';
+$_pvFile = '/usr/local/emhttp/plugins/diskviewer/VERSION';
+if (is_readable($_pvFile)) {
+    $_pvRead = trim((string)@file_get_contents($_pvFile));
+    if ($_pvRead !== '') $plugin_version = $_pvRead;
+}
+if ($plugin_version === '') {
+    $plg = @file_get_contents('/boot/config/plugins/diskviewer/diskviewer.plg');
+    if ($plg && preg_match('/<!ENTITY\s+version\s+"([^"]+)"/i', $plg, $m)) {
+        $plugin_version = $m[1];
+    }
+}
+if ($plugin_version === '') $plugin_version = 'dev';
+?>
+
+<!-- ============================================================================ -->
+<!-- 2. Style includes & FOUC suppression -->
+<!-- ============================================================================ -->
+
+<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/settings.css">
+
+<!-- ============================================================================ -->
+<!-- 3. (Credits link moved into the footer row alongside Support Forum and    -->
+<!--    GitHub Issues - no longer floats top-right.)                            -->
+<!-- ============================================================================ -->
+
+<form name="diskviewer_settings" method="post" class="diskviewer-settings<?= $rootClasses ?>" autocomplete="off">
+
+<?php
+
+// ============================================================================
+// 4. Form helpers (toggle closures)
+// ============================================================================
+
+// Toggle helper closure (mirrors StreamViewer pattern)
+$toggle = function($name, $val, $default = '1', $onLabel = 'Enabled', $offLabel = 'Disabled') {
+    $isOn = ((string)($val ?? $default)) === '1';
+    $checked = $isOn ? ' checked' : '';
+    $txtClass = $isOn ? 'on' : 'off';
+    $txtLabel = $isOn ? $onLabel : $offLabel;
+    return '<input type="hidden" name="' . $name . '" value="' . ($isOn ? '1' : '0') . '">'
+        . '<label class="dv-toggle"><input type="checkbox" data-dv-toggle="' . $name . '"' . $checked . '>'
+        . '<span class="dv-toggle-track"></span></label>'
+        . '<span class="dv-toggle-txt ' . $txtClass . '">' . $txtLabel . '</span>';
+};
+$toggleShow = function($name, $val, $default = '1') use ($toggle) {
+    return $toggle($name, $val, $default, 'Show', 'Hide');
+};
+?>
+
+<!-- ============================================================================ -->
+<!-- 5. Settings panel sections (Behavior / Display / Header / Spin) -->
+<!-- ============================================================================ -->
+
+  <!-- ────── Top tabs: Widget · Tool (sit on top of the board, outside it) ────── -->
+  <div class="dv-tabs" id="dvSettingsTabs">
+    <div class="dv-tab<?= $active_tab === 'widget' ? ' active' : '' ?>" id="dvTabWidget" role="button" tabindex="0">
+      <span class="dv-tabicon"><i class="fa fa-th-large" aria-hidden="true"></i></span> Widget
+    </div>
+    <div class="dv-tab<?= $active_tab === 'tool' ? ' active' : '' ?>" id="dvTabTool" role="button" tabindex="0">
+      <span class="dv-tabicon"><i class="fa fa-hdd-o" aria-hidden="true"></i></span> Tool
+    </div>
+  </div>
+
+<div class="dv-settings-panel">
+
+  <input type="hidden" name="dv_active_tab" id="dvActiveTab" value="<?= htmlspecialchars($active_tab, ENT_QUOTES) ?>">
+
+  <!-- ════ WIDGET TAB PANEL ════ -->
+  <div id="dvWidgetTabPanel" style="<?= $active_tab !== 'widget' ? 'display:none;' : '' ?>">
+
+
+  <!-- ────── Section 1: Behavior ────── -->
+  <div class="dv-sec" id="dvSecBehavior">
+    <div class="dv-sec-hd">
+      <span>Behavior</span>
+      <span class="dv-pill">Polling and interaction</span>
+      <span class="dv-sec-arrow">&#9650;</span>
+    </div>
+    <div class="dv-sec-bd">
+      <div class="dv-r">
+        <div class="dv-r-label">Automatic refresh</div>
+        <div class="dv-r-field">
+          <?= $toggle('REFRESH_ENABLED', $cfg['REFRESH_ENABLED'], '1') ?>
+          <span class="dv-r-desc">Poll the server for updated disk state</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Refresh interval</div>
+        <div class="dv-r-field">
+          <select name="REFRESH_INTERVAL" class="dv-select">
+            <?php foreach (['5','10','20','30','50','80','100'] as $s): ?>
+              <option value="<?= $s ?>" <?= $cfg['REFRESH_INTERVAL'] === $s ? 'selected' : '' ?>><?= $s ?>s<?= $s === '20' ? ' - Default' : '' ?></option>
+            <?php endforeach; ?>
+          </select>
+          <span class="dv-r-desc">How often to refresh the widget</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Drag step size (disks)</div>
+        <div class="dv-r-field">
+          <select name="DRAG_STEP_ROWS" class="dv-select">
+            <?php foreach (['1','2','3','4','5'] as $s): ?>
+              <option value="<?= $s ?>" <?= ((string)$cfg['DRAG_STEP_ROWS']) === $s ? 'selected' : '' ?>><?= $s ?><?= $s === '1' ? ' - Default' : '' ?></option>
+            <?php endforeach; ?>
+          </select>
+          <span class="dv-r-desc">Disks revealed per drag step on the footer handle</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Allow spin actions</div>
+        <div class="dv-r-field">
+          <?= $toggle('ENABLE_SPIN_BUTTON', $cfg['ENABLE_SPIN_BUTTON'] ?? '1', '1') ?>
+          <span class="dv-r-warn">When enabled, the bolt icon becomes clickable on single-disk pool and unassigned devices to spin them up or down. ARRAY members and multi-disk pool members are always protected.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────── Section 2: Display ────── -->
+  <div class="dv-sec closed" id="dvSecDisplay">
+    <div class="dv-sec-hd">
+      <span>Display</span>
+      <span class="dv-pill">Widget layout</span>
+      <span class="dv-sec-arrow">&#9650;</span>
+    </div>
+    <div class="dv-sec-bd">
+      <div class="dv-r">
+        <div class="dv-r-label">Show array section</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_ARRAY', $cfg['SHOW_ARRAY'], '1') ?>
+          <span class="dv-r-desc">Display parity and data disks</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show RAID groups</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_CACHE', $cfg['SHOW_CACHE'], '1') ?>
+          <span class="dv-r-desc">Display multi-disk pool and RAID groups (cache, mirror, raidz, etc)</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show pool section</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_POOLS', $cfg['SHOW_POOLS'], '1') ?>
+          <span class="dv-r-desc">Display single-disk pool combined under POOL (cache or not)</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show unassigned section</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '0') ?>
+          <span class="dv-r-desc dv-r-desc--warn">Requires Unassigned Devices plugin</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Enable indicator</div>
+        <div class="dv-r-field">
+          <?= $toggle('HEADER_SHOW_BADGE', $cfg['HEADER_SHOW_BADGE'], '1') ?>
+          <span class="dv-r-desc">Icon appears in the Unraid header when any disk is critical</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Click action</div>
+        <div class="dv-r-field">
+          <select name="HEADER_CLICK_ACTION" class="dv-select">
+            <option value="main"     <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'main'     ? 'selected' : '' ?>>Open Main</option>
+            <option value="widget"   <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'widget'   ? 'selected' : '' ?>>Open Dashboard</option>
+            <option value="tool"     <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'tool'     ? 'selected' : '' ?>>Open Tool</option>
+            <option value="settings" <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'settings' ? 'selected' : '' ?>>Open Settings</option>
+          </select>
+          <span class="dv-r-desc">Where clicking the header indicator takes you</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Highlight pool disks by used %</div>
+        <div class="dv-r-field">
+          <?= $toggle('POOL_HIGHLIGHT_USED', $cfg['POOL_HIGHLIGHT_USED'] ?? '0', '1') ?>
+          <span class="dv-r-desc">Override the zebra background with amber/red on single-disk pool tiles whose used % crosses the warning or critical threshold</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show filesystem badge</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_FS_BADGE', $cfg['SHOW_FS_BADGE'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Display the small FS pill (xfs, btrfs, zfs, mixed) on ARRAY and pool aggregate rows</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show disk errors</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_DISK_ERRORS', $cfg['SHOW_DISK_ERRORS'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Show the warning triangle on section headers and tint the Unraid header disk icon when a pool member has BTRFS/ZFS errors</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show section indicators</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_SECTION_INDICATORS', $cfg['SHOW_SECTION_INDICATORS'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Show small icons with disk counts next to each section header (ARRAY, CACHE, RAID, POOL) for errors, high temperature, and bad health</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Show used column</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_USED_COLUMN', $cfg['SHOW_USED_COLUMN'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Show the absolute used size (in bytes) next to the percentage in the USED column</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Decimal in used %</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_DECIMAL_PCT', $cfg['SHOW_DECIMAL_PCT'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Show one decimal place in the used percentage column ("65.4%" instead of "65%"). Useful on multi-TB drives where 1% spans over 100 GB</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Font size</div>
+        <div class="dv-r-field">
+          <?php
+            $fontSize = (string)($cfg['FONT_SIZE'] ?? 'default');
+            if (!in_array($fontSize, ['default', 'large'], true)) {
+                $fontSize = 'default';
+            }
+          ?>
+          <select name="FONT_SIZE" class="dv-select">
+            <option value="default" <?= $fontSize === 'default' ? 'selected' : '' ?>>Default</option>
+            <option value="large"   <?= $fontSize === 'large'   ? 'selected' : '' ?>>Large</option>
+          </select>
+          <span class="dv-r-desc">Text size for the disk rows. Default is the compact size; Large makes the disk-info text bigger. Section labels and column headers stay the same size</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Space severity highlighting</div>
+        <div class="dv-r-field">
+          <?php
+            // Three-mode dropdown: Inherit / Custom / Disabled. Default is
+            // 'inherit' so existing users see no behavioural change after
+            // upgrade. The two number inputs below are always rendered but
+            // disabled/enabled at runtime based on the selected mode.
+            $sevMode = (string)($cfg['SPACE_SEVERITY_MODE'] ?? 'inherit');
+            if (!in_array($sevMode, ['inherit', 'custom', 'disabled'], true)) {
+                $sevMode = 'inherit';
+            }
+          ?>
+          <select name="SPACE_SEVERITY_MODE" id="dvSpaceSeverityMode" class="dv-select">
+            <option value="inherit"  <?= $sevMode === 'inherit'  ? 'selected' : '' ?>>Inherit from Unraid (default)</option>
+            <option value="custom"   <?= $sevMode === 'custom'   ? 'selected' : '' ?>>Custom thresholds</option>
+            <option value="disabled" <?= $sevMode === 'disabled' ? 'selected' : '' ?>>Disabled</option>
+          </select>
+          <span class="dv-r-desc">Inherit uses Unraid's Display Settings warning and critical percentages. Custom lets you set your own. Disabled turns the colour shift off entirely (useful for Fill-Up allocation where drives sit at 100% by design).</span>
+        </div>
+      </div>
+      <div class="dv-r" data-dv-show-when="custom">
+        <div class="dv-r-label">Custom warning percentage</div>
+        <div class="dv-r-field">
+          <input type="number" name="SPACE_WARNING_PCT" min="1" max="99" step="1"
+                 value="<?= htmlspecialchars((string)($cfg['SPACE_WARNING_PCT'] ?? '70'), ENT_QUOTES) ?>"
+                 class="dv-input dv-input--num" id="dvSpaceWarn">
+          <span class="dv-r-desc">Percentage used at which a disk's % column turns amber. Must be lower than the critical value.</span>
+        </div>
+      </div>
+      <div class="dv-r" data-dv-show-when="custom">
+        <div class="dv-r-label">Custom critical percentage</div>
+        <div class="dv-r-field">
+          <input type="number" name="SPACE_CRITICAL_PCT" min="2" max="100" step="1"
+                 value="<?= htmlspecialchars((string)($cfg['SPACE_CRITICAL_PCT'] ?? '90'), ENT_QUOTES) ?>"
+                 class="dv-input dv-input--num" id="dvSpaceCrit">
+          <span class="dv-r-desc">Percentage used at which a disk's % column turns red. Must be higher than the warning value.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+  <!-- ════ /WIDGET TAB PANEL ════ -->
+
+  <!-- ════ TOOL TAB PANEL ════ -->
+  <div id="dvToolTabPanel" style="<?= $active_tab !== 'tool' ? 'display:none;' : '' ?>">
+
+    <!-- ────── Tool: Behavior ────── -->
+    <div class="dv-sec" id="dvtSecBehavior">
+      <div class="dv-sec-hd">
+        <span>Behavior</span>
+        <span class="dv-pill">Polling and interaction</span>
+        <span class="dv-sec-arrow">&#9650;</span>
+      </div>
+      <div class="dv-sec-bd">
+        <div class="dv-r">
+          <div class="dv-r-label">Automatic refresh</div>
+          <div class="dv-r-field">
+            <?= $toggle('TOOL_REFRESH_ENABLED', $cfg['TOOL_REFRESH_ENABLED'], '1') ?>
+            <span class="dv-r-desc">Poll the server for updated disk state on the tool page</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Refresh interval</div>
+          <div class="dv-r-field">
+            <select name="TOOL_REFRESH_INTERVAL" class="dv-select">
+              <?php foreach (['5','10','20','30','50','80','100'] as $s): ?>
+                <option value="<?= $s ?>" <?= $cfg['TOOL_REFRESH_INTERVAL'] === $s ? 'selected' : '' ?>><?= $s ?>s<?= $s === '10' ? ' - Default' : '' ?></option>
+              <?php endforeach; ?>
+            </select>
+            <span class="dv-r-desc">How often to refresh the tool page</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Allow spin actions</div>
+          <div class="dv-r-field">
+            <?= $toggle('TOOL_ENABLE_SPIN_BUTTON', $cfg['TOOL_ENABLE_SPIN_BUTTON'] ?? '1', '1') ?>
+            <span class="dv-r-warn">When enabled, the bolt icon becomes clickable on single-disk pool and unassigned devices to spin them up or down. ARRAY members and multi-disk pool members are always protected.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ────── Tool: Display ────── -->
+    <div class="dv-sec closed" id="dvtSecDisplay">
+      <div class="dv-sec-hd">
+        <span>Display</span>
+        <span class="dv-pill">Tool page layout</span>
+        <span class="dv-sec-arrow">&#9650;</span>
+      </div>
+      <div class="dv-sec-bd">
+        <div class="dv-r">
+          <div class="dv-r-label">Show array section</div>
+          <div class="dv-r-field">
+            <?= $toggleShow('TOOL_SHOW_ARRAY', $cfg['TOOL_SHOW_ARRAY'], '1') ?>
+            <span class="dv-r-desc">Display parity and data disks</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Show RAID groups</div>
+          <div class="dv-r-field">
+            <?= $toggleShow('TOOL_SHOW_CACHE', $cfg['TOOL_SHOW_CACHE'], '1') ?>
+            <span class="dv-r-desc">Display multi-disk pool and RAID groups (cache, mirror, raidz, etc)</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Show pool section</div>
+          <div class="dv-r-field">
+            <?= $toggleShow('TOOL_SHOW_POOLS', $cfg['TOOL_SHOW_POOLS'], '1') ?>
+            <span class="dv-r-desc">Display single-disk pool combined under POOL</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Show unassigned section</div>
+          <div class="dv-r-field">
+            <?= $toggleShow('TOOL_SHOW_UNASSIGNED', $cfg['TOOL_SHOW_UNASSIGNED'], '0') ?>
+            <span class="dv-r-desc dv-r-desc--warn">Requires Unassigned Devices plugin</span>
+          </div>
+        </div>
+
+        <!-- Header indicator settings: dimmed, non-interactive. These control
+             the Unraid header badge, which is normally owned by the dashboard
+             widget. They activate here only when no widget is active. -->
+        <div class="<?= $headerBlockCls ?>" id="dvtHeaderBlock">
+          <div class="dv-dimmed-note">
+            <i class="fa <?= $widget_active ? 'fa-lock' : 'fa-unlock' ?>" aria-hidden="true"></i>
+            <?= $widget_active
+                ? 'The header indicator is managed by the dashboard widget. These options unlock here only if the widget is not in use.'
+                : 'The dashboard widget is not active, so these header indicator options are managed here.' ?>
+          </div>
+          <div class="dv-r">
+            <div class="dv-r-label">Enable indicator</div>
+            <div class="dv-r-field">
+              <?= $toggle('TOOL_HEADER_SHOW_BADGE', $cfg['TOOL_HEADER_SHOW_BADGE'], '1') ?>
+              <span class="dv-r-desc">Icon appears in the Unraid header when any disk is critical</span>
+            </div>
+          </div>
+          <div class="dv-r">
+            <div class="dv-r-label">Click action</div>
+            <div class="dv-r-field">
+              <select name="TOOL_HEADER_CLICK_ACTION" class="dv-select">
+                <option value="main"     <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'main'     ? 'selected' : '' ?>>Open Main</option>
+                <option value="widget"   <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'widget'   ? 'selected' : '' ?>>Open Dashboard</option>
+                <option value="tool"     <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'tool'     ? 'selected' : '' ?>>Open Tool</option>
+                <option value="settings" <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'settings' ? 'selected' : '' ?>>Open Settings</option>
+              </select>
+              <span class="dv-r-desc">Where clicking the header indicator takes you</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dv-r">
+          <div class="dv-r-label">Show used column</div>
+          <div class="dv-r-field">
+            <?= $toggle('TOOL_SHOW_USED_COLUMN', $cfg['TOOL_SHOW_USED_COLUMN'] ?? '1', '1') ?>
+            <span class="dv-r-desc">Show the absolute used size (in bytes) next to the percentage in the USED column</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Decimal in used %</div>
+          <div class="dv-r-field">
+            <?= $toggle('TOOL_SHOW_DECIMAL_PCT', $cfg['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1') ?>
+            <span class="dv-r-desc">Show one decimal place in the used percentage column ("65.4%" instead of "65%")</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Font size</div>
+          <div class="dv-r-field">
+            <?php
+              $toolFontSize = (string)($cfg['TOOL_FONT_SIZE'] ?? 'default');
+              if (!in_array($toolFontSize, ['small', 'default'], true)) $toolFontSize = 'default';
+            ?>
+            <select name="TOOL_FONT_SIZE" class="dv-select">
+              <option value="small"   <?= $toolFontSize === 'small'   ? 'selected' : '' ?>>Small</option>
+              <option value="default" <?= $toolFontSize === 'default' ? 'selected' : '' ?>>Default</option>
+            </select>
+            <span class="dv-r-desc">Text size for the disk rows on the tool page. Small shrinks the disk-info text by 20%</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Space severity highlighting</div>
+          <div class="dv-r-field">
+            <?php
+              $toolSevMode = (string)($cfg['TOOL_SPACE_SEVERITY_MODE'] ?? 'inherit');
+              if (!in_array($toolSevMode, ['inherit', 'custom', 'disabled'], true)) $toolSevMode = 'inherit';
+            ?>
+            <select name="TOOL_SPACE_SEVERITY_MODE" id="dvtSpaceSeverityMode" class="dv-select">
+              <option value="inherit"  <?= $toolSevMode === 'inherit'  ? 'selected' : '' ?>>Inherit from Unraid (default)</option>
+              <option value="custom"   <?= $toolSevMode === 'custom'   ? 'selected' : '' ?>>Custom thresholds</option>
+              <option value="disabled" <?= $toolSevMode === 'disabled' ? 'selected' : '' ?>>Disabled</option>
+            </select>
+            <span class="dv-r-desc">Inherit uses Unraid's warning and critical percentages. Custom lets you set your own. Disabled turns the colour shift off entirely.</span>
+          </div>
+        </div>
+        <div class="dv-r" data-dvt-show-when="custom">
+          <div class="dv-r-label">Custom warning percentage</div>
+          <div class="dv-r-field">
+            <input type="number" name="TOOL_SPACE_WARNING_PCT" min="1" max="99" step="1"
+                   value="<?= htmlspecialchars((string)($cfg['TOOL_SPACE_WARNING_PCT'] ?? '70'), ENT_QUOTES) ?>"
+                   class="dv-input dv-input--num" id="dvtSpaceWarn">
+            <span class="dv-r-desc">Percentage used at which a disk's % column turns amber. Must be lower than the critical value.</span>
+          </div>
+        </div>
+        <div class="dv-r" data-dvt-show-when="custom">
+          <div class="dv-r-label">Custom critical percentage</div>
+          <div class="dv-r-field">
+            <input type="number" name="TOOL_SPACE_CRITICAL_PCT" min="2" max="100" step="1"
+                   value="<?= htmlspecialchars((string)($cfg['TOOL_SPACE_CRITICAL_PCT'] ?? '90'), ENT_QUOTES) ?>"
+                   class="dv-input dv-input--num" id="dvtSpaceCrit">
+            <span class="dv-r-desc">Percentage used at which a disk's % column turns red. Must be higher than the warning value.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- ════ /TOOL TAB PANEL ════ -->
+
+<!-- ============================================================================ -->
+<!-- 6. Action bar (Apply / Reset / Done) -->
+<!-- ============================================================================ -->
+
+  <!-- ────── Action bar: Apply / Reset / Done ────── -->
+  <!-- Apply is a real submit button with name="#apply" so the browser
+       includes it in the POST as $_POST['#apply']. The PHP handler at the
+       top of the file checks for that key. No JS interception, no AJAX -
+       the form submits natively, the server writes the cfg, and the
+       response is the same page re-rendered with persisted values.
+       This is the same pattern Logs Viewer and Stream Viewer use, and it
+       is dramatically more reliable than the AJAX flow we used to have. -->
+  <div class="dv-actions-bar">
+    <button type="submit" name="#apply" value="apply" id="dvApplyBtn" class="dv-action-btn dv-action-btn--apply" title="Save settings">
+      <i class="fa fa-check" aria-hidden="true"></i> Apply
+    </button>
+    <button type="button" id="dvResetBtn" class="dv-action-btn dv-action-btn--reset" title="Reset to defaults">
+      <i class="fa fa-undo" aria-hidden="true"></i> Reset to Defaults
+    </button>
+    <button type="button" class="dv-action-btn dv-action-btn--done" onclick="done()" title="Return to dashboard">
+      <i class="fa fa-arrow-left" aria-hidden="true"></i> Done
+    </button>
+  </div>
+
+</div><!-- /dv-settings-panel -->
+
+<!-- ============================================================================ -->
+<!-- 7. Footer row -->
+<!-- ============================================================================ -->
+
+<div class="dv-footer-row">
+  <div class="dv-footer-links">
+    <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/"
+       id="dvSupportLink" class="dv-footer-link"
+       target="_blank" rel="noopener">Support Forum</a>
+    <span class="dv-footer-sep" aria-hidden="true"></span>
+    <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues"
+       class="dv-footer-link"
+       target="_blank" rel="noopener">GitHub Issues</a>
+    <span class="dv-footer-sep" aria-hidden="true"></span>
+    <a href="#" id="dvCreditsLink" class="dv-footer-link">Credits</a>
+  </div>
+  <span class="dv-version-badge">v<?= htmlspecialchars((string)$plugin_version) ?></span>
+</div>
+
+<!-- ============================================================================ -->
+<!-- 8. Credits modal markup -->
+<!-- ============================================================================ -->
+
+<!-- ── Credits modal (StreamViewer 2-column layout: avatar on the left
+     with vertical accent stripe, plugin info + links on the right with
+     an inline version pill, copyright + OK button in the footer). The
+     embedded PHP block reads the live version from
+     /usr/local/emhttp/plugins/diskviewer/VERSION so the badge always
+     reflects the running plugin, even when the .plg metadata went stale
+     for a manual install. Falls back to the Slackware package metadata
+     for legacy installs that predate the VERSION file. ─────────────── -->
+<div id="dvCreditsModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);align-items:center;justify-content:center;">
+  <div class="dv-credits-modal-box dv-credits-modal-v2">
+    <div class="dv-credits-grid">
+      <!-- Left: avatar column -->
+      <div class="dv-credits-left">
+        <span class="dv-credits-accent-stripe"></span>
+        <div class="dv-credits-avatar-wrap">
+          <img src="/plugins/diskviewer/img/avatar.png" alt="Lazaros Chalkidis" class="dv-credits-avatar">
+        </div>
+        <div class="dv-credits-name">Lazaros Chalkidis</div>
+        <div class="dv-credits-role">Developer</div>
+      </div>
+      <!-- Right: info + links -->
+      <div class="dv-credits-right">
+        <div class="dv-credits-title-row">
+          <span class="dv-credits-title">Disk Viewer</span>
+          <span class="dv-credits-version">v<?php
+            $_dvPluginVer = '';
+
+            // Primary: VERSION file at the canonical installed location.
+            // Hardcoded absolute path because __DIR__ in a .page file under
+            // emhttp does not always resolve where one expects.
+            $_dvVersionFile = '/usr/local/emhttp/plugins/diskviewer/VERSION';
+            if (is_readable($_dvVersionFile)) {
+                $_dvRead = trim((string)@file_get_contents($_dvVersionFile));
+                if ($_dvRead !== '') {
+                    $_dvPluginVer = $_dvRead;
+                }
+            }
+
+            // Fallback: Slackware package metadata for legacy installs that
+            // predate the VERSION file. Sort descending so the newest install
+            // wins even if a stale entry was left behind.
+            if ($_dvPluginVer === '') {
+                $_dvPkgs = @glob('/var/log/packages/diskviewer-*');
+                if (is_array($_dvPkgs) && !empty($_dvPkgs)) {
+                    usort($_dvPkgs, function($a, $b) {
+                        return @filemtime($b) - @filemtime($a);
+                    });
+                    $_dvBase = basename($_dvPkgs[0]);
+                    if (preg_match('/^diskviewer-([^-]+(?:-[^-]+)?)/', $_dvBase, $_dvM)) {
+                        $_dvPluginVer = $_dvM[1];
+                    }
+                }
+            }
+
+            echo htmlspecialchars($_dvPluginVer ?: '');
+          ?></span>
+        </div>
+        <div class="dv-credits-desc">A real-time disk monitor for your Unraid array, cache, pool and unassigned devices.</div>
+        <div class="dv-credits-links">
+          <a href="https://github.com/Lazaros-Chalkidis" target="_blank" rel="noopener" class="dv-credits-link">
+            <i class="fa fa-github"></i><span>GitHub Profile</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+          </a>
+          <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" target="_blank" rel="noopener" class="dv-credits-link">
+            <i class="fa fa-comments-o"></i><span>Plugin Support Thread</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+          </a>
+          <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues" target="_blank" rel="noopener" class="dv-credits-link">
+            <i class="fa fa-exclamation-circle"></i><span>GitHub Issues</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+          </a>
+        </div>
+      </div>
+    </div>
+    <div class="dv-credits-footer">
+      <span class="dv-credits-copy">Copyright &copy; 2026 Disk Viewer - Lazaros Chalkidis</span>
+      <button type="button" id="dvCreditsOkBtn" class="dv-credits-ok-btn">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Generic notice modal (replaces window.alert for plugin-side
+     notifications). Layout matches StreamViewer's success-toast style:
+     a green circular checkmark icon centred at top, the headline below
+     it in white, then the explanation in muted grey text with selective
+     orange highlights, finished with the orange OK button. The icon and
+     accent colour together signal "all done, no error" without needing
+     a separate error-vs-success distinction in the API - this modal is
+     used only for confirmations after a successful local action. ──── -->
+<div id="dvNoticeModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);align-items:center;justify-content:center;">
+  <div class="dv-credits-modal-box" style="max-width:420px;">
+    <div style="padding:1.8rem 2.2rem 1.4rem;text-align:center;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+      <!-- Green circular badge with checkmark. Pure inline SVG so we
+           don't depend on Font Awesome or external icon fonts. -->
+      <div style="width:64px;height:64px;border-radius:50%;background:#3f8a4f;display:flex;align-items:center;justify-content:center;margin-bottom:1.1rem;box-shadow:0 4px 14px rgba(63,138,79,0.35);">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="5 12 10 17 19 8"></polyline>
+        </svg>
+      </div>
+      <div id="dvNoticeTitle" style="font-size:1.2em;font-weight:700;color:#fff;margin-bottom:0.6rem;">Notice</div>
+      <div id="dvNoticeBody" style="font-size:0.95em;line-height:1.55;opacity:0.75;"></div>
+    </div>
+    <div class="dv-credits-footer" style="justify-content:center;">
+      <button type="button" id="dvNoticeOkBtn" style="background:#f47d42;border:1px solid #f47d42;color:#fff;padding:0.5rem 2.5rem;font-size:0.9em;font-weight:600;border-radius:4px;cursor:pointer;">OK</button>
+    </div>
+  </div>
+</div>
+
+</form>
+
+<!-- ============================================================================ -->
+<!-- 9. Inline JavaScript -->
+<!-- ============================================================================ -->
+
+<script>
+(function(){
+    'use strict';
+
+    // ── Settings tabs (Widget / Tool) ──────────────────────────────────
+    (function(){
+        var TAB_MAP = { dvTabWidget: 'dvWidgetTabPanel', dvTabTool: 'dvToolTabPanel' };
+        var hidden  = document.getElementById('dvActiveTab');
+        function activate(tabId){
+            var key = tabId === 'dvTabTool' ? 'tool' : 'widget';
+            Object.keys(TAB_MAP).forEach(function(tid){
+                var tab = document.getElementById(tid);
+                var panel = document.getElementById(TAB_MAP[tid]);
+                if (tab)   tab.classList.toggle('active', tid === tabId);
+                if (panel) panel.style.display = (tid === tabId) ? '' : 'none';
+            });
+            if (hidden) hidden.value = key;
+        }
+        Object.keys(TAB_MAP).forEach(function(tid){
+            var tab = document.getElementById(tid);
+            if (!tab) return;
+            tab.addEventListener('click', function(){ activate(tid); });
+            tab.addEventListener('keydown', function(e){
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(tid); }
+            });
+        });
+    })();
+
+    // ── Section collapse/expand ─────────────────────────────────────────
+    document.querySelectorAll('.dv-sec-hd').forEach(function(hd){
+        hd.addEventListener('click', function(){
+            hd.parentElement.classList.toggle('closed');
+        });
+    });
+
+    // ── Toggle hidden-input sync (mirrors StreamViewer) ─────────────────
+    // The visible <input type="checkbox"> in .dv-toggle is a UI proxy; the
+    // actual form value lives in a sibling <input type="hidden">. Keeping
+    // them in sync on every change avoids a stale POST when the form is
+    // submitted via AJAX (which serializes hidden inputs, not unchecked
+    // checkboxes).
+    document.querySelectorAll('input[data-dv-toggle]').forEach(function(cb){
+        cb.addEventListener('change', function(){
+            var name = cb.getAttribute('data-dv-toggle');
+            var hidden = document.querySelector('input[type="hidden"][name="' + name + '"]');
+            if (hidden) hidden.value = cb.checked ? '1' : '0';
+            var txt = cb.closest('.dv-r-field').querySelector('.dv-toggle-txt');
+            if (txt) {
+                var isShow = txt.textContent.trim() === 'Show' || txt.textContent.trim() === 'Hide';
+                txt.textContent = cb.checked ? (isShow ? 'Show' : 'Enabled') : (isShow ? 'Hide' : 'Disabled');
+                txt.classList.toggle('on',  cb.checked);
+                txt.classList.toggle('off', !cb.checked);
+            }
+        });
+    });
+
+    // ── Native form submit ──────────────────────────────────────────────
+    // Apply button is <button type="submit" name="#apply"> which triggers
+    // a normal browser POST when clicked. No JS interception of the
+    // submission itself - the browser sends the form, the server writes
+    // the cfg file, and the response is the same page re-rendered with
+    // the new values. This is the same pattern Logs Viewer and Stream
+    // Viewer use, and it side-steps every race condition the previous
+    // AJAX flow had (CSRF token rotation, browser cache of POST
+    // responses, dashboard-tile DOM swap).
+    //
+    // What we DO add back is a spinner animation: while the POST is in
+    // flight (and the page reload is in flight), swap the Apply button's
+    // icon and label to a spinning gear so the user gets feedback that
+    // the click registered. The browser navigates to the new page as
+    // normal; when the response arrives the freshly-rendered Apply button
+    // replaces the spinner version. We also disable the button so a
+    // double-click can't fire a second submit. This listens on `submit`
+    // (not `click`) so keyboard Enter on a focused field also triggers
+    // the spinner.
+    var form     = document.querySelector('form[name="diskviewer_settings"]');
+    var applyBtn = document.getElementById('dvApplyBtn');
+    if (form && applyBtn) {
+        form.addEventListener('submit', function(){
+            // Defer the visual swap to a 0ms setTimeout so it runs AFTER
+            // the browser has serialised the form (including the Apply
+            // button's name="#apply" value="apply" pair which triggers
+            // the PHP POST handler). Disabling or re-rendering the button
+            // synchronously inside the submit handler would strip it from
+            // the form payload because disabled / replaced controls don't
+            // submit, and the server would then fall through to the GET
+            // branch and reload defaults. The 0ms timer puts the swap on
+            // the next tick of the event loop, by which time the browser
+            // has captured the form and dispatched the POST.
+            setTimeout(function(){
+                applyBtn.disabled  = true;
+                applyBtn.innerHTML = '<i class="fa fa-spinner fa-spin" aria-hidden="true"></i> Saving\u2026';
+            }, 0);
+        });
+    }
+
+    // ── Reset to defaults ───────────────────────────────────────────────
+    // Walks every form field and reapplies its baked-in default value, then
+    // syncs the visible toggle thumbs and labels to match. This is a UI
+    // reset only - nothing is persisted until the user clicks Apply, which
+    // matches the behaviour the user expects from "Reset" in similar
+    // Unraid settings pages.
+    var DV_DEFAULTS = {
+        REFRESH_ENABLED:      '1',
+        REFRESH_INTERVAL:     '20',
+        DRAG_STEP_ROWS:       '1',
+        ENABLE_SPIN_BUTTON:   '1',
+        SHOW_ARRAY:           '1',
+        SHOW_CACHE:           '1',
+        SHOW_POOLS:           '1',
+        SHOW_UNASSIGNED:      '0',
+        HEADER_SHOW_BADGE:    '1',
+        HEADER_CLICK_ACTION:  'main',
+        POOL_HIGHLIGHT_USED:  '0',
+        SHOW_FS_BADGE:        '1',
+        SHOW_DISK_ERRORS:     '1',
+        SHOW_DECIMAL_PCT:     '1',
+        SHOW_USED_COLUMN:     '1',
+        SHOW_SECTION_INDICATORS: '1',
+        FONT_SIZE:            'default',
+        SPACE_SEVERITY_MODE:  'inherit',
+        SPACE_WARNING_PCT:    '70',
+        SPACE_CRITICAL_PCT:   '90',
+        TOOL_REFRESH_ENABLED:      '1',
+        TOOL_REFRESH_INTERVAL:     '10',
+        TOOL_ENABLE_SPIN_BUTTON:   '1',
+        TOOL_SHOW_ARRAY:           '1',
+        TOOL_SHOW_CACHE:           '1',
+        TOOL_SHOW_POOLS:           '1',
+        TOOL_SHOW_UNASSIGNED:      '0',
+        TOOL_HEADER_SHOW_BADGE:    '1',
+        TOOL_HEADER_CLICK_ACTION:  'main',
+        TOOL_SHOW_DECIMAL_PCT:     '1',
+        TOOL_SHOW_USED_COLUMN:     '1',
+        TOOL_FONT_SIZE:            'default',
+        TOOL_SPACE_SEVERITY_MODE:  'inherit',
+        TOOL_SPACE_WARNING_PCT:    '70',
+        TOOL_SPACE_CRITICAL_PCT:   '90'
+    };
+
+    function resetDefaults(){
+        if (!form) return;
+        // Per-tab reset: only restore the keys that belong to the tab the user
+        // is currently on. Tool keys are TOOL_-prefixed; everything else is a
+        // widget key. DV_ACTIVE_TAB is global and never reset.
+        var activeTab = (document.getElementById('dvActiveTab') || {}).value || 'widget';
+        var isTool = (activeTab === 'tool');
+        function inActiveTab(key){
+            if (key === 'DV_ACTIVE_TAB') return false;
+            var keyIsTool = key.indexOf('TOOL_') === 0;
+            return isTool ? keyIsTool : !keyIsTool;
+        }
+        Object.keys(DV_DEFAULTS).forEach(function(k){
+            if (!inActiveTab(k)) return;
+            var el = form.querySelector('[name="' + k + '"]');
+            if (el) el.value = DV_DEFAULTS[k];
+        });
+        // Sync each visible toggle thumb to its hidden value (active tab only)
+        document.querySelectorAll('.dv-toggle input[type="checkbox"]').forEach(function(cb){
+            var name = cb.getAttribute('data-dv-toggle');
+            if (!name || !DV_DEFAULTS.hasOwnProperty(name)) return;
+            if (!inActiveTab(name)) return;
+            cb.checked = DV_DEFAULTS[name] === '1';
+            var txt = cb.closest('.dv-r-field').querySelector('.dv-toggle-txt');
+            if (txt) {
+                var isShow = txt.textContent.trim() === 'Show' || txt.textContent.trim() === 'Hide';
+                txt.textContent = cb.checked ? (isShow ? 'Show' : 'Enabled') : (isShow ? 'Hide' : 'Disabled');
+                txt.className = 'dv-toggle-txt ' + (cb.checked ? 'on' : 'off');
+            }
+        });
+        // Re-evaluate the show/hide visibility for the custom-only rows
+        // (warning/critical inputs) after the mode dropdown was reset.
+        if (typeof dvUpdateSpaceSeverityRows === 'function') {
+            dvUpdateSpaceSeverityRows();
+        }
+        if (typeof dvtUpdateSpaceSeverityRows === 'function') {
+            dvtUpdateSpaceSeverityRows();
+        }
+        dvShowNotice(
+            (isTool ? 'Tool settings reset' : 'Widget settings reset'),
+            'The ' + (isTool ? 'Tool' : 'Widget') + ' settings have been restored to their '
+              + 'default values. Click '
+              + '<span style="color:#f47d42;font-weight:600;">Apply</span> to save.'
+        );
+    }
+
+    var resetBtn = document.getElementById('dvResetBtn');
+    if (resetBtn) resetBtn.addEventListener('click', resetDefaults);
+
+    // ── Space severity mode show/hide ─────────────────────────────────────
+    // The "Custom warning percentage" and "Custom critical percentage" rows
+    // are only meaningful when the user has picked the 'custom' mode in the
+    // Space severity highlighting dropdown. In the other two modes (inherit,
+    // disabled) the inputs are visually grey-disabled rather than removed
+    // from the DOM, so the user still sees what values would apply if they
+    // switched to custom - and so the form submit always carries them, in
+    // case the user toggles back without re-typing.
+    var dvSpaceModeSel = document.getElementById('dvSpaceSeverityMode');
+    var dvSpaceWarnIn  = document.getElementById('dvSpaceWarn');
+    var dvSpaceCritIn  = document.getElementById('dvSpaceCrit');
+    function dvUpdateSpaceSeverityRows(){
+        if (!dvSpaceModeSel) return;
+        var active = (dvSpaceModeSel.value === 'custom');
+        [dvSpaceWarnIn, dvSpaceCritIn].forEach(function(el){
+            if (!el) return;
+            el.disabled = !active;
+            // Lift opacity on the whole row so the explanatory descriptions
+            // also dim when the inputs are inactive. The row carries
+            // data-dv-show-when="custom" so other CSS could target it too.
+            var row = el.closest('.dv-r');
+            if (row) row.style.opacity = active ? '' : '0.5';
+        });
+    }
+    if (dvSpaceModeSel) {
+        dvSpaceModeSel.addEventListener('change', dvUpdateSpaceSeverityRows);
+        dvUpdateSpaceSeverityRows();
+    }
+    // Expose for resetDefaults() to call after it updates the dropdown.
+    window.dvUpdateSpaceSeverityRows = dvUpdateSpaceSeverityRows;
+
+    // ── Tool tab: space severity custom rows (independent handler) ──────
+    var dvtSpaceModeSel = document.getElementById('dvtSpaceSeverityMode');
+    var dvtSpaceWarnIn  = document.getElementById('dvtSpaceWarn');
+    var dvtSpaceCritIn  = document.getElementById('dvtSpaceCrit');
+    function dvtUpdateSpaceSeverityRows(){
+        if (!dvtSpaceModeSel) return;
+        var active = (dvtSpaceModeSel.value === 'custom');
+        [dvtSpaceWarnIn, dvtSpaceCritIn].forEach(function(el){
+            if (!el) return;
+            el.disabled = !active;
+            var row = el.closest('.dv-r');
+            if (row) row.style.opacity = active ? '' : '0.5';
+        });
+    }
+    if (dvtSpaceModeSel) {
+        dvtSpaceModeSel.addEventListener('change', dvtUpdateSpaceSeverityRows);
+        dvtUpdateSpaceSeverityRows();
+    }
+    window.dvtUpdateSpaceSeverityRows = dvtUpdateSpaceSeverityRows;
+
+    // ── Notice modal (replaces window.alert for plugin-side notifications) ─
+    // dvShowNotice(title, body) opens the notice modal with the given title
+    // and body text. Closes on OK button, backdrop click, or Escape - same
+    // affordances as the credits modal so the user behaviour is consistent.
+    // Falls back to a plain alert() if for some reason the modal node is
+    // missing (template stripped, theme override hid it, etc.).
+    function dvShowNotice(title, bodyHtml){
+        var nModal = document.getElementById('dvNoticeModal');
+        var nTitle = document.getElementById('dvNoticeTitle');
+        var nBody  = document.getElementById('dvNoticeBody');
+        if (!nModal || !nTitle || !nBody) {
+            // Strip HTML for the alert fallback so the user sees clean text
+            // instead of raw markup if the modal node went missing.
+            var plain = (bodyHtml || '').replace(/<[^>]+>/g, '');
+            alert(title + (plain ? '\n\n' + plain : ''));
+            return;
+        }
+        // Title is plain text; body accepts a small set of HTML for
+        // typographic emphasis (e.g. <span style="color:#f47d42">Apply</span>).
+        // The body string is fully controlled by the plugin's own JS - it
+        // never carries user input - so HTML insertion is safe here.
+        nTitle.textContent = title || 'Notice';
+        nBody.innerHTML    = bodyHtml || '';
+        nModal.style.display = 'flex';
+    }
+    var nModal = document.getElementById('dvNoticeModal');
+    var nOk    = document.getElementById('dvNoticeOkBtn');
+    if (nOk && nModal) nOk.addEventListener('click', function(){
+        nModal.style.display = 'none';
+    });
+    if (nModal) {
+        nModal.addEventListener('click', function(e){
+            if (e.target === nModal) nModal.style.display = 'none';
+        });
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape' && nModal.style.display !== 'none') {
+                nModal.style.display = 'none';
+            }
+        });
+    }
+
+    // ── Credits modal ───────────────────────────────────────────────────
+    // Open on link click, close on OK button, backdrop click, or Escape.
+    var modal = document.getElementById('dvCreditsModal');
+    var cLink = document.getElementById('dvCreditsLink');
+    var okBtn = document.getElementById('dvCreditsOkBtn');
+    if (cLink && modal) cLink.addEventListener('click', function(e){
+        e.preventDefault();
+        modal.style.display = 'flex';
+    });
+    if (okBtn && modal) okBtn.addEventListener('click', function(){
+        modal.style.display = 'none';
+    });
+    if (modal) {
+        modal.addEventListener('click', function(e){
+            if (e.target === modal) modal.style.display = 'none';
+        });
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape') modal.style.display = 'none';
+        });
+    }
+})();
+</script>

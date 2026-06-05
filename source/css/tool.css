@@ -1,0 +1,621 @@
+/* ==========================================================================
+   DISK VIEWER -- Tool Page Styles
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+   /plugins/diskviewer/css/tool.css
+
+   SECTIONS
+    1. CSS Custom Properties        6. Shared Components
+    2. Layout                       7. Overview Tab
+    3. Tabs                         8. Disks Tab (sidebar + detail)
+    4. Panel + States               9. Responsive
+    5. Page Header                 10. Light Theme Overrides
+
+   The tool is a standalone System Information page, fully separate from the
+   dashboard widget (its own page, js, and css). Tokens are duplicated here
+   rather than shared with widget.css so the tool has no load-order
+   dependency on the widget stylesheet. Visual language matches the rest of
+   the Aegis ecosystem (StreamViewer tool conventions: 80% centred wrapper,
+   rounded-top tabs, surface cards).
+   ========================================================================== */
+
+/* ── 1. CSS CUSTOM PROPERTIES ─────────────────────────────────────────── */
+:root {
+  --dvt-bg:            #1a1a1a;
+  --dvt-surface:       #242424;
+  --dvt-surface2:      #2e2e2e;
+  --dvt-border:        rgba(255,255,255,.10);
+  --dvt-border-strong: rgba(255,255,255,.18);
+  --dvt-border-subtle: rgba(255,255,255,.06);
+  --dvt-text:          rgba(255,255,255,.85);
+  --dvt-text-mid:      rgba(255,255,255,.65);
+  --dvt-text-dim:      rgba(255,255,255,.45);
+  --dvt-text-muted:    rgba(255,255,255,.30);
+  --dvt-accent:        #42a5f5;
+  --dvt-radius:        6px;
+  --dvt-bg-subtle:     rgba(255,255,255,.04);
+
+  /* severity colours (match the widget) */
+  --dvt-ok:            #4caf50;
+  --dvt-warn:          #ef9f27;
+  --dvt-crit:          #e24b4a;
+  --dvt-ok-text:       #4caf50;
+  --dvt-warn-text:     #ffb443;
+  --dvt-crit-text:     #ff6a6a;
+}
+
+/* ── 2. LAYOUT ────────────────────────────────────────────────────────────
+   Width follows the StreamViewer/Logs Viewer convention: 80% of the viewport
+   on desktop (10% gutter each side) and 95% on tablet/mobile below 768px.
+   The parent's max-width constraint (imposed by the dynamix template, ~1180px)
+   is lifted at runtime by the inline script in DiskViewerTool.page. */
+.dvt-wrapper {
+  width: 96%;
+  max-width: 96%;
+  margin: 2rem auto;
+  padding: 0;
+  box-sizing: border-box;
+  display: block;
+}
+@media (max-width: 768px) {
+  .dvt-wrapper {
+    width: 95%;
+    max-width: 95%;
+  }
+}
+
+/* ── 3. TABS ──────────────────────────────────────────────────────────── */
+.dvt-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: .4rem;
+  position: relative;
+  margin: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.dvt-tabs::-webkit-scrollbar { display: none; }
+.dvt-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .55rem .9rem;
+  border: 1px solid var(--dvt-border);
+  border-bottom: 0;
+  border-radius: .55rem .55rem 0 0;
+  background: var(--dvt-bg-subtle);
+  color: var(--dvt-text-mid);
+  cursor: pointer;
+  font-weight: 700;
+  user-select: none;
+  transition: background .25s ease, color .25s ease, border-color .25s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dvt-tab .dvt-tabicon { opacity: .9; font-size: 1.05em; }
+.dvt-tab:hover { background: var(--dvt-border-subtle); color: var(--dvt-text); }
+.dvt-tab.active {
+  background: rgba(0,0,0,.35);
+  color: var(--dvt-text);
+  border-color: rgba(244,125,66,.55);
+}
+.dvt-tabs .dvt-tab--right { margin-left: auto; }
+
+/* ── 4. PANEL + STATES ────────────────────────────────────────────────── */
+.dvt-panel {
+  padding: 1.25rem;
+  box-sizing: border-box;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--dvt-border);
+  border-radius: 8px;
+}
+.dvt-tab-panel { display: block; }
+
+/* Loading animation - equalizer bars, ported from the StreamViewer widget. */
+.dvt-loading {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: .6rem; padding: 1.5rem 1rem;
+}
+.dvt-loading__bars { display: flex; gap: 4px; align-items: flex-end; height: 36px; }
+.dvt-loading__bar {
+  width: 6px; border-radius: 2px; background: #f47d42;
+  animation: dvt-bar-grow 1.2s ease-in-out infinite;
+}
+.dvt-loading__bar:nth-child(2) { animation-delay: .1s; }
+.dvt-loading__bar:nth-child(3) { animation-delay: .2s; }
+.dvt-loading__bar:nth-child(4) { animation-delay: .3s; }
+.dvt-loading__bar:nth-child(5) { animation-delay: .4s; }
+@keyframes dvt-bar-grow {
+  0%, 100% { height: 8px; opacity: .3; }
+  50%      { height: 32px; opacity: 1; }
+}
+.dvt-loading__text { font-size: .85rem; color: var(--dvt-text-muted); }
+
+.dvt-disabled {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--dvt-text-dim);
+}
+.dvt-disabled-icon { font-size: 3rem; margin-bottom: 1rem; color: var(--dvt-text-muted); }
+.dvt-disabled h2   { margin: 0 0 .5rem; color: var(--dvt-text); font-weight: 600; }
+.dvt-disabled p    { margin: 0 auto; color: var(--dvt-text-dim); }
+
+/* ── 5. PAGE HEADER ──────────────────────────────────────────────────── */
+.dvt-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  min-height: 3rem;
+}
+.dvt-header__left {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+.dvt-header__icon   { width: 36px; height: 36px; object-fit: contain; }
+.dvt-header__title  { margin: 0; font-size: 1.45rem; font-weight: 700; color: var(--dvt-text); }
+.dvt-header__sub    { font-size: .95rem; color: var(--dvt-text-mid); margin-left: 6px; }
+.dvt-header__right  { display: flex; flex-direction: column; align-items: flex-end; gap: .7rem; }
+.dvt-header__icons  { display: flex; align-items: center; gap: .3rem; }
+.dvt-header__icons a {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 4px !important;
+  background: var(--dvt-border-subtle) !important;
+  border: 1px solid var(--dvt-border) !important;
+  text-decoration: none !important;
+  color: var(--dvt-text-dim) !important;
+  transition: color .15s ease, background .15s ease !important;
+}
+.dvt-header__icons a:hover {
+  color: var(--dvt-text) !important;
+  background: var(--dvt-bg-subtle) !important;
+}
+.dvt-header__icons a .fa {
+  font-size: 13px !important;
+  line-height: 1 !important;
+  width: auto !important;
+}
+
+/* ── 6. SHARED COMPONENTS ──────────────────────────────────────────────── */
+.dvt-select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: var(--dvt-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23999'/%3E%3C/svg%3E") no-repeat right .5rem center;
+  background-size: 10px 6px;
+  color: var(--dvt-text);
+  border: 1px solid var(--dvt-accent);
+  border-radius: 4px;
+  padding: .4rem 1.5rem .4rem .5rem;
+  font-size: .95rem;
+  cursor: pointer;
+}
+
+/* ── 7. OVERVIEW TAB ───────────────────────────────────────────────────
+   Disk rows render in the same visual language as the widget but with room
+   to breathe - every column visible at a comfortable width. */
+.dvt-overview-disks { margin-top: .5rem; }
+.dvt-empty { padding: 2rem; text-align: center; color: var(--dvt-text-dim); }
+
+/* 17-column overview is wider than the panel. Scroll it horizontally INSIDE
+   the panel so it never spills past the rounded border. overflow-x:auto makes
+   this a horizontal scroll container; with no height set, overflow-y stays
+   non-scrolling (the box grows to content height) so the page keeps its single
+   vertical scrollbar. Header pinning is handled by the JS fixed clone, not CSS
+   sticky, so making this a scroll context is fine - the clone tracks both this
+   container's horizontal scroll and the page's vertical scroll. */
+.dvt-tbl-scroll {
+  overflow-x: auto;
+}
+.dvt-tbl--wide { min-width: 0; font-size: .85rem; }
+.dvt-tbl--wide thead th { font-size: 1.1rem; padding: .4rem .45rem; white-space: normal; line-height: 1.1; }
+.dvt-tbl--wide tbody td { padding: .4rem .45rem; }
+
+/* On desktop the table fills the panel and table-layout:fixed scales the
+   columns to fit, so no horizontal scroll (target: 1920 fits without scroll).
+   Only on tablet/phone widths do we force a min-width so the 19 columns get a
+   horizontal scrollbar instead of being crushed unreadable. */
+@media (max-width: 1024px) {
+  .dvt-tbl--wide { min-width: 1500px; }
+}
+
+/* Spin bolt (mirrors the widget). Aggressive resets so the Unraid global
+   button styling does not bleed through (it otherwise shows as a bordered
+   box on the only rows that become buttons - single-disk pools). */
+.dvt-bolt {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  padding: 1px 3px !important;
+  margin: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  cursor: pointer !important;
+  line-height: 0 !important;
+  border-radius: 3px !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font: inherit !important;
+  color: var(--dvt-text-muted);
+  vertical-align: middle !important;
+}
+.dvt-bolt::-moz-focus-inner { border: 0 !important; padding: 0 !important; }
+.dvt-bolt--on  { color: var(--dvt-ok) !important; }
+.dvt-bolt--off { color: var(--dvt-text-muted) !important; }
+.dvt-bolt--static { cursor: default !important; pointer-events: none; }
+.dvt-bolt--busy { opacity: .4 !important; pointer-events: none; }
+.dvt-bolt--on:not(.dvt-bolt--static):hover {
+  background: color-mix(in srgb, var(--dvt-crit) 15%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dvt-crit) 55%, transparent) !important;
+}
+.dvt-bolt--off:not(.dvt-bolt--static):hover {
+  background: color-mix(in srgb, var(--dvt-ok) 15%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dvt-ok) 55%, transparent) !important;
+}
+
+/* Bulk spin up/down all (POOL section header). Mirrors the widget control. */
+.dvt-bulk-actions { display: inline-flex; align-items: center; gap: 6px; }
+.dvt-bulk-spin {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 1px;
+  padding: 1px 5px !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  background: transparent !important;
+  border: 1px solid var(--dvt-border) !important;
+  border-radius: 3px !important;
+  cursor: pointer !important;
+  line-height: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font: inherit !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  color: var(--dvt-text-muted) !important;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.dvt-bulk-spin svg { width: 12px; height: 12px; }
+.dvt-bulk-arrow { display: inline-flex; line-height: 0; }
+.dvt-bulk-arrow svg { width: 8px; height: 8px; }
+.dvt-bulk-spin[data-dvt-bulk="up"]:hover {
+  color: var(--dvt-ok) !important;
+  background: color-mix(in srgb, var(--dvt-ok) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dvt-ok) 50%, transparent) !important;
+}
+.dvt-bulk-spin[data-dvt-bulk="down"]:hover {
+  color: var(--dvt-crit) !important;
+  background: color-mix(in srgb, var(--dvt-crit) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--dvt-crit) 50%, transparent) !important;
+}
+.dvt-bulk-spin:disabled,
+.dvt-bulk-spin.dvt-bolt--busy { opacity: .5 !important; cursor: wait !important; }
+
+/* Speed cell */
+.dvt-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 14px;
+  color: var(--dvt-text-mid);
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+}
+.dvt-speed svg { width: 13px; height: 13px; flex-shrink: 0; }
+.dvt-speed-num { line-height: 14px; }
+.dvt-speed--r svg { color: var(--dvt-ok); }
+.dvt-speed--w svg { color: var(--dvt-crit); }
+.dvt-speed-na { line-height: 14px; color: var(--dvt-text-muted); }
+
+/* Plugin hover tooltip (replaces the browser title) for spin + bulk controls.
+   Fixed-positioned, appended to <body>, coloured like the widget's toast. */
+.dvt-tip {
+  position: fixed;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  z-index: 9999;
+  pointer-events: none;
+}
+.dvt-tip--ok {
+  background: color-mix(in srgb, var(--dvt-ok) 30%, #000);
+  border: 1px solid color-mix(in srgb, var(--dvt-ok) 55%, transparent);
+  color: var(--dvt-ok-text);
+}
+.dvt-tip--crit {
+  background: color-mix(in srgb, var(--dvt-crit) 35%, #000);
+  border: 1px solid color-mix(in srgb, var(--dvt-crit) 60%, transparent);
+  color: var(--dvt-crit-text);
+}
+
+/* Not-yet-wired placeholder columns */
+.dvt-ph { color: var(--dvt-text-muted); }
+.dvt-na {
+  color: var(--dvt-text-muted);
+  font-style: italic;
+  font-family: "clear-sans", "Segoe UI", Roboto, system-ui, -apple-system, sans-serif;
+}
+.dvt-sleep-ico { font-size: .82em; opacity: .9; margin-right: 5px; }
+.dvt-scrub-today { font-size: .85em; }
+.dvt-scrub-date  { font-size: .85em; }
+
+/* Small font option (tool). Scales the table text down ~20% to fit more. */
+.dvt-font-small .dvt-tbl--wide          { font-size: .78rem; }
+.dvt-font-small .dvt-tbl--wide thead th { font-size: 1.1rem; }
+
+.dvt-tbl {
+  width: 100%;
+  /* separate (not collapse) so position:sticky works on <th>. A collapsed
+     table ignores sticky headers in WebKit and older Chrome. Spacing 0 keeps
+     the look identical, since cells only carry a bottom border. */
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 1.2rem;
+  table-layout: fixed;
+}
+.dvt-tbl thead th {
+  text-align: left;
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--dvt-text-dim);
+  padding: .45rem .6rem;
+  /* The real thead stays in normal flow. Pinning is done by a JS-built fixed
+     clone (.dvt-fixed-thead) appended to <body>, because CSS position:sticky
+     is unreliable here: an ancestor in Unraid's layout establishes a scroll /
+     overflow context that traps sticky so the header never pins to the
+     viewport. Solid background + box-shadow divider so the clone matches. */
+  background: var(--dvt-surface);
+  box-shadow: inset 0 -1px 0 var(--dvt-border);
+}
+/* Numeric / centred headers must match the alignment of their cells, or the
+   label sits at the opposite edge of the column from the value. */
+.dvt-tbl thead th.dvt-tbl__num { text-align: right; }
+.dvt-tbl thead th.dvt-tbl__ctr { text-align: center; }
+
+/* Fixed clone of the column header. Built in JS and appended to <body> so it
+   escapes any overflow ancestor that would trap a CSS sticky element. The wrap
+   is positioned (top/left/width) inline by syncFixedThead(); we only give it
+   the floating chrome here. It carries the same dvt-tbl/dvt-tbl--wide classes
+   as the real table so columns line up; the wrap may also carry dvt-light /
+   dvt-font-small so theme + font-size match. */
+.dvt-fixed-thead-wrap {
+  box-sizing: border-box;
+  overflow: hidden;
+  pointer-events: none;
+}
+.dvt-fixed-thead {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  background: var(--dvt-surface);
+}
+.dvt-fixed-thead tbody { display: none; }
+.dvt-fixed-thead thead th {
+  /* drop shadow under the floating bar so it reads as detached from the rows */
+  box-shadow: inset 0 -1px 0 var(--dvt-border), 0 4px 8px rgba(0,0,0,.28);
+  /* When pinned, the bar grows ~20%: larger field height + proportional font. */
+  font-size: 1.32rem !important;
+  padding-top: .56rem !important;
+  padding-bottom: .56rem !important;
+}
+.dvt-light .dvt-fixed-thead thead th,
+.dvt-fixed-thead-wrap.dvt-light .dvt-fixed-thead thead th {
+  box-shadow: inset 0 -1px 0 var(--dvt-border), 0 4px 8px rgba(0,0,0,.12);
+}
+
+.dvt-tbl__num { text-align: right; font-variant-numeric: tabular-nums; }
+.dvt-tbl__ctr { text-align: center; }
+.dvt-tbl td, .dvt-tbl th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dvt-tbl tbody td {
+  padding: .2rem .4rem;
+  color: var(--dvt-text);
+  border-bottom: 1px solid var(--dvt-border-subtle);
+}
+.dvt-tbl tbody td.dvt-tbl__num { font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas; }
+
+/* Give the last column breathing room from the table's right edge. */
+.dvt-tbl tbody td:last-child,
+.dvt-tbl thead th:last-child { padding-right: .9rem; }
+
+/* USED composite cell - percent (severity coloured) + optional bytes + mini
+   progress bar, ported from the widget. */
+.dvt-col-used { display: flex; flex-direction: column; gap: 3px; line-height: 1.1; overflow: hidden; padding-left: 26px; }
+.dvt-col-used--na { padding-left: 0; align-items: center; justify-content: center; }
+.dvt-col-used-line { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+.dvt-col-used-bytes {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: .9em; color: var(--dvt-text); overflow: hidden; white-space: nowrap;
+  text-overflow: ellipsis; min-width: 0;
+}
+.dvt-col-used-pct {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: .9em; font-weight: 500; color: var(--dvt-text-mid); line-height: 1; flex-shrink: 0;
+}
+.dvt-col-used-pct--warn { color: var(--dvt-warn); }
+.dvt-col-used-pct--crit { color: var(--dvt-crit); }
+.dvt-col-bar { height: 4px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+.dvt-light .dvt-col-bar { background: rgba(0,0,0,.10); }
+.dvt-col-bar--empty { background: transparent; }
+.dvt-bar-fill { height: 100%; transition: width .3s ease; border-radius: 2px; }
+.dvt-bar-fill--ok   { background: var(--dvt-ok);   }
+.dvt-bar-fill--warn { background: var(--dvt-warn); }
+.dvt-bar-fill--crit { background: var(--dvt-crit); }
+
+/* Section divider row inside the single table */
+.dvt-sec-row__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dvt-sec-row td {
+  padding: .9rem .6rem .35rem !important;
+  font-size: 1.0rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--dvt-text-mid);
+  border-bottom: 1px solid var(--dvt-border) !important;
+  background: transparent !important;
+}
+
+/* Zebra is applied per-section in JS (class, not :nth-child) so the section
+   divider rows and the ARRAY/CACHE/POOL summary rows are excluded and only the
+   member rows of pool sections alternate - matching the widget. The summary
+   fill below wins via !important so a summary row never reads as a zebra row. */
+.dvt-tbl__row.dvt-zebra-even td { background: rgba(255,255,255,.025); }
+.dvt-tbl__row--summary td { background: var(--dvt-bg-subtle) !important; font-weight: 600; }
+.dvt-tbl__row--member td  { color: var(--dvt-text-mid); }
+.dvt-tbl__name { font-weight: 500; }
+
+.dvt-light .dvt-tbl__row.dvt-zebra-even td { background: rgba(0,0,0,.025); }
+
+/* Severity text colours */
+.dvt-ok   { color: var(--dvt-ok-text); }
+.dvt-warn { color: var(--dvt-warn-text); }
+.dvt-crit { color: var(--dvt-crit-text); }
+
+/* Column-header tinting by worst state (Temp / Health / Errors), like the
+   widget. Overrides the default dim header colour. */
+.dvt-tbl thead th.dvt-hd--warn { color: var(--dvt-warn-text) !important; }
+.dvt-tbl thead th.dvt-hd--crit { color: var(--dvt-crit-text) !important; }
+
+/* Summary-row indicator icon (the stack glyph left of ARRAY / CACHE / POOL)
+   is enlarged so it reads clearly as the section aggregate. */
+.dvt-tbl__row--summary .dvt-bolt svg { width: 18px; height: 18px; }
+
+/* Health status dot (legacy; the Health column now uses the thumb hand) */
+.dvt-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dvt-text-muted);
+}
+.dvt-dot--ok   { background: var(--dvt-ok); }
+.dvt-dot--warn { background: var(--dvt-warn); }
+.dvt-dot--crit { background: var(--dvt-crit); }
+.dvt-dot--na   { background: var(--dvt-text-muted); }
+
+/* FS pill - same blue chip as the widget. */
+.dvt-fs-pill {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 500;
+  background: rgba(74,144,226,.15);
+  color: #6bb3ff;
+  border-radius: 2px;
+  padding: 0 3px;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  line-height: 1.7;
+}
+.dvt-light .dvt-fs-pill {
+  background: rgba(21,101,192,.10);
+  color: #1565c0;
+}
+
+/* Health thumb (SMART) - hand icon, mirrors the widget. Down = critical. */
+.dvt-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+.dvt-thumb svg { width: 14px; height: 14px; }
+.dvt-thumb--down svg { transform: rotate(180deg); }
+.dvt-thumb--ok   { color: var(--dvt-ok); }
+.dvt-thumb--warn { color: var(--dvt-warn); }
+.dvt-thumb--crit { color: var(--dvt-crit); }
+.dvt-thumb--na   { color: var(--dvt-text-muted); }
+
+/* Per-disk settings gear (S column). Aggressive resets so Unraid's global
+   anchor/button styling does not bleed through. */
+.dvt-gear {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  text-decoration: none !important;
+  color: var(--dvt-text-muted);
+  transition: color .15s ease;
+}
+.dvt-gear:hover { color: var(--dvt-text); }
+.dvt-gear svg { width: 14px; height: 14px; }
+
+/* ── 8. DISKS TAB (sidebar + detail) ───────────────────────────────────
+   Master-detail: a scrollable disk list on the left, full per-disk detail on
+   the right. Markup + styling land in the Tab 2 iteration. */
+.dvt-disks-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1rem;
+}
+@media (max-width: 768px) {
+  .dvt-disks-layout { grid-template-columns: 1fr; }
+}
+
+/* ── 9. RESPONSIVE ─────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .dvt-header__right { align-items: flex-start; }
+}
+
+/* ── 10. LIGHT THEME OVERRIDES ─────────────────────────────────────────── */
+.dvt-light {
+  --dvt-bg:            #f5f5f5;
+  --dvt-surface:       #ffffff;
+  --dvt-surface2:      #f0f0f0;
+  --dvt-border:        rgba(0,0,0,.12);
+  --dvt-border-strong: rgba(0,0,0,.20);
+  --dvt-border-subtle: rgba(0,0,0,.06);
+  --dvt-text:          rgba(0,0,0,.85);
+  --dvt-text-mid:      rgba(0,0,0,.65);
+  --dvt-text-dim:      rgba(0,0,0,.50);
+  --dvt-text-muted:    rgba(0,0,0,.30);
+  --dvt-bg-subtle:     rgba(0,0,0,.04);
+}
+.dvt-light .dvt-tab.active {
+  background: rgba(255,255,255,.85);
+  color: rgba(0,0,0,.85);
+  border-color: rgba(244,125,66,.55);
+}
+.dvt-light .dvt-panel {
+  background: rgba(255,255,255,.5);
+  border-color: rgba(0,0,0,.12);
+}
+.dvt-light .dvt-header__icons a {
+  background: rgba(0,0,0,.04) !important;
+  border-color: rgba(0,0,0,.12) !important;
+  color: rgba(0,0,0,.45) !important;
+}
+.dvt-light .dvt-header__icons a:hover {
+  color: rgba(0,0,0,.85) !important;
+  background: rgba(0,0,0,.08) !important;
+}

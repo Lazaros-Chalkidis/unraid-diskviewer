@@ -1,0 +1,1174 @@
+/* ============================================================================
+   DISK VIEWER  -  Settings Page Stylesheet
+   /plugins/diskviewer/css/settings.css
+
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+
+   Visual language follows the StreamViewer settings page convention so the
+   plugin family reads as a single design system. Section ordering tracks
+   the rendered page top-to-bottom: tokens, panel, sections, fields,
+   actions, footer, modal, then responsive / touch tuning at the end.
+   ========================================================================= */
+
+/* ==============================================================================
+   1. CSS Custom Properties
+   ============================================================================== */
+
+/* ==========================================================================
+   DISK VIEWER - Settings Page Styles
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+   /plugins/diskviewer/css/settings.css
+
+   Structure mirrors StreamViewer settings.css for visual consistency
+   across the plugin family.
+   ========================================================================== */
+
+/* TABLE OF CONTENTS:
+      1. FOUNDATION — variables, themes, FOUC, button baseline
+      2. LAYOUT — wrapper, panel
+      3. COLLAPSIBLE SECTIONS — headers, pill, body
+      4. SETTING ROWS — label, field, description, warning
+      5. FORM CONTROLS — toggle switch, select dropdown
+      6. ACTION BAR — Apply / Reset / Done buttons
+      7. FOOTER ROW — support link, version badge
+      8. CREDITS — top link, modal popup
+      9. RESPONSIVE — media queries
+   ──────────────────────────────────────────────────────────────────────── */
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   1. FOUNDATION — variables, themes, FOUC, button baseline
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── CSS CUSTOM PROPERTIES ───────────────────────────────────────────────── */
+:root {
+  --dv-c-text:          rgba(255,255,255,.87);
+  --dv-c-text-mid:      rgba(255,255,255,.60);
+  --dv-c-text-muted:    rgba(255,255,255,.40);
+  --dv-c-text-faint:    rgba(255,255,255,.25);
+
+  --dv-c-border:        rgba(255,255,255,.10);
+  --dv-c-border-row:    rgba(255,255,255,.06);
+  --dv-c-border-strong: rgba(255,255,255,.15);
+  --dv-c-border-subtle: rgba(255,255,255,.05);
+
+  --dv-c-bg-hover:      rgba(255,255,255,.06);
+  --dv-c-bg-subtle:     rgba(255,255,255,.035);
+
+  --dv-panel-bg:       #1c1c1c;
+  --dv-sec-hd-bg:      #242424;
+  --dv-sec-hd-hover:   #2c2c2c;
+  --dv-row-even:       #1a1a1a;
+  --dv-row-odd:        #1e1e1e;
+  --dv-label-bg:       rgba(0,0,0,.15);
+
+  --dv-accent:         #f47d42;
+  --dv-accent-dim:     rgba(244,125,66,.12);
+  --dv-accent-border:  rgba(244,125,66,.45);
+
+  --dv-tog-on:         #f47d42;
+  --dv-tog-off-track:  rgba(255,255,255,.10);
+  --dv-tog-off-thumb:  rgba(255,255,255,.40);
+
+  --dv-ctrl-bg:        #262626;
+  --dv-ctrl-border:    #383838;
+  --dv-ctrl-hover:     #4a4a4a;
+
+  --dv-green:          #4caf50;
+  --dv-blue:           #4a90e2;
+}
+
+.dv-light {
+  --dv-c-text:          rgba(0,0,0,.85);
+  --dv-c-text-mid:      rgba(0,0,0,.60);
+  --dv-c-text-muted:    rgba(0,0,0,.46);
+  --dv-c-text-faint:    rgba(0,0,0,.25);
+
+  --dv-c-border:        rgba(0,0,0,.10);
+  --dv-c-border-row:    rgba(0,0,0,.08);
+  --dv-c-border-strong: rgba(0,0,0,.18);
+  --dv-c-border-subtle: rgba(0,0,0,.06);
+
+  --dv-c-bg-hover:      rgba(0,0,0,.04);
+  --dv-c-bg-subtle:     rgba(0,0,0,.03);
+
+  --dv-panel-bg:       #f4f5f7;
+  --dv-sec-hd-bg:      #e8eaed;
+  --dv-sec-hd-hover:   #dcdee2;
+  --dv-row-even:       #fafbfc;
+  --dv-row-odd:        #f0f1f3;
+  --dv-label-bg:       rgba(0,0,0,.04);
+
+  --dv-tog-off-track:  rgba(0,0,0,.12);
+  --dv-tog-off-thumb:  rgba(0,0,0,.30);
+
+  --dv-ctrl-bg:        #fff;
+  --dv-ctrl-border:    #c8ccd2;
+  --dv-ctrl-hover:     #aab0b8;
+
+  --dv-green:          #2e7d32;
+}
+
+
+/* ==============================================================================
+   2. Per-Theme Tuning
+   ============================================================================== */
+
+/* ── PER-THEME TUNING ─────────────────────────────────────────────────────
+   Mirrors widget.css: the dark :root and light .dv-light blocks cover
+   black and white; .dv-theme-azure tweaks the light base toward azure;
+   .dv-theme-gray overrides for medium-dark surfaces matching Unraid's
+   Gray theme system background. See widget.css for full rationale.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Azure: cool tint on the light base. Settings panel and section header
+   pick up a hairline cooler grey, the support link and section pill
+   borders shift toward Unraid's Azure accent. */
+.dv-theme-azure {
+  --dv-panel-bg:       #f5f8fb;
+  --dv-sec-hd-bg:      #e6eef6;
+  --dv-sec-hd-hover:   #dae5f0;
+  --dv-row-even:       #f9fbfd;
+  --dv-row-odd:        #f0f4f8;
+  --dv-blue:           #1565c0;
+}
+
+/* Gray: medium-dark surfaces lift the panel a notch above the system
+   background (~#3b3b3b in stock Unraid Gray) so it reads as embedded
+   rather than as a darker tile floating on top. Section header chrome
+   tracks one more notch for visible hierarchy. */
+.dv-theme-gray {
+  --dv-c-text:          rgba(255,255,255,.92);
+  --dv-c-text-mid:      rgba(255,255,255,.66);
+  --dv-c-text-muted:    rgba(255,255,255,.46);
+  --dv-c-text-faint:    rgba(255,255,255,.30);
+
+  --dv-c-border:        rgba(255,255,255,.13);
+  --dv-c-border-row:    rgba(255,255,255,.08);
+  --dv-c-border-strong: rgba(255,255,255,.18);
+  --dv-c-border-subtle: rgba(255,255,255,.06);
+
+  --dv-c-bg-hover:      rgba(255,255,255,.06);
+  --dv-c-bg-subtle:     rgba(255,255,255,.04);
+
+  --dv-panel-bg:       #2c2c2c;
+  --dv-sec-hd-bg:      #353535;
+  --dv-sec-hd-hover:   #3d3d3d;
+  --dv-row-even:       #2a2a2a;
+  --dv-row-odd:        #2e2e2e;
+  --dv-label-bg:       rgba(0,0,0,.18);
+
+  --dv-ctrl-bg:        #383838;
+  --dv-ctrl-border:    #4a4a4a;
+  --dv-ctrl-hover:     #5a5a5a;
+}
+
+/* Azure variant: cooler off-white box, azure-tinted footer chrome. */
+.dv-theme-azure .dv-credits-modal-box { background: #fbfdff; }
+
+.dv-theme-azure .dv-credits-footer    { background: #e6eef6; }
+
+/* Gray variant: medium-dark surfaces matching the rest of the gray UI. */
+.dv-theme-gray .dv-credits-modal-box {
+  background: #2c2c2c; color: rgba(255,255,255,.92);
+  border-color: rgba(255,255,255,.13);
+}
+
+.dv-theme-gray .dv-credits-footer { background: #252525; border-top-color: rgba(255,255,255,.10); }
+
+
+/* ==============================================================================
+   3. FOUC Prevention
+   ============================================================================== */
+
+/* ── FOUC PREVENTION ─────────────────────────────────────────────────────── */
+.diskviewer-settings { visibility: visible !important; }
+
+
+/* ==============================================================================
+   4. Button Baseline (override Unraid global width:100%)
+   ============================================================================== */
+
+/* ── BUTTON BASELINE (override Unraid width:100%) ────────────────────────── */
+.diskviewer-settings button,
+.diskviewer-settings input[type="button"],
+.diskviewer-settings input[type="submit"] {
+  width: auto !important;
+  max-width: max-content !important;
+  flex-shrink: 0 !important;
+}
+
+
+/* ==============================================================================
+   5. Wrapper & Responsive Width
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   2. LAYOUT — wrapper, panel
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── WRAPPER & RESPONSIVE ──────────────────────────────────────────────────
+   The settings page is a standalone full-page experience, so it gets a
+   different responsive treatment than the widget (which lives in a grid
+   cell on the dashboard). Width tracks viewport down through tablet and
+   phone sizes, with a hard handover to full-width-edge-to-edge below
+   768px so phones get every pixel of horizontal space.
+   ──────────────────────────────────────────────────────────────────────── */
+/* ── WRAPPER & RESPONSIVE ─────────────────────────────────────────────────
+   Width follows the StreamViewer convention: 80% of the viewport on
+   desktop (10% gutter each side) and 95% on tablet/mobile below 768px,
+   capped at 1400px so content stays readable on very wide displays.
+   This replaced the older fixed-band rule (min-width:720px; width:
+   min(54vw,1020px);) which felt cramped on big screens compared to the
+   other Aegis-stack settings pages. */
+.diskviewer-settings {
+  width: 80%;
+  max-width: 80%;
+  margin: 2rem auto;
+  padding: 0;
+  box-sizing: border-box;
+  display: block;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+@media (max-width: 768px) {
+  .diskviewer-settings {
+    width: 95%;
+    max-width: 95%;
+  }
+}
+
+
+/* ==============================================================================
+   6. Settings Panel
+   ============================================================================== */
+
+/* ── SETTINGS PANEL ──────────────────────────────────────────────────────── */
+.diskviewer-settings .dv-settings-panel {
+  background: var(--dv-panel-bg);
+  border: 1px solid var(--dv-c-border);
+  /* Top-left stays square: the tab bar sits flush against that corner and
+     the active tab merges into the panel there. The top-right has no tab, so
+     it is rounded to match the two bottom corners. */
+  border-radius: 0 8px 8px 8px;
+  overflow: hidden;
+  padding: 0;
+}
+
+
+/* ==============================================================================
+   7. Credits Top Bar
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   8. CREDITS — top link, modal popup
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   (Top-right CREDITS link removed - Credits now lives in the footer row
+   alongside Support Forum and GitHub Issues; see the footer row styles
+   below for the new layout.)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ==============================================================================
+   8. Section Headers (collapsible Behavior / Display / etc.)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   3. COLLAPSIBLE SECTIONS — headers, pill, body
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COLLAPSIBLE SECTIONS
+   ══════════════════════════════════════════════════════════════════════════ */
+.dv-sec {
+  border-bottom: 1px solid var(--dv-c-border);
+}
+
+.dv-sec:last-child { border-bottom: none; }
+
+.dv-sec-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  padding-right: 36px;
+  background: var(--dv-sec-hd-bg);
+  border-bottom: 1px solid var(--dv-c-border);
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: background .2s;
+}
+
+.dv-sec-hd:hover { background: var(--dv-sec-hd-hover); }
+
+.dv-sec.closed .dv-sec-hd { border-bottom: none; }
+
+.dv-sec-hd > span:first-child {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dv-c-text);
+}
+
+.dv-sec-arrow {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: var(--dv-c-text-faint);
+  transition: transform .25s;
+}
+
+.dv-sec.closed .dv-sec-arrow {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.dv-sec-bd { display: block; }
+
+.dv-sec.closed .dv-sec-bd { display: none; }
+
+.dv-pill {
+  margin-left: auto;
+  font-size: 11px;
+  background: rgba(255,140,0,.08);
+  border: 1px solid rgba(255,140,0,.5);
+  border-radius: 4px;
+  padding: 0 7px;
+  color: var(--dv-c-text-mid);
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+
+/* ==============================================================================
+   9. Row Layout (label + field)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   4. SETTING ROWS — label, field, description, warning
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TABLE-CELL ROWS with ZEBRA STRIPING
+   ══════════════════════════════════════════════════════════════════════════ */
+.dv-r {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  border-bottom: 1px solid var(--dv-c-border-row);
+}
+
+.dv-r:last-child { border-bottom: none; }
+
+.dv-r:nth-child(odd)  { background: var(--dv-row-odd); }
+
+.dv-r:nth-child(even) { background: var(--dv-row-even); }
+
+/* Label cell */
+.dv-r-label {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--dv-c-text-mid);
+  background: var(--dv-label-bg);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--dv-c-border-row);
+  line-height: 1.35;
+}
+
+/* Field cell */
+.dv-r-field {
+  flex: 1;
+  padding: 5px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.dv-r-desc {
+  font-size: 11.5px;
+  color: var(--dv-c-text-faint);
+  line-height: 1.3;
+}
+
+/* Amber variant of dv-r-desc - draw extra attention to notes that flag
+   a hard dependency (e.g. "Requires Unassigned Devices plugin"). Same
+   layout as the base; the colour change alone is enough to make it
+   pop in the otherwise-grey description column. */
+.dv-r-desc--warn {
+  color: #ffb300;
+}
+
+.dv-r-warn {
+  font-size: 11px;
+  color: var(--dv-accent);
+  font-weight: 500;
+}
+
+
+/* ==============================================================================
+   10. Toggle Switch
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   5. FORM CONTROLS — toggle switch, select dropdown
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TOGGLE SWITCH (23x13px - matches StreamViewer)
+   ══════════════════════════════════════════════════════════════════════════ */
+.dv-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.dv-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.dv-toggle-track {
+  width: 23px;
+  height: 13px;
+  border-radius: 7px;
+  background: var(--dv-tog-off-track);
+  position: relative;
+  transition: background-color .25s;
+  flex-shrink: 0;
+}
+
+.dv-toggle-track::after {
+  content: "";
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--dv-tog-off-thumb);
+  top: 1px;
+  left: 1px;
+  transition: transform .25s, background-color .25s;
+}
+
+.dv-toggle input:checked + .dv-toggle-track {
+  background: var(--dv-tog-on);
+}
+
+.dv-toggle input:checked + .dv-toggle-track::after {
+  background: #fff;
+  transform: translateX(11px);
+}
+
+.dv-toggle-txt {
+  font-size: 13px;
+  font-weight: 500;
+  transition: color .2s;
+}
+
+.dv-toggle-txt.on { color: var(--dv-green); }
+
+.dv-toggle-txt.off { color: var(--dv-c-text-faint); }
+
+
+/* ==============================================================================
+   11. Select / Dropdown
+   ============================================================================== */
+
+.dv-light .dv-select {
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='rgba(0,0,0,0.35)'/%3E%3C/svg%3E");
+}
+
+.dv-light .dv-select option { background: #fff; color: rgba(0,0,0,.85); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STYLED SELECT (compact)
+   ══════════════════════════════════════════════════════════════════════════ */
+.dv-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--dv-ctrl-bg);
+  border: 1px solid var(--dv-ctrl-border);
+  border-radius: 4px;
+  color: var(--dv-c-text);
+  font-size: 12px;
+  padding: 4px 24px 4px 8px;
+  cursor: pointer;
+  outline: none;
+  min-width: 0;
+  width: auto;
+  transition: border-color .2s;
+  line-height: 1.4;
+
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='rgba(255,255,255,0.35)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+.dv-select:hover { border-color: var(--dv-ctrl-hover); }
+
+.dv-select:focus { border-color: var(--dv-accent); }
+
+.dv-select option {
+  background: #2a2a2a;
+  color: rgba(255,255,255,.85);
+}
+
+/* Number / text input styled to match .dv-select so the custom severity
+   warning/critical fields sit visually alongside the dropdown without
+   looking like a foreign control. Same border/background tokens as the
+   select, same hover/focus accents, same border-radius. The --num
+   variant pins a fixed narrow width because percent inputs only need 3
+   characters max and a full-width input would look enormous next to its
+   label. The selector is scoped to .diskviewer-settings for specificity
+   and uses !important on the box-defining properties (background,
+   border, width, box-sizing, padding) because Unraid's global input
+   stylesheet ships `input[type="number"] { width: 100%; border: 0;
+   border-bottom: 1px solid ...; }` rules that would otherwise reduce
+   the field to an underline-only ghost stretched across the row. */
+.diskviewer-settings .dv-input {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background: var(--dv-ctrl-bg) !important;
+  border: 1px solid var(--dv-ctrl-border) !important;
+  border-radius: 4px !important;
+  color: var(--dv-c-text) !important;
+  font-size: 12px !important;
+  padding: 4px 8px !important;
+  outline: none !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  transition: border-color .2s !important;
+  line-height: 1.4 !important;
+  font-family: inherit !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.diskviewer-settings .dv-input:hover { border-color: var(--dv-ctrl-hover) !important; }
+.diskviewer-settings .dv-input:focus { border-color: var(--dv-accent)     !important; }
+
+.diskviewer-settings .dv-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.diskviewer-settings .dv-input--num {
+  width: 90px !important;
+  max-width: 90px !important;
+  text-align: right !important;
+}
+
+.dv-light .diskviewer-settings .dv-input {
+  background: var(--dv-ctrl-bg) !important;
+  border-color: var(--dv-ctrl-border) !important;
+  color: var(--dv-c-text) !important;
+}
+
+
+/* ==============================================================================
+   12. Action Bar (Apply / Reset / Done)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   6. ACTION BAR — Apply / Reset / Done buttons
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ACTION BAR (Apply / Reset / Done)
+   ══════════════════════════════════════════════════════════════════════════ */
+.dv-actions-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 12px 16px 6px;
+}
+
+.dv-action-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: .25rem !important;
+  padding: 3px 8px !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  width: auto !important;
+  min-width: 0 !important;
+  transition: background .2s, border-color .2s, color .2s !important;
+  border: 1px solid var(--dv-c-border-strong) !important;
+  background: var(--dv-c-bg-subtle) !important;
+  color: var(--dv-c-text-mid) !important;
+  white-space: nowrap !important;
+}
+
+.dv-action-btn:hover {
+  background: var(--dv-c-bg-hover) !important;
+  border-color: var(--dv-c-text-faint) !important;
+}
+
+.dv-action-btn:active { transform: scale(.98); }
+
+.dv-action-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed !important;
+}
+
+.dv-action-btn--apply {
+  background: rgba(76,175,80,.1) !important;
+  border-color: rgba(76,175,80,.3) !important;
+  color: #4caf50 !important;
+}
+
+.dv-action-btn--apply:hover {
+  background: rgba(76,175,80,.2) !important;
+  border-color: rgba(76,175,80,.5) !important;
+}
+
+.dv-action-btn--reset {
+  background: rgba(244,125,66,.12) !important;
+  border-color: rgba(244,125,66,.3) !important;
+  color: #f47d42 !important;
+}
+
+.dv-action-btn--reset:hover {
+  background: rgba(244,125,66,.2) !important;
+  border-color: rgba(244,125,66,.5) !important;
+}
+
+.dv-action-btn--done {
+  background: var(--dv-c-bg-subtle) !important;
+  border-color: var(--dv-c-border-strong) !important;
+  color: var(--dv-c-text-mid) !important;
+}
+
+.dv-action-btn--done:hover {
+  background: var(--dv-c-bg-hover) !important;
+  border-color: var(--dv-c-text-faint) !important;
+}
+
+
+/* ==============================================================================
+   13. Footer Row (support link + version badge)
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   7. FOOTER ROW — support link, version badge
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FOOTER ROW (support / github / credits links cluster + version badge)
+   ══════════════════════════════════════════════════════════════════════════ */
+.dv-footer-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Vertical gap between the links row and the version badge below.
+     8px keeps them clearly related but visually distinct, matching the
+     screenshot pattern the user prefers. */
+  gap: 8px;
+  padding: 10px 0 6px;
+  font-size: 11px;
+}
+
+/* Links cluster: inline-flex so the separators sit inline with the links
+   and gap controls the spacing on either side of each separator. */
+.dv-footer-links {
+  display: inline-flex;
+  align-items: center;
+  /* gap is the breathing room on EACH side of the separator. 0.7ch lands
+     visually as roughly one character of space, matching the requested
+     "space on the left and right of the |". */
+  gap: 0.7ch;
+}
+
+/* Shared link style. No hover underline anywhere - text colour shifts
+   slightly on hover for affordance, nothing more. */
+.dv-footer-link,
+.dv-footer-link:link,
+.dv-footer-link:visited {
+  color: var(--dv-blue);
+  text-decoration: none !important;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .2s;
+  border: 0;
+  background: transparent;
+}
+
+.dv-footer-link:hover,
+.dv-footer-link:focus {
+  color: #6bb3ff;
+  text-decoration: none !important;
+  outline: none;
+}
+
+/* Thin CSS divider between links - option C from the user's reference
+   sheet. 1px wide, 10px tall, vertically centred. Subtle muted colour
+   so it doesn't fight with the link text. */
+.dv-footer-sep {
+  display: inline-block;
+  width: 1px;
+  height: 10px;
+  background: var(--dv-c-text-muted);
+  opacity: 0.45;
+}
+
+.dv-version-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  background: var(--dv-accent-dim);
+  border: 1px solid var(--dv-accent-border);
+  border-radius: 3px;
+  padding: 0 6px;
+  color: var(--dv-accent);
+  line-height: 1.6;
+}
+
+
+/* ==============================================================================
+   14. Credits Modal
+   ============================================================================== */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CREDITS MODAL (harmonized neutral greys)
+   ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   CREDITS MODAL (2-column grid: avatar + name on the left, info + links
+   on the right). Styled after StreamViewer's credits modal so the two
+   plugins feel consistent. Uses dv- prefixed classes throughout.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.dv-credits-modal-box {
+  width: 460px;
+  max-width: 94vw;
+  background: #1c1c1c;
+  color: rgba(255,255,255,.87);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.65);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dv-credits-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 0;
+}
+
+/* Left column: avatar + identity */
+.dv-credits-left {
+  position: relative;
+  padding: 26px 16px 22px;
+  text-align: center;
+  background: linear-gradient(180deg, #242424 0%, #1a1a1a 100%);
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.dv-credits-accent-stripe {
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #f47d42 0%, rgba(244,125,66,0) 100%);
+}
+.dv-credits-avatar-wrap {
+  width: 68px;
+  height: 68px;
+  margin: 0 auto;
+  border-radius: 50%;
+  border: 2px solid rgba(244,125,66,0.40);
+  background: #2c2c2c;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dv-credits-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.dv-credits-name {
+  font-size: 13px !important;
+  font-weight: 600;
+  margin-top: 12px;
+  color: rgba(255,255,255,.87);
+  line-height: 1.2;
+}
+.dv-credits-role {
+  font-size: 9px !important;
+  color: #f47d42;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-top: 4px;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0.85;
+}
+
+/* Right column: info + links */
+.dv-credits-right {
+  padding: 20px 22px;
+}
+.dv-credits-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.dv-credits-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255,255,255,.87);
+}
+.dv-credits-version {
+  background: rgba(244,125,66,.12);
+  color: #f47d42;
+  font-size: 9px;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(244,125,66,.45);
+}
+.dv-credits-version:empty { display: none; }
+.dv-credits-desc {
+  font-size: 11px;
+  color: rgba(255,255,255,.60);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.dv-credits-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dv-credits-link,
+.dv-credits-link:link,
+.dv-credits-link:visited {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #1e1e1e;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 5px;
+  color: rgba(255,255,255,.87);
+  font-size: 11px;
+  text-decoration: none !important;
+  transition: background-color .15s, border-color .15s;
+}
+.dv-credits-link:hover,
+.dv-credits-link:focus {
+  background: rgba(244,125,66,.12) !important;
+  border-color: rgba(244,125,66,.45) !important;
+  color: rgba(255,255,255,.87) !important;
+  text-decoration: none !important;
+  outline: none;
+}
+.dv-credits-link:active {
+  background: rgba(244,125,66,.12) !important;
+  transform: scale(.99);
+}
+.dv-credits-link .fa { font-size: 13px; color: rgba(255,255,255,.60); }
+.dv-credits-link:hover .fa { color: #f47d42; }
+.dv-credits-link-ext {
+  font-size: 9px !important;
+  margin-left: auto;
+  opacity: 0.5;
+}
+
+/* Footer */
+.dv-credits-footer {
+  padding: 12px 22px;
+  background: #181818;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 12px;
+}
+.dv-credits-copy {
+  font-size: 10px;
+  color: rgba(255,255,255,.40);
+  opacity: 0.7;
+  font-style: italic;
+}
+.dv-credits-ok-btn {
+  background: #f47d42 !important;
+  border: 1px solid #f47d42 !important;
+  color: #fff !important;
+  padding: 6px 22px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  border-radius: 5px !important;
+  cursor: pointer !important;
+  transition: background-color .15s !important;
+}
+.dv-credits-ok-btn:hover {
+  background: #d56a35 !important;
+  border-color: #d56a35 !important;
+}
+
+/* Light theme overrides */
+.dv-light .dv-credits-modal-box {
+  background: #fff;
+  color: rgba(0,0,0,.85);
+  box-shadow: 0 8px 40px rgba(0,0,0,.25);
+}
+.dv-light .dv-credits-left {
+  background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+  border-right-color: rgba(0,0,0,.08);
+}
+.dv-light .dv-credits-name { color: rgba(0,0,0,.85); }
+.dv-light .dv-credits-title { color: rgba(0,0,0,.9); }
+.dv-light .dv-credits-desc { color: rgba(0,0,0,.65); }
+.dv-light .dv-credits-link,
+.dv-light .dv-credits-link:link,
+.dv-light .dv-credits-link:visited {
+  background: #f4f5f7;
+  border-color: rgba(0,0,0,.10);
+  color: rgba(0,0,0,.85);
+}
+.dv-light .dv-credits-link .fa { color: rgba(0,0,0,.55); }
+.dv-light .dv-credits-footer {
+  background: #f4f5f7;
+  border-top-color: rgba(0,0,0,.10);
+}
+.dv-light .dv-credits-copy { color: rgba(0,0,0,.55); }
+
+
+/* ==============================================================================
+   15. Responsive Breakpoints
+   ============================================================================== */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   9. RESPONSIVE — media queries
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1400px) { .diskviewer-settings { width: 78%; } }
+
+@media (max-width: 1200px) { .diskviewer-settings { width: 86%; } }
+
+@media (max-width: 1024px) { .diskviewer-settings { width: 92%; } }
+
+@media (max-width: 900px)  { .diskviewer-settings { width: 96vw; min-width: 0; } }
+
+@media (max-width: 768px)  { .diskviewer-settings { width: 100%; min-width: 0; } }
+
+/* Tablet portrait + phones: stack label above field. Below 768px the
+   settings page also drops the panel border-radius (full-bleed feel),
+   tightens row padding, and flips the action bar to grid layout so
+   buttons stack predictably instead of wrapping at unpredictable points. */
+@media (max-width: 768px) {
+  .diskviewer-settings .dv-settings-panel {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  .dv-r {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dv-r-label {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--dv-c-border-row);
+    padding: 8px 14px;
+  }
+  .dv-r-field {
+    padding: 10px 14px;
+    min-width: 0;
+  }
+  /* Section headers: more vertical padding makes the collapse hit area
+     finger-friendly without bloating desktop. */
+  .dv-sec-hd {
+    padding: 12px 14px;
+  }
+  /* Action bar: full-width grid so each button is a satisfying tap target
+     and the row composes deterministically (no flex-wrap surprises). */
+  .dv-actions-bar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px 14px 8px;
+  }
+  .dv-action-btn {
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+    justify-content: center !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+  /* Credits modal: inset margins so the box doesn't run edge-to-edge on
+     phones, and a slight shrink so the OK button stays comfortably above
+     the home indicator on iPhones. */
+  .dv-credits-modal-box {
+    width: calc(100vw - 32px) !important;
+    height: auto !important;
+    min-height: 320px !important;
+    max-height: calc(100vh - 64px) !important;
+  }
+}
+
+/* Small phones: tighter padding, smaller font on labels, stack the credits
+   link to the centre, and shrink the credits modal further so it fits on a
+   320px-wide viewport (the lower end of phones still in use today). */
+@media (max-width: 480px) {
+  .dv-r-label {
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+  .dv-r-field {
+    padding: 8px 12px;
+  }
+  .dv-sec-hd {
+    padding: 11px 12px;
+    font-size: 12px;
+  }
+  .dv-actions-bar {
+    padding: 12px 12px 6px;
+  }
+}
+
+
+/* ==============================================================================
+   16. Touch Input Tuning
+   ============================================================================== */
+
+/* Touch-input devices regardless of width: bigger toggles, bigger select
+   touch targets, larger row padding so the field stays comfortable to
+   tap. Same `(hover: none) and (pointer: coarse)` selector the widget
+   uses; matches across phones, tablets, and touch-only laptops without
+   firing on hybrid devices when a mouse is in use. */
+@media (hover: none) and (pointer: coarse) {
+  /* Toggles: bumped from 23x13 to 30x17 for finger comfort. The thumb is
+     a ::after pseudo-element (not a child), so the size and translate
+     overrides target the pseudo. The translateX value is recomputed for
+     the new track width: 30px wide - 13px thumb - 2x2px inset = 13px
+     travel distance. */
+  .dv-toggle-track {
+    width: 30px;
+    height: 17px;
+    border-radius: 9px;
+  }
+  .dv-toggle-track::after {
+    width: 13px;
+    height: 13px;
+    top: 2px;
+    left: 2px;
+  }
+  .dv-toggle input:checked + .dv-toggle-track::after {
+    transform: translateX(13px);
+  }
+  /* Selects: bigger font and padding for finger-tap precision. */
+  .dv-select {
+    font-size: 14px;
+    padding: 7px 26px 7px 10px;
+    min-height: 36px;
+  }
+  /* Action buttons: even bigger on touch so the Apply press is unmissable. */
+  .dv-action-btn {
+    padding: 9px 14px !important;
+    font-size: 13px !important;
+    min-height: 38px !important;
+  }
+  /* Section header: bigger tap area for collapse. */
+  .dv-sec-hd {
+    min-height: 42px;
+  }
+}
+
+
+
+/* ──────────────────────────────────────────────────────────────────────
+   Settings tabs (Widget / Tool). Same rounded-top tab language as the
+   tool page, orange active accent for cross-surface consistency. */
+.dv-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: .4rem;
+  margin: 0 0 -1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dv-tabs::-webkit-scrollbar { display: none; }
+.dv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .55rem .9rem;
+  border: 1px solid var(--dv-c-border);
+  border-bottom: 0;
+  border-radius: .55rem .55rem 0 0;
+  background: var(--dv-c-bg-subtle);
+  color: var(--dv-c-text-mid);
+  cursor: pointer;
+  font-weight: 700;
+  user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background .25s ease, color .25s ease, border-color .25s ease;
+}
+.dv-tab .dv-tabicon { opacity: .9; }
+.dv-tab:hover { background: var(--dv-c-bg-hover); color: var(--dv-c-text); }
+.dv-tab.active {
+  background: var(--dv-panel-bg);
+  color: var(--dv-c-text);
+  border-color: rgba(244,125,66,.55);
+  position: relative;
+  z-index: 1;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Dimmed settings block (Tool tab header-indicator options). Faded and
+   non-interactive by default; a JS heartbeat check (Phase 3) removes the
+   .dv-dimmed-block state when no dashboard widget is active, unlocking
+   these as the fallback owner of the header indicator. */
+.dv-dimmed-block {
+  position: relative;
+  opacity: .6;
+  pointer-events: none;
+  border: 1px dashed var(--dv-c-border);
+  border-radius: 6px;
+  padding: .5rem .75rem;
+  margin: .5rem 0;
+}
+.dv-dimmed-block.dv-unlocked {
+  opacity: 1;
+  pointer-events: auto;
+  border-style: solid;
+}
+.dv-dimmed-note {
+  font-size: .95rem;
+  color: var(--dv-c-text);
+  font-weight: 500;
+  padding: .25rem 0 .5rem;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+.dv-dimmed-note .fa { font-size: .95em; }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container>
+  <Plugin>True</Plugin>
+  <PluginURL>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/diskviewer.plg</PluginURL>
+  <PluginAuthor>Lazaros Chalkidis</PluginAuthor>
+  <Beta>false</Beta>
+  <Category>Tools:Utilities Tools:System</Category>
+  <Name>Disk Viewer</Name>
+  <Description><![CDATA[A compact dashboard widget that replaces Unraid's per-pool disk widgets with a single grid of all array, pool, and unassigned devices. Adds a full-page Tools view with detailed SMART, temperature, and capacity columns. Ideal for servers with many disks.]]></Description>
+  <Project>https://github.com/Lazaros-Chalkidis/unraid-diskviewer</Project>
+  <Support>https://forums.unraid.net/topic/198667-plugin-disk-viewer/</Support>
+  <Icon>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/source/img/diskviewerplugin.png</Icon>
+  <License>GPL v3</License>
+  <Screenshot>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/screenshots/pc/widget1.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/screenshots/pc/header-badge.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/screenshots/pc/settings1.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/screenshots/pc/tool1.png</Screenshot>
+</Container>
