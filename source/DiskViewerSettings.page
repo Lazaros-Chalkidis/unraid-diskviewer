@@ -108,7 +108,7 @@ if (isset($_POST['#apply'])) {
     // action from the server every 30s, so changing this setting
     // takes effect on the next poll without a page refresh.
     $clickActionIn = (string)($_POST['HEADER_CLICK_ACTION'] ?? 'main');
-    $new_cfg['HEADER_CLICK_ACTION']  = in_array($clickActionIn, ['main','widget','settings'], true)
+    $new_cfg['HEADER_CLICK_ACTION']  = in_array($clickActionIn, ['main','widget','tool','settings'], true)
         ? $clickActionIn : 'main';
     // Pool severity highlight - when on, single-disk pool tiles whose
     // used % crosses warning/critical threshold paint amber/red over
@@ -138,7 +138,7 @@ if (isset($_POST['#apply'])) {
     $new_cfg['SHOW_SECTION_INDICATORS'] = $yn($_POST['SHOW_SECTION_INDICATORS'] ?? '1', '1');
     // Widget font size for disk-info rows. Whitelisted; anything unknown
     // falls back to default.
-    $new_cfg['FONT_SIZE']            = in_array($_POST['FONT_SIZE'] ?? 'default', ['small','default'], true) ? $_POST['FONT_SIZE'] : 'default';
+    $new_cfg['FONT_SIZE']            = in_array($_POST['FONT_SIZE'] ?? 'default', ['default','large'], true) ? $_POST['FONT_SIZE'] : 'default';
 
     // Space severity. Mode is a 3-option whitelist; the two custom percent
     // values are clamped to a sane band. Note: critical-must-exceed-warning
@@ -168,7 +168,7 @@ if (isset($_POST['#apply'])) {
     // way so the value is ready if the tool ever takes over the indicator.
     $new_cfg['TOOL_HEADER_SHOW_BADGE']   = $yn($_POST['TOOL_HEADER_SHOW_BADGE'] ?? '1', '1');
     $toolClickIn = (string)($_POST['TOOL_HEADER_CLICK_ACTION'] ?? 'main');
-    $new_cfg['TOOL_HEADER_CLICK_ACTION'] = in_array($toolClickIn, ['main','widget','settings'], true) ? $toolClickIn : 'main';
+    $new_cfg['TOOL_HEADER_CLICK_ACTION'] = in_array($toolClickIn, ['main','widget','tool','settings'], true) ? $toolClickIn : 'main';
     $new_cfg['TOOL_SHOW_DECIMAL_PCT']    = $yn($_POST['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_USED_COLUMN']    = $yn($_POST['TOOL_SHOW_USED_COLUMN'] ?? '1', '1');
     $new_cfg['TOOL_FONT_SIZE']           = in_array($_POST['TOOL_FONT_SIZE'] ?? 'default', ['small','default'], true) ? $_POST['TOOL_FONT_SIZE'] : 'default';
@@ -289,7 +289,6 @@ if ($plugin_version === '') $plugin_version = 'dev';
 <!-- 2. Style includes & FOUC suppression -->
 <!-- ============================================================================ -->
 
-<style>.diskviewer-settings{visibility:hidden;}</style>
 <link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/settings.css">
 
 <!-- ============================================================================ -->
@@ -439,6 +438,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
           <select name="HEADER_CLICK_ACTION" class="dv-select">
             <option value="main"     <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'main'     ? 'selected' : '' ?>>Open Main</option>
             <option value="widget"   <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'widget'   ? 'selected' : '' ?>>Open Dashboard</option>
+            <option value="tool"     <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'tool'     ? 'selected' : '' ?>>Open Tool</option>
             <option value="settings" <?= ($cfg['HEADER_CLICK_ACTION'] ?? 'main') === 'settings' ? 'selected' : '' ?>>Open Settings</option>
           </select>
           <span class="dv-r-desc">Where clicking the header indicator takes you</span>
@@ -491,15 +491,15 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         <div class="dv-r-field">
           <?php
             $fontSize = (string)($cfg['FONT_SIZE'] ?? 'default');
-            if (!in_array($fontSize, ['small', 'default'], true)) {
+            if (!in_array($fontSize, ['default', 'large'], true)) {
                 $fontSize = 'default';
             }
           ?>
           <select name="FONT_SIZE" class="dv-select">
-            <option value="small"   <?= $fontSize === 'small'   ? 'selected' : '' ?>>Small</option>
             <option value="default" <?= $fontSize === 'default' ? 'selected' : '' ?>>Default</option>
+            <option value="large"   <?= $fontSize === 'large'   ? 'selected' : '' ?>>Large</option>
           </select>
-          <span class="dv-r-desc">Text size for the disk rows. Small shrinks the disk-info text by 20% to fit more on screen. Section labels and column headers stay the same size</span>
+          <span class="dv-r-desc">Text size for the disk rows. Default is the compact size; Large makes the disk-info text bigger. Section labels and column headers stay the same size</span>
         </div>
       </div>
       <div class="dv-r">
@@ -645,6 +645,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
               <select name="TOOL_HEADER_CLICK_ACTION" class="dv-select">
                 <option value="main"     <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'main'     ? 'selected' : '' ?>>Open Main</option>
                 <option value="widget"   <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'widget'   ? 'selected' : '' ?>>Open Dashboard</option>
+                <option value="tool"     <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'tool'     ? 'selected' : '' ?>>Open Tool</option>
                 <option value="settings" <?= ($cfg['TOOL_HEADER_CLICK_ACTION'] ?? 'main') === 'settings' ? 'selected' : '' ?>>Open Settings</option>
               </select>
               <span class="dv-r-desc">Where clicking the header indicator takes you</span>
@@ -881,12 +882,6 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
 <script>
 (function(){
     'use strict';
-
-    // ── FOUC: drop the inline visibility:hidden style we injected at the top
-    var styles = document.querySelectorAll('style');
-    styles.forEach(function(s){
-        if (s.textContent.indexOf('.diskviewer-settings') >= 0) s.remove();
-    });
 
     // ── Settings tabs (Widget / Tool) ──────────────────────────────────
     (function(){

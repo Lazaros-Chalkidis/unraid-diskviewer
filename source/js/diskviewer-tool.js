@@ -653,10 +653,10 @@
                        smart === 'warning'  ? 'dvt-thumb--warn' :
                        smart === 'healthy'  ? 'dvt-thumb--ok'   : 'dvt-thumb--na';
         var healthHtml = '<span class="dvt-thumb ' + thumbCol + ' dvt-thumb--' + thumbDir
-                       + '" title="SMART: ' + esc(smart) + '">' + THUMB_SVG + '</span>';
+                       + '" title="SMART: ' + esc(smart === 'unknown' ? 'no data' : smart) + '">' + THUMB_SVG + '</span>';
 
         // Per-disk settings gear - links to Unraid's device page, like the widget.
-        var devName = encodeURIComponent(tile.name || '');
+        var devName = encodeURIComponent(tile.main_dev || tile.name || '');
         var gearHtml = '<a class="dvt-gear" href="/Main/Device?name=' + devName
                      + '" title="Disk settings" aria-label="Open disk settings">' + GEAR_SVG + '</a>';
 
@@ -692,16 +692,22 @@
         // Scrub columns. Only btrfs/zfs pool representatives (summary or
         // standalone single-disk pool) can scrub; anything else is n/a. A
         // scrub-capable pool with no history reads "no scrub".
-        function relAge(ts) {
+        function relAge(ts, fmt) {
             var d = new Date(ts * 1000), now = new Date();
             if (d.getFullYear() === now.getFullYear()
                 && d.getMonth() === now.getMonth()
                 && d.getDate() === now.getDate()) {
                 return '<span class="dvt-scrub-today">today</span>';
             }
-            var mm = ('0' + (d.getMonth() + 1)).slice(-2);
-            var dd = ('0' + d.getDate()).slice(-2);
-            return '<span class="dvt-scrub-date">' + d.getFullYear() + '/' + mm + '/' + dd + '</span>';
+            // The backend preformats the date with the user's own Unraid date
+            // format; fall back to YYYY/MM/DD only if it is missing.
+            var label = fmt;
+            if (!label) {
+                var mm = ('0' + (d.getMonth() + 1)).slice(-2);
+                var dd = ('0' + d.getDate()).slice(-2);
+                label = d.getFullYear() + '/' + mm + '/' + dd;
+            }
+            return '<span class="dvt-scrub-date">' + esc(label) + '</span>';
         }
         function relFuture(ts) {
             var days = Math.ceil((ts - Date.now() / 1000) / 86400);
@@ -711,7 +717,7 @@
             return 'in ' + Math.round(days / 30) + ' mo';
         }
         var scrubCapable = (fs === 'btrfs' || fs === 'zfs') && (isSummary || (!isParity && !isMember));
-        var scrubCell  = scrubCapable ? (tile.scrub_last_ts ? relAge(tile.scrub_last_ts) : muted('no scrub')) : NA;
+        var scrubCell  = scrubCapable ? (tile.scrub_last_ts ? relAge(tile.scrub_last_ts, tile.scrub_last_fmt) : muted('no scrub')) : NA;
         var fragCell   = (fs === 'zfs' && scrubCapable && tile.scrub_frag != null && tile.scrub_frag !== '')
                        ? esc(tile.scrub_frag) : NA;
         var nscrubCell = scrubCapable ? (tile.scrub_next_ts ? relFuture(tile.scrub_next_ts) : muted('no schedule')) : NA;

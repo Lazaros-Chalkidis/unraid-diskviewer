@@ -39,6 +39,10 @@ final class DiskViewerEndpoint
     private const VAR_INI            = '/var/local/emhttp/var.ini';
     private const POOLS_DIR          = '/boot/config/pools';
     private const UD_INI             = '/var/local/emhttp/plugins/unassigned.devices/unassigned.devices.ini';
+    // UD 2025.x writes its processed device list here as JSON (sizes in bytes,
+    // booleans for mounted/pass_through). Preferred source; the legacy ini
+    // above is the fallback for older UD versions.
+    private const UD_JSON            = '/var/state/unassigned.devices/unassigned.devices.json';
     // Per-disk SMART overrides written by Unraid's /Main/Device?name=X
     // page when the user edits warning/critical temp thresholds on a
     // specific disk. Sections are keyed by disk id (matching the 'id'
@@ -56,6 +60,7 @@ final class DiskViewerEndpoint
     private const HEADER_COUNT_FILE  = '/tmp/diskviewer_cache/header_count';
     private const HEADER_NAMES_FILE  = '/tmp/diskviewer_cache/header_names';
     private const HEADER_TEMP_FILE   = '/tmp/diskviewer_cache/header_temp';
+    private const HEADER_TEMP_BLINK_FILE = '/tmp/diskviewer_cache/header_temp_blink';
     private const HEADER_HEALTH_FILE = '/tmp/diskviewer_cache/header_health';
 
     // Widget heartbeat. The dashboard widget polls the 'state' action on its
@@ -687,15 +692,35 @@ final class DiskViewerEndpoint
     {
         $cfg  = self::cachedIniRead(self::CFG_FILE);
 
-        // Tool mode: overlay TOOL_*-prefixed values onto their base keys so
-        // the rest of this function (and everything it feeds) reads the
-        // tool's independent settings without any other change. Operates on
-        // the local copy, never the cached array.
+        // Tool mode: resolve every tool-managed key from its own TOOL_ value
+        // or, when the user never saved one, the tool default - NEVER the
+        // widget's base value. The previous overlay only copied TOOL_ keys
+        // that already existed in the cfg file, so any tool setting left at
+        // default kept the widget value in place and the tool silently
+        // inherited it. This map mirrors the $def TOOL_ defaults in
+        // DiskViewerSettings.page (keep the two in sync). Operates on the
+        // local copy, never the cached array.
         if (self::$toolMode) {
-            foreach ($cfg as $k => $v) {
-                if (strncmp($k, 'TOOL_', 5) === 0) {
-                    $cfg[substr($k, 5)] = $v;
-                }
+            static $toolDefaults = [
+                'REFRESH_ENABLED'     => '1',
+                'REFRESH_INTERVAL'    => '10',
+                'ENABLE_SPIN_BUTTON'  => '1',
+                'SHOW_UNASSIGNED'     => '0',
+                'SHOW_ARRAY'          => '1',
+                'SHOW_CACHE'          => '1',
+                'SHOW_POOLS'          => '1',
+                'HEADER_SHOW_BADGE'   => '1',
+                'HEADER_CLICK_ACTION' => 'main',
+                'SHOW_DECIMAL_PCT'    => '1',
+                'SHOW_USED_COLUMN'    => '1',
+                'FONT_SIZE'           => 'default',
+                'SPACE_SEVERITY_MODE' => 'inherit',
+                'SPACE_WARNING_PCT'   => '70',
+                'SPACE_CRITICAL_PCT'  => '90',
+            ];
+            foreach ($toolDefaults as $base => $tdef) {
+                $tk = 'TOOL_' . $base;
+                $cfg[$base] = (isset($cfg[$tk]) && $cfg[$tk] !== '') ? $cfg[$tk] : $tdef;
             }
         }
 
@@ -864,6 +889,155 @@ final class DiskViewerEndpoint
     // ── Unassigned devices ─────────────────────────────────────────────────
     private static function parseUnassigned(): array
     {
+        // UD 2025.x stores its processed device list as JSON in /var/state,
+        // keyed by partition device, with explicit device/mounted/fstype/size
+        // fields (sizes already in bytes). Prefer that. Fall through to the
+        // legacy ini parser below for older UD versions that still write the
+        // old plugin-path ini.
+        if (is_file(self::UD_JSON)) {
+            $jsonRaw = @file_get_contents(self::UD_JSON);
+            $jd      = $jsonRaw !== false ? json_decode($jsonRaw, true) : null;
+            $jdiag   = [
+                'source'   => 'json',
+                'path'     => self::UD_JSON,
+                'exists'   => true,
+                'size'     => @filesize(self::UD_JSON),
+                'sections' => is_array($jd) ? count($jd) : 0,
+            ];
+            if (is_array($jd)) {
+                $out = [];
+                $accepted = 0;
+                $rejected = [];
+
+                $stripPartition = static function (string $dev): string {
+                    $base = preg_replace('@^/dev/@', '', $dev);
+                    if (strpos($base, 'nvme') === 0) {
+                        $base = preg_replace('/p\d+$/', '', $base);
+                    } else {
+                        $base = preg_replace('/\d+$/', '', $base);
+                    }
+                    return '/dev/' . $base;
+                };
+
+                // First pass: build the raw rows and gather each device so we
+                // can batch a single standby-safe SMART read for temp + health.
+                $pending  = [];
+                $diskList = [];
+                foreach ($jd as $key => $d) {
+                    if (!is_array($d)) continue;
+                    $devPath = (string)($d['device'] ?? '');
+                    if ($devPath === '') { $rejected[] = $key . ' (no device)'; continue; }
+                    // Devices that belong to the array or a pool are tracked
+                    // by UD but are not truly "unassigned".
+                    if (!empty($d['array_disk']) || !empty($d['pool'])) {
+                        $rejected[] = $key . ' (array/pool member)';
+                        continue;
+                    }
+
+                    $mounted = !empty($d['mounted']);
+                    // pass_through disks are reserved for a VM and stay
+                    // unmounted; we still list them (this is the case users
+                    // were missing). They simply report no usage.
+                    $size  = (int)($d['size']  ?? 0);
+                    $used  = (int)($d['used']  ?? 0);
+                    $avail = (int)($d['avail'] ?? 0);
+                    $fsSize = $size ?: ($used + $avail);
+
+                    $name = (string)($d['label'] ?? '');
+                    if ($name === '') $name = (string)($d['disk_label'] ?? '');
+                    if ($name === '') $name = basename($devPath);
+
+                    $diskList[] = $devPath;
+                    $pending[]  = [
+                        'd'       => $d,
+                        'device'  => $devPath,
+                        'whole'   => $stripPartition($devPath),
+                        'name'    => $name,
+                        'mounted' => $mounted,
+                        'fsSize'  => $fsSize,
+                        'used'    => $used,
+                        'avail'   => $avail,
+                        // Unraid's own device id for /Main/Device. The UD JSON
+                        // stores just the number (e.g. "1"); Unraid's page
+                        // expects "dev1". Prefix unless it already carries one.
+                        'ud_device' => (function ($v) {
+                            $v = trim((string)$v);
+                            if ($v === '') return '';
+                            return (strncmp($v, 'dev', 3) === 0) ? $v : 'dev' . $v;
+                        })((string)($d['ud_device'] ?? '')),
+                    ];
+                }
+
+                // UD's list carries neither temperature nor SMART status, so we
+                // read them ourselves from the disk (smartctl -n standby +
+                // persistent cache, which never wakes a sleeping disk).
+                // parseSmartctl strips the partition internally, so the cache
+                // key matches the tool's own deep-SMART pass (no double read).
+                $smartMap = self::smartAttrsForDevices($diskList);
+
+                foreach ($pending as $p) {
+                    $attrs = $smartMap[$p['device']] ?? null;
+
+                    // Temperature in Celsius when SMART exposed it (same unit as
+                    // array/pool disks), else "*" - most USB sticks have none.
+                    $temp = (is_array($attrs) && $attrs['temp'] !== null)
+                          ? (string)$attrs['temp'] : '*';
+
+                    // Health from the conservative attribute verdict. "na" (no
+                    // SMART, e.g. a plain USB stick) becomes "unknown" so the
+                    // thumb renders neutral instead of a misleading healthy green.
+                    [, $vSev] = self::smartVerdict($attrs);
+                    $smart = $vSev === 'critical' ? 'critical'
+                           : ($vSev === 'warning' ? 'warning'
+                           : ($vSev === 'ok' ? 'healthy' : 'unknown'));
+
+                    // Speed off the parent disk's aggregate I/O (matches the way
+                    // array/pool disks are measured), not the single partition.
+                    $speed = $p['mounted']
+                           ? self::diskSpeed($p['whole'])
+                           : ['bps' => 0, 'dir' => ''];
+
+                    $tt = self::diskTempThresholds($p['d']);
+                    $ut = self::diskUtilThresholds($p['d'], self::nativeUtilThresholds());
+
+                    $out[] = [
+                        'name'   => $p['name'],
+                        'device' => $p['device'],
+                        'main_dev' => $p['ud_device'],
+                        'kind'   => 'unassigned',
+                        'group'  => 'unassigned',
+                        'status' => $p['mounted'] ? 'DISK_OK' : 'DISK_NP',
+                        'spun'   => $p['mounted'],
+                        'temp'   => $temp,
+                        'temp_warning'  => $tt['warning'],
+                        'temp_critical' => $tt['critical'],
+                        'space_warning'  => $ut['warning'],
+                        'space_critical' => $ut['critical'],
+                        'smart'  => $smart,
+                        'size'   => $p['fsSize'],
+                        'used'   => $p['used'],
+                        'free'   => $p['avail'],
+                        'pct'    => $p['fsSize'] > 0 ? round($p['used'] / $p['fsSize'] * 100, 2) : 0,
+                        'speed_bps'    => $speed['bps'],
+                        'speed_dir'    => $speed['dir'],
+                        'errors'       => 0,
+                        'is_summary'   => false,
+                        'is_parity'    => false,
+                        'spin_disabled'=> false,
+                    ];
+                    $accepted++;
+                }
+                $jdiag['accepted'] = $accepted;
+                $jdiag['rejected'] = $rejected;
+                self::writeUDDiagnostic($jdiag);
+                return $out;
+            }
+            // JSON present but not decodable: note it and fall through.
+            $jdiag['note'] = 'json present but not decodable';
+            self::writeUDDiagnostic($jdiag);
+        }
+
+        // ── Legacy UD (pre-2025): ini at the old plugin path ──────────────
         // Only the standard UD plugin path. We tried fallbacks in an
         // earlier build but at least one of them picked up an Unraid
         // state file with /dev/disk/by-id/* sections that the parser
@@ -873,6 +1047,7 @@ final class DiskViewerEndpoint
         // writing.
         $data    = self::cachedIniRead(self::UD_INI, true);
         $diag    = [
+            'source'   => 'ini',
             'path'     => self::UD_INI,
             'exists'   => is_file(self::UD_INI),
             'size'     => is_file(self::UD_INI) ? @filesize(self::UD_INI) : null,
@@ -1683,6 +1858,10 @@ final class DiskViewerEndpoint
         $globalCrit = (int)$cfg['temp_critical'];
         $rank = ['ok' => 0, 'warning' => 1, 'critical' => 2];
         $tempSeverity = 'ok';
+        // A disk more than 10% over its critical threshold flags the header
+        // badge to pulse - the same rule the widget uses for its section
+        // indicator, so the two stay in sync.
+        $tempBlink = false;
         foreach ($sections as $sec) {
             foreach ($sec['tiles'] as $t) {
                 if (!empty($t['is_summary'])) continue;
@@ -1693,10 +1872,10 @@ final class DiskViewerEndpoint
                 $tWarn = isset($t['temp_warning'])  ? (int)$t['temp_warning']  : $globalWarn;
                 $tCrit = isset($t['temp_critical']) ? (int)$t['temp_critical'] : $globalCrit;
                 $sev = ($n >= $tCrit) ? 'critical' : (($n >= $tWarn) ? 'warning' : 'ok');
-                if ($rank[$sev] > $rank[$tempSeverity]) {
-                    $tempSeverity = $sev;
-                    if ($tempSeverity === 'critical') break 2;
-                }
+                if ($rank[$sev] > $rank[$tempSeverity]) $tempSeverity = $sev;
+                if ($n >= $tCrit * 1.10) $tempBlink = true;
+                // Worst possible state reached: stop scanning.
+                if ($tempSeverity === 'critical' && $tempBlink) break 2;
             }
         }
 
@@ -1867,6 +2046,7 @@ final class DiskViewerEndpoint
             'warning_names' => array_values($warnNames),
             'disk_issues'   => $diskIssues,
             'temp_severity'    => $tempSeverity,
+            'temp_blink'       => $tempBlink,
             'health_severity'  => $healthSeverity,
             'util_severity'    => $utilSeverity,
             'errors_severity'  => $errorsSeverity,
@@ -1904,6 +2084,7 @@ final class DiskViewerEndpoint
         @file_put_contents(self::HEADER_COUNT_FILE,  (string)$model['critical_count']);
         @file_put_contents(self::HEADER_NAMES_FILE,  implode('|', $model['critical_names']));
         @file_put_contents(self::HEADER_TEMP_FILE,    (string)($model['temp_severity']    ?? 'ok'));
+        @file_put_contents(self::HEADER_TEMP_BLINK_FILE, !empty($model['temp_blink']) ? '1' : '0');
         @file_put_contents(self::HEADER_HEALTH_FILE,  (string)($model['health_severity']  ?? 'ok'));
         @file_put_contents(self::HEADER_UTIL_FILE,    (string)($model['util_severity']    ?? 'ok'));
         @file_put_contents(self::HEADER_ERRORS_FILE,  (string)($model['errors_severity']  ?? 'ok'));
@@ -1941,7 +2122,7 @@ final class DiskViewerEndpoint
             return null;
         }
 
-        $attrs = ['age_hours' => null, 'realloc' => null, 'pending' => null, 'crc' => null, 'wear_pct' => null];
+        $attrs = ['age_hours' => null, 'realloc' => null, 'pending' => null, 'crc' => null, 'wear_pct' => null, 'temp' => null];
 
         // NVMe health page is key:value, not the SATA attribute table.
         if (stripos($out, 'Percentage Used') !== false || stripos($out, 'Power On Hours') !== false) {
@@ -1953,6 +2134,9 @@ final class DiskViewerEndpoint
             }
             if (preg_match('/Media and Data Integrity Errors:\s*([\d,]+)/i', $out, $m)) {
                 $attrs['pending'] = (int)str_replace(',', '', $m[1]);
+            }
+            if (preg_match('/Temperature:\s*(\d+)\s*Celsius/i', $out, $m)) {
+                $attrs['temp'] = (int)$m[1];
             }
             return $attrs;
         }
@@ -1970,8 +2154,18 @@ final class DiskViewerEndpoint
         if (isset($rawById[197])) $attrs['pending']   = $rawById[197];
         if (isset($rawById[199])) $attrs['crc']       = $rawById[199];
 
+        // Temperature: attr 194 (Temperature_Celsius) or 190 (Airflow). The raw
+        // column may carry "45 (Min/Max 20/50)"; the standalone WHEN_FAILED dash
+        // (surrounded by spaces, unlike the hyphen inside "Pre-fail") marks the
+        // start of the raw value, so the first integer after it is the current
+        // temperature in Celsius.
+        if (preg_match('/^\s*(?:194|190)\s+.*?\s-\s+(\d+)/im', $out, $mt)) {
+            $attrs['temp'] = (int)$mt[1];
+        }
+
         if ($attrs['age_hours'] === null && $attrs['realloc'] === null
-            && $attrs['pending'] === null && $attrs['crc'] === null) {
+            && $attrs['pending'] === null && $attrs['crc'] === null
+            && $attrs['temp'] === null) {
             return null;
         }
         return $attrs;
@@ -2228,6 +2422,51 @@ final class DiskViewerEndpoint
         return ['Healthy', 'ok'];
     }
 
+    // Resolve the user's date format from Unraid's Date and Time settings
+    // (dynamix.cfg [display] date) into a date-only PHP date() format string,
+    // so the tool's LAST SCRUB column matches the rest of the WebGUI. Modern
+    // Unraid stores a PHP date() format (e.g. "d-m-Y"); older releases stored a
+    // strftime format (e.g. "%A, %d-%m-%Y"). We support both and never call the
+    // deprecated strftime(). Day-name tokens are dropped to keep the column
+    // compact, and the result falls back to "Y/m/d" if nothing usable is found.
+    private static function unraidDateFormat(): string
+    {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+
+        $cfg = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+        $fmt = is_array($cfg) ? (string)($cfg['display']['date'] ?? '') : '';
+        if ($fmt === '') return $cached = 'Y/m/d';
+
+        if (strpos($fmt, '%') !== false) {
+            // Legacy strftime: convert the date tokens we care about, drop
+            // weekday names, then remove any leftover % tokens.
+            $fmt = strtr($fmt, [
+                '%Y' => 'Y', '%y' => 'y',
+                '%m' => 'm', '%-m' => 'n',
+                '%d' => 'd', '%-d' => 'j', '%e' => 'j',
+                '%B' => 'F', '%b' => 'M', '%h' => 'M',
+                '%A' => '', '%a' => '',
+                '%j' => '', '%u' => '', '%w' => '',
+            ]);
+            $fmt = preg_replace('/%-?\w/', '', $fmt);
+        } else {
+            // PHP date() format: drop weekday-name tokens (l/D/N/w) so the
+            // column shows only the numeric date.
+            $fmt = preg_replace('/[lDNw]/', '', $fmt);
+        }
+
+        // Trim punctuation/space left dangling by a removed weekday (e.g.
+        // "l, d-m-Y" -> ", d-m-Y" -> "d-m-Y").
+        $fmt = trim($fmt);
+        $fmt = preg_replace('/^[\s,\/.\-]+/', '', $fmt);
+        $fmt = preg_replace('/[\s,]+$/', '', $fmt);
+
+        // Must still carry a day/month/year token, else fall back.
+        if ($fmt === '' || !preg_match('/[dejmnYy]/', $fmt)) return $cached = 'Y/m/d';
+        return $cached = $fmt;
+    }
+
     // Cache-aware batch scrub read. pools is a map poolName => fsType.
     private static function scrubStatusForPools(array $pools): array
     {
@@ -2468,6 +2707,9 @@ final class DiskViewerEndpoint
                     $smartMap = self::smartAttrsForDevices($devList);
                     $scrubMap = self::scrubStatusForPools($poolMap);
                     $schedMap = self::scrubScheduleForPools($poolMap);
+                    // Last-scrub date is formatted with the user's own Unraid
+                    // date format (Settings > Date and Time), resolved once here.
+                    $dateFmt  = self::unraidDateFormat();
                     // NOTE: iterate the real arrays directly, NOT `$x ?? []`.
                     // `foreach (($arr['k'] ?? []) as &$ref)` references a throwaway
                     // copy produced by `??`, so the by-reference writes below are
@@ -2480,6 +2722,8 @@ final class DiskViewerEndpoint
                                 // Scrub data attaches to whichever tile names the pool.
                                 $scrub = $scrubMap[(string)($tRef['name'] ?? '')] ?? null;
                                 $tRef['scrub_last_ts'] = $scrub['last_ts'] ?? null;
+                                $tRef['scrub_last_fmt'] = !empty($scrub['last_ts'])
+                                    ? date($dateFmt, (int)$scrub['last_ts']) : null;
                                 $tRef['scrub_frag']    = $scrub['frag'] ?? null;
                                 $tRef['scrub_next_ts'] = $schedMap[(string)($tRef['name'] ?? '')] ?? null;
 

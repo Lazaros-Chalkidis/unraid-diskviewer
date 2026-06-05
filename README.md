@@ -5,8 +5,8 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <p align="center">
   <img src="https://img.shields.io/github/v/release/Lazaros-Chalkidis/unraid-diskviewer?label=Latest%20Version&color=blue" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/last-commit/Lazaros-Chalkidis/unraid-diskviewer?label=Last%20Update" style="margin: 4px;" />&nbsp;
-  <img src="https://img.shields.io/github/issues/Lazaros-Chalkidis/unraid-diskviewer?label=Issues" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/downloads/Lazaros-Chalkidis/unraid-diskviewer/total?label=Downloads&color=brightgreen" style="margin: 4px;" />&nbsp;
+  <img src="https://img.shields.io/github/issues/Lazaros-Chalkidis/unraid-diskviewer?label=Issues" style="margin: 4px;" />&nbsp;
   <img src="https://img.shields.io/github/license/Lazaros-Chalkidis/unraid-diskviewer?label=License" style="margin: 4px;" />
 </p>
 
@@ -27,13 +27,9 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 - Persistent SMART Cache: Last-known SMART values are stored on the flash config so they survive reboots and plugin updates
 - Settings Page: Standalone settings at Settings > Disk Viewer, with per-tab Apply and Reset and browser-native form submission
 
-**Dashboard Widget Screenshot**
+**Dashboard Widget**
 
-
-
-**Tool page Screenshot**
-
-
+![Dashboard](screenshots/pc/widget1.png)
 
 ## Requirements
 
@@ -80,11 +76,11 @@ Temperature warning and critical thresholds are read from Unraid's native Displa
 
 **Settings Page**
 
-
+![Settings](screenshots/pc/settings1.png)
 
 **Header Badge**
 
-
+![Header badge](screenshots/pc/header-badge.png)
 
 ## How it works
 

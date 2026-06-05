@@ -1,6 +1,23 @@
 
 # Disk Viewer
 
+## Version 2026.06.05
+
+### Fixed
+- Unassigned drives show up again on the newest Unassigned Devices plugin, which changed how it stores its device list.
+- The header badge now pulses only when a disk runs well over its critical temperature, matching the widget, instead of flashing on any critical reading.
+- Tool settings are now fully independent from the Widget: a Tool option left at its default no longer follows the Widget value.
+
+### New Features
+- Header click action now includes "Open Tool", so the top-bar icon can jump straight to the Disk Viewer page.
+
+### Improvements
+- Unassigned drives now show real temperature and SMART health when the drive reports it.
+- Unassigned drives now show their live read/write speed.
+- Last scrub now follows your Unraid date format from Settings > Date and Time.
+- Tool page Small font size is now only slightly smaller, so it stays comfortable to read.
+- Widget font size options are now Default (compact) and Large.
+
 ## Version 2026.06.02
 
 ### Fixed

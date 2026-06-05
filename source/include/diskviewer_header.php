@@ -11,18 +11,19 @@ $cfg = @parse_ini_file('/boot/config/plugins/diskviewer/diskviewer.cfg') ?: [];
 // values into window.diskviewerHeaderAction (the JS uses it to build
 // a location.href, so an unchecked value here would be an open
 // redirect inside Unraid's UI).
-$clickAllowed = ['main', 'widget', 'settings'];
+$clickAllowed = ['main', 'widget', 'tool', 'settings'];
 $clickAction  = (string)($cfg['HEADER_CLICK_ACTION'] ?? 'main');
 if (!in_array($clickAction, $clickAllowed, true)) $clickAction = 'main';
 
 if (((string)($cfg['HEADER_SHOW_BADGE'] ?? '1')) === '0') {
-    echo '{"count":0,"names":[],"temp_severity":"off","health_severity":"off","util_severity":"off","errors_severity":"off","disk_issues":[],"click_action":"' . $clickAction . '"}';
+    echo '{"count":0,"names":[],"temp_severity":"off","temp_blink":false,"health_severity":"off","util_severity":"off","errors_severity":"off","disk_issues":[],"click_action":"' . $clickAction . '"}';
     exit;
 }
 
 $countFile  = '/tmp/diskviewer_cache/header_count';
 $namesFile  = '/tmp/diskviewer_cache/header_names';
 $tempFile   = '/tmp/diskviewer_cache/header_temp';
+$tempBlinkFile = '/tmp/diskviewer_cache/header_temp_blink';
 $healthFile = '/tmp/diskviewer_cache/header_health';
 $utilFile   = '/tmp/diskviewer_cache/header_util';
 $errorsFile = '/tmp/diskviewer_cache/header_errors';
@@ -52,6 +53,7 @@ if (is_file($namesFile)) {
     if ($raw !== '') $names = explode('|', $raw);
 }
 $temp   = $readSev($tempFile);
+$tempBlink = is_file($tempBlinkFile) && trim((string)@file_get_contents($tempBlinkFile)) === '1';
 $health = $readSev($healthFile);
 $util   = $readSev($utilFile);
 $errors = $readSev($errorsFile);
@@ -66,6 +68,7 @@ if ($age > 120) {
     $count  = (int)$model['critical_count'];
     $names  = (array)$model['critical_names'];
     $temp   = (string)($model['temp_severity']    ?? 'ok');
+    $tempBlink = !empty($model['temp_blink']);
     $health = (string)($model['health_severity']  ?? 'ok');
     $util   = (string)($model['util_severity']    ?? 'ok');
     $errors = (string)($model['errors_severity']  ?? 'ok');
@@ -76,6 +79,7 @@ echo json_encode([
     'count'           => $count,
     'names'           => $names,
     'temp_severity'   => $temp,
+    'temp_blink'      => $tempBlink,
     'health_severity' => $health,
     'util_severity'   => $util,
     'errors_severity' => $errors,

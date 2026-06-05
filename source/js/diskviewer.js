@@ -69,7 +69,7 @@
     var showDecimalPct    = !!cfg.showDecimalPct;
     var showUsedColumn    = !!cfg.showUsedColumn;
     var showSectionIndicators = cfg.showSectionIndicators !== false;
-    var fontSize          = cfg.fontSize === 'small' ? 'small' : 'default';
+    var fontSize          = cfg.fontSize === 'large' ? 'large' : 'default';
     var STORAGE_KEY  = 'dv_expand_v3';   // v1: row counts under different semantics
                                           // v2: extras above a fixed 8-row baseline
                                           // v3: extras above a section-level baseline (DEFAULT_EXPAND_ROWS as 0..3)
@@ -384,7 +384,7 @@
         // references continue to key off the real device name.
         var displayName = row.display_name || rawName;
         var nameEsc  = escapeHtml(displayName);  // keep original case in DOM text
-        var devName  = encodeURIComponent(rawName);
+        var devName  = encodeURIComponent(row.main_dev || rawName);
         var pct      = Math.max(0, Math.min(100, +row.pct || 0));
         var isSummary = !!row.is_summary;
         var isParity  = !!row.is_parity;
@@ -551,7 +551,8 @@
         var thumbCol = smart === 'critical' ? 'dv-thumb--crit' :
                        smart === 'warning'  ? 'dv-thumb--warn' :
                        smart === 'healthy'  ? 'dv-thumb--ok'   : 'dv-thumb--na';
-        var thumbHtml = '<span class="dv-thumb ' + thumbCol + ' dv-thumb--' + thumbDir + '" title="SMART: ' + escapeHtml(smart) + '">' + THUMB_SVG + '</span>';
+        var smartTitle = smart === 'unknown' ? 'no data' : smart;
+        var thumbHtml = '<span class="dv-thumb ' + thumbCol + ' dv-thumb--' + thumbDir + '" title="SMART: ' + escapeHtml(smartTitle) + '">' + THUMB_SVG + '</span>';
 
         // Gear
         var settingsHref = '/Main/Device?name=' + devName;
@@ -792,7 +793,9 @@
         // specificity than the zebra paint warn/crit colours over the
         // dv-row--warn / --crit rows in the cache and pool sections.
         container.classList.toggle('dv-pool-highlight', poolHighlightUsed);
-        container.classList.toggle('dv-font-small', fontSize === 'small');
+        // "Default" is now the compact rendering (dv-font-small); "Large"
+        // restores the original baseline text size.
+        container.classList.toggle('dv-font-small', fontSize !== 'large');
 
         // Clamp saved expandRows to the current model (disk count may
         // have changed since the value was stored). Using scrollHeight
@@ -1715,7 +1718,7 @@
             showDecimalPct    = !!cfg.showDecimalPct;
             showUsedColumn    = !!cfg.showUsedColumn;
             showSectionIndicators = cfg.showSectionIndicators !== false;
-            fontSize          = cfg.fontSize === 'small' ? 'small' : 'default';
+            fontSize          = cfg.fontSize === 'large' ? 'large' : 'default';
 
             // Re-bind handlers on the new DOM nodes. Without this, the drag
             // handle in the new tile fragment has no listeners attached.

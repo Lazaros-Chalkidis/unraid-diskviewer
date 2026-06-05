@@ -248,7 +248,10 @@
 .diskviewer-settings .dv-settings-panel {
   background: var(--dv-panel-bg);
   border: 1px solid var(--dv-c-border);
-  border-radius: 0 0 8px 8px;
+  /* Top-left stays square: the tab bar sits flush against that corner and
+     the active tab merges into the panel there. The top-right has no tab, so
+     it is rounded to match the two bottom corners. */
+  border-radius: 0 8px 8px 8px;
   overflow: hidden;
   padding: 0;
 }

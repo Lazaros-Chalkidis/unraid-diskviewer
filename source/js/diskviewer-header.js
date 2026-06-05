@@ -23,6 +23,8 @@ function DiskViewerButton(){
         location.href = '/Settings/DiskViewerSettings';
     } else if (action === 'widget') {
         location.href = '/Dashboard';
+    } else if (action === 'tool') {
+        location.href = '/Tools/DiskViewerTool';
     } else {
         location.href = '/Main';
     }
@@ -462,7 +464,7 @@ function DiskViewerButton(){
     // 4. applyState() — paint markers from polled severity values
     // ============================================================================
 
-    function applyState(temp, healthSev, util, errorsSev, issues){
+    function applyState(temp, healthSev, util, errorsSev, issues, tempBlink){
         // 'off' from any axis (i.e. HEADER_SHOW_BADGE=0) means hide entirely.
         if (temp === 'off' || healthSev === 'off' || util === 'off' || errorsSev === 'off') {
             navItem.style.display = 'none';
@@ -479,8 +481,12 @@ function DiskViewerButton(){
             // widget section indicator does (opacity 1 -> .2 -> 1 over 2s).
             // Driven via the Web Animations API so the header badge needs no
             // injected stylesheet; widget.css is not loaded on every page.
+            // The thermometer pulses only when a disk is more than 10% over
+            // its critical threshold - the same rule the widget section
+            // indicator uses - rather than on any critical reading, so a disk
+            // sitting just at the line stays solid red instead of flashing.
             var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            var wantBlink = (temp === 'critical') && !reduceMotion;
+            var wantBlink = (tempBlink === true) && !reduceMotion;
             if (wantBlink && !thermoBlink && thermo.animate) {
                 thermoBlink = thermo.animate(
                     [{ opacity: 1 }, { opacity: 0.2 }, { opacity: 1 }],
@@ -538,16 +544,17 @@ function DiskViewerButton(){
                 var h = typeof r.health_severity  === 'string' ? r.health_severity  : 'ok';
                 var u = typeof r.util_severity    === 'string' ? r.util_severity    : 'ok';
                 var e = typeof r.errors_severity  === 'string' ? r.errors_severity  : 'ok';
+                var tb = (r.temp_blink === true);
                 // Header click action - publish to window so the click
                 // handler (lines 20-28 of this file) can route the user
                 // to their chosen page. Read on every poll so a setting
                 // change takes effect within one poll cycle without a
                 // browser refresh.
                 var ca = (typeof r.click_action === 'string') ? r.click_action : 'main';
-                if (ca !== 'main' && ca !== 'widget' && ca !== 'settings') ca = 'main';
+                if (ca !== 'main' && ca !== 'widget' && ca !== 'tool' && ca !== 'settings') ca = 'main';
                 window.diskviewerHeaderAction = ca;
                 var issues = Array.isArray(r.disk_issues) ? r.disk_issues : [];
-                applyState(t, h, u, e, issues);
+                applyState(t, h, u, e, issues, tb);
             } catch(e2){
                 navItem.style.display = 'none';
             }

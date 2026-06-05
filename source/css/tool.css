@@ -356,7 +356,7 @@
 .dvt-scrub-date  { font-size: .85em; }
 
 /* Small font option (tool). Scales the table text down ~20% to fit more. */
-.dvt-font-small .dvt-tbl--wide          { font-size: .7rem; }
+.dvt-font-small .dvt-tbl--wide          { font-size: .78rem; }
 .dvt-font-small .dvt-tbl--wide thead th { font-size: 1.1rem; }
 
 .dvt-tbl {

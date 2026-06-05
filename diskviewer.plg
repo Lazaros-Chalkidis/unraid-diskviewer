@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.06.02">
+ <!ENTITY version   "2026.06.05">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "db8d5d1f69490c2c944bfd50481fd6b9">
+ <!ENTITY md5       "9b5ae7210e456675268064d225988c1c">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,23 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.06.05
+
+### Fixed
+- Unassigned drives show up again on the newest Unassigned Devices plugin, which changed how it stores its device list.
+- The header badge now pulses only when a disk runs well over its critical temperature, matching the widget, instead of flashing on any critical reading.
+- Tool settings are now fully independent from the Widget: a Tool option left at its default no longer follows the Widget value.
+
+### New Features
+- Header click action now includes "Open Tool", so the top-bar icon can jump straight to the Disk Viewer page.
+
+### Improvements
+- Unassigned drives now show real temperature and SMART health when the drive reports it.
+- Unassigned drives now show their live read/write speed.
+- Last scrub now follows your Unraid date format from Settings > Date and Time.
+- Tool page Small font size is now only slightly smaller, so it stays comfortable to read.
+- Widget font size options are now Default (compact) and Large.
 
 ## Version 2026.06.02
 
