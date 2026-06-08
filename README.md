@@ -38,7 +38,7 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 ## Requirements
 
 - Unraid 7.2.0 or later (the widget uses the responsive tile registration API). Earlier versions render a legacy fallback.
-- Optional: the **Unassigned Devices** plugin, if you want unassigned devices to appear.
+- Optional: the **Unassigned Devices** plugin, to mount unassigned drives so their usage shows. Drives are detected and listed without it.
 
 ## Installation
 
@@ -88,7 +88,7 @@ Temperature warning and critical thresholds are read from Unraid's native Displa
 
 ## How it works
 
-Disk Viewer reads `/var/local/emhttp/disks.ini` (Unraid's live disk state) and `/boot/config/pools/*.cfg` to classify each device into array, cache or another multi-disk pool, single-disk pool, or unassigned. Unassigned devices are read from the Unassigned Devices plugin's ini when that plugin is installed.
+Disk Viewer reads `/var/local/emhttp/disks.ini` (Unraid's live disk state) and `/boot/config/pools/*.cfg` to classify each device into array, cache or another multi-disk pool, single-disk pool, or unassigned. Unassigned devices are detected directly from the system (whole disks from lsblk minus the assigned disks in disks.ini), so they appear with or without the Unassigned Devices plugin. Usage figures show once a drive is mounted.
 
 The widget and the tool poll the backend at their configured intervals. The backend writes a small runtime cache under `/tmp/diskviewer_cache/` that the header bar badge reads on its own schedule, so the header icon stays responsive without the widget being open. Last-known SMART attributes are cached under `/boot/config/plugins/diskviewer/` so they persist across reboots and plugin updates, keeping the SMART columns populated even while disks are asleep.
 

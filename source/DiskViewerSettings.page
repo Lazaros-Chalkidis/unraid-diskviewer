@@ -138,7 +138,7 @@ if (isset($_POST['#apply'])) {
     $new_cfg['SHOW_SECTION_INDICATORS'] = $yn($_POST['SHOW_SECTION_INDICATORS'] ?? '1', '1');
     // Widget font size for disk-info rows. Whitelisted; anything unknown
     // falls back to default.
-    $new_cfg['FONT_SIZE']            = in_array($_POST['FONT_SIZE'] ?? 'default', ['default','large'], true) ? $_POST['FONT_SIZE'] : 'default';
+    $new_cfg['FONT_SIZE']            = in_array($_POST['FONT_SIZE'] ?? 'default', ['small','default','large'], true) ? $_POST['FONT_SIZE'] : 'default';
 
     // Space severity. Mode is a 3-option whitelist; the two custom percent
     // values are clamped to a sane band. Note: critical-must-exceed-warning
@@ -171,7 +171,7 @@ if (isset($_POST['#apply'])) {
     $new_cfg['TOOL_HEADER_CLICK_ACTION'] = in_array($toolClickIn, ['main','widget','tool','settings'], true) ? $toolClickIn : 'main';
     $new_cfg['TOOL_SHOW_DECIMAL_PCT']    = $yn($_POST['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_USED_COLUMN']    = $yn($_POST['TOOL_SHOW_USED_COLUMN'] ?? '1', '1');
-    $new_cfg['TOOL_FONT_SIZE']           = in_array($_POST['TOOL_FONT_SIZE'] ?? 'default', ['small','default'], true) ? $_POST['TOOL_FONT_SIZE'] : 'default';
+    $new_cfg['TOOL_FONT_SIZE']           = in_array($_POST['TOOL_FONT_SIZE'] ?? 'default', ['small','default','large'], true) ? $_POST['TOOL_FONT_SIZE'] : 'default';
     $toolModeIn = strtolower((string)($_POST['TOOL_SPACE_SEVERITY_MODE'] ?? 'inherit'));
     $new_cfg['TOOL_SPACE_SEVERITY_MODE'] = in_array($toolModeIn, ['inherit','custom','disabled'], true) ? $toolModeIn : 'inherit';
     $new_cfg['TOOL_SPACE_WARNING_PCT']   = $clamp_int($_POST['TOOL_SPACE_WARNING_PCT']  ?? 70, 1,  99,  70);
@@ -422,7 +422,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         <div class="dv-r-label">Show unassigned section</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '0') ?>
-          <span class="dv-r-desc dv-r-desc--warn">Requires Unassigned Devices plugin</span>
+          <span class="dv-r-desc dv-r-desc--warn">Mounting and usage come from the Unassigned Devices plugin</span>
         </div>
       </div>
       <div class="dv-r">
@@ -491,15 +491,16 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         <div class="dv-r-field">
           <?php
             $fontSize = (string)($cfg['FONT_SIZE'] ?? 'default');
-            if (!in_array($fontSize, ['default', 'large'], true)) {
+            if (!in_array($fontSize, ['small', 'default', 'large'], true)) {
                 $fontSize = 'default';
             }
           ?>
           <select name="FONT_SIZE" class="dv-select">
+            <option value="small"   <?= $fontSize === 'small'   ? 'selected' : '' ?>>Small</option>
             <option value="default" <?= $fontSize === 'default' ? 'selected' : '' ?>>Default</option>
             <option value="large"   <?= $fontSize === 'large'   ? 'selected' : '' ?>>Large</option>
           </select>
-          <span class="dv-r-desc">Text size for the disk rows. Default is the compact size; Large makes the disk-info text bigger. Section labels and column headers stay the same size</span>
+          <span class="dv-r-desc">Text size for the disk rows. Small and Large shift the disk-info text about 5% smaller or larger than Default. Section labels and column headers stay the same size</span>
         </div>
       </div>
       <div class="dv-r">
@@ -618,7 +619,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
           <div class="dv-r-label">Show unassigned section</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_UNASSIGNED', $cfg['TOOL_SHOW_UNASSIGNED'], '0') ?>
-            <span class="dv-r-desc dv-r-desc--warn">Requires Unassigned Devices plugin</span>
+            <span class="dv-r-desc dv-r-desc--warn">Mounting and usage come from the Unassigned Devices plugin</span>
           </div>
         </div>
 
@@ -672,13 +673,14 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
           <div class="dv-r-field">
             <?php
               $toolFontSize = (string)($cfg['TOOL_FONT_SIZE'] ?? 'default');
-              if (!in_array($toolFontSize, ['small', 'default'], true)) $toolFontSize = 'default';
+              if (!in_array($toolFontSize, ['small', 'default', 'large'], true)) $toolFontSize = 'default';
             ?>
             <select name="TOOL_FONT_SIZE" class="dv-select">
               <option value="small"   <?= $toolFontSize === 'small'   ? 'selected' : '' ?>>Small</option>
               <option value="default" <?= $toolFontSize === 'default' ? 'selected' : '' ?>>Default</option>
+              <option value="large"   <?= $toolFontSize === 'large'   ? 'selected' : '' ?>>Large</option>
             </select>
-            <span class="dv-r-desc">Text size for the disk rows on the tool page. Small shrinks the disk-info text by 20%</span>
+            <span class="dv-r-desc">Text size for the disk rows on the tool page. Small and Large shift the disk-info text about 5% smaller or larger than Default</span>
           </div>
         </div>
         <div class="dv-r">

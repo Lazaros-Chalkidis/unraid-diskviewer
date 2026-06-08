@@ -111,14 +111,28 @@
     // ── Formatting ──────────────────────────────────────────────────────────
     // Decimal (1000-based) byte formatting, matching the widget so a 2TB drive
     // reads as 2 TB. Mirrors diskviewer.js formatBytes.
-    function formatBytes(bytes, precision) {
+    function formatBytes(bytes, precision, alwaysTwo) {
         if (!bytes || bytes <= 0) return '0 B';
         if (precision === undefined) precision = 1;
         var units = ['B','KB','MB','GB','TB','PB'];
         var i = Math.floor(Math.log(bytes) / Math.log(1000));
         i = Math.min(i, units.length - 1);
         var val = bytes / Math.pow(1000, i);
-        var str = (i >= 3) ? val.toFixed(precision).replace(/\.?0+$/, '') : String(Math.round(val));
+        // TB and above get a second decimal so close sizes stay distinct
+        // (e.g. 1.49 TB vs 1.53 TB), matching the widget and Unraid's dashboard.
+        // Trailing zeros are trimmed, so a clean 2 TB still reads as 2 TB.
+        // The USED / FREE columns pass alwaysTwo: two decimals from GB up with
+        // no trim, so usage values stay consistent and distinct.
+        var str;
+        if (alwaysTwo && i >= 3) {
+            str = val.toFixed(2);
+        } else if (i >= 4) {
+            var dp = Math.max(precision, 2);
+            str = val.toFixed(dp).replace(/\.?0+$/, '');
+        } else {
+            // SIZE column, GB and below: whole numbers, matching Unraid's Main.
+            str = String(Math.round(val));
+        }
         return str + ' ' + units[i];
     }
 
@@ -182,12 +196,14 @@
         });
     }
 
-    // Apply the tool's font-size setting by toggling a class on the disk
-    // container. CSS scales the table down when small.
+    // Apply the tool's font-size setting by setting one of three tier classes
+    // on the disk container. CSS scales the table's data cells by ~5% per tier.
     function applyFontSize(cfg) {
         var host = document.getElementById('dvt-overview-disks');
         if (!host) return;
-        host.classList.toggle('dvt-font-small', (cfg.font_size === 'small'));
+        var fs = (cfg.font_size === 'small' || cfg.font_size === 'large') ? cfg.font_size : 'default';
+        host.classList.remove('dvt-font-small', 'dvt-font-default', 'dvt-font-large');
+        host.classList.add('dvt-font-' + fs);
     }
 
     // Auto-refresh polling for the overview. Set up once; reloads the
@@ -223,7 +239,7 @@
         { key: 'fs',      label: 'FS',          cls: 'dvt-tbl__ctr',  width: 60  },
         { key: 'size',    label: 'Size',        cls: 'dvt-tbl__num',  width: 76  },
         { key: 'free',    label: 'Free',        cls: 'dvt-tbl__num',  width: 86  },
-        { key: 'used',    label: 'Used',        cls: 'dvt-tbl__num',  width: 108 },
+        { key: 'used',    label: 'Used',        cls: 'dvt-tbl__num',  width: 150 },
         { key: 'speed',   label: 'Speed r/w',   cls: 'dvt-tbl__num',  width: 96  },
         { key: 'temp',    label: 'Temp',        cls: 'dvt-tbl__num',  width: 64  },
         { key: 'health',  label: 'Health',      cls: 'dvt-tbl__ctr',  width: 56  },
@@ -385,12 +401,16 @@
         var realThead = realTable.querySelector('thead');
         var realCols  = realTable.querySelector('colgroup');
         var light = document.querySelector('.dvt-wrapper.dvt-light') ? ' dvt-light' : '';
-        var small = (function () {
+        var fontCls = (function () {
             var host = document.getElementById('dvt-overview-disks');
-            return (host && host.classList.contains('dvt-font-small')) ? ' dvt-font-small' : '';
+            if (!host) return '';
+            if (host.classList.contains('dvt-font-small'))   return ' dvt-font-small';
+            if (host.classList.contains('dvt-font-large'))   return ' dvt-font-large';
+            if (host.classList.contains('dvt-font-default')) return ' dvt-font-default';
+            return '';
         })();
 
-        _fixedWrap.className = 'dvt-fixed-thead-wrap' + light + small;
+        _fixedWrap.className = 'dvt-fixed-thead-wrap' + light + fontCls;
         _fixedWrap.innerHTML = '';
         var clone = document.createElement('table');
         clone.className = 'dvt-tbl dvt-tbl--wide dvt-fixed-thead';
@@ -579,7 +599,7 @@
         var isParity  = !!tile.is_parity;
         var isMember  = !!tile.is_pool_member;
         var isSummary = !!tile.is_summary;
-        var collapse  = isParity || isMember;
+        var collapse  = isParity || isMember || !!tile.no_capacity;
         var spun      = !!tile.spun;
         var sev = tile.severity || 'ok';
 
@@ -593,7 +613,7 @@
 
         var name = esc((tile.display_name || tile.name || '').toUpperCase());
         var size = (tile.size > 0) ? formatBytes(tile.size) : NA;
-        var free = collapse ? NA : (tile.size > 0 ? formatBytes(tile.free) : NA);
+        var free = collapse ? NA : (tile.size > 0 ? formatBytes(tile.free, 1, true) : NA);
 
         // USED composite cell, same as the widget: a used percent (coloured by
         // space severity, so it respects the Space severity setting) with an
@@ -605,7 +625,7 @@
             var pct = (tile.pct != null) ? +tile.pct
                     : ((tile.size - (tile.free || 0)) / tile.size * 100);
             pct = Math.max(0, Math.min(100, pct));
-            var pctText = _showDecimal ? pct.toFixed(1) + '%' : Math.round(pct) + '%';
+            var pctText = _showDecimal ? pct.toFixed(2) + '%' : Math.round(pct) + '%';
             var usedSev = tile.severity || 'ok';
             var pctCls = 'dvt-col-used-pct'
                        + (usedSev === 'critical' ? ' dvt-col-used-pct--crit'
@@ -614,7 +634,7 @@
                         + (usedSev === 'critical' ? 'dvt-bar-fill--crit'
                          : usedSev === 'warning'  ? 'dvt-bar-fill--warn' : 'dvt-bar-fill--ok');
             var bytesSpan = _showUsedBytes
-                ? '<span class="dvt-col-used-bytes">' + formatBytes((tile.size || 0) - (tile.free || 0)) + '</span>'
+                ? '<span class="dvt-col-used-bytes">' + formatBytes((tile.size || 0) - (tile.free || 0), 1, true) + '</span>'
                 : '';
             usedCell = '<div class="dvt-col-used"><div class="dvt-col-used-line">'
                      + bytesSpan + '<span class="' + pctCls + '">' + pctText + '</span></div>'

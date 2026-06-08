@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.06.05">
+ <!ENTITY version   "2026.06.08">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "445fe66a0d280e22c13b454c4a17ba32">
+ <!ENTITY md5       "d654fe5aff50f6567a36faebc002e6c5">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,14 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.06.08
+
+### Fixed
+- The Used and Free columns now always show two decimals, and the used percentage shows two decimals too, so drives with close usage stay distinct.
+- Multi-device pools (cache and other RAID pools) now report the pool's real usable size, free and used, the same figures as the official Main page, instead of adding the member disks together. Mirror and raidz pools that previously read roughly double are now correct, and pool member rows show each disk's own size.
+- Font size now has three steps (Small, Default, Large) on both the widget and the Tool page, so you can fine-tune the disk-row text.
+- Unassigned drives are now detected directly from the system instead of relying on the Unassigned Devices plugin's own files, so they appear on every version of that plugin and even unformatted or empty drives now show up.
 
 ## Version 2026.06.05
 

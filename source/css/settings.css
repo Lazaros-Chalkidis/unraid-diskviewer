@@ -1172,3 +1172,17 @@
   gap: .4rem;
 }
 .dv-dimmed-note .fa { font-size: .95em; }
+
+/* Hide the number-input spinner arrows. Firefox renders up/down spin
+   buttons on type=number inputs by default (Chrome only shows them on
+   hover/focus), which looks out of place next to the percentage fields.
+   Suppress them in both engines so the field reads as a plain box. */
+.diskviewer-settings .dv-input--num {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.diskviewer-settings .dv-input--num::-webkit-outer-spin-button,
+.diskviewer-settings .dv-input--num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

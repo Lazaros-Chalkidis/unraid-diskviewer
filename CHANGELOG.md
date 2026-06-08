@@ -1,6 +1,14 @@
 
 # Disk Viewer
 
+## Version 2026.06.08
+
+### Fixed
+- The Used and Free columns now always show two decimals, and the used percentage shows two decimals too, so drives with close usage stay distinct.
+- Multi-device pools (cache and other RAID pools) now report the pool's real usable size, free and used, the same figures as the official Main page, instead of adding the member disks together. Mirror and raidz pools that previously read roughly double are now correct, and pool member rows show each disk's own size.
+- Font size now has three steps (Small, Default, Large) on both the widget and the Tool page, so you can fine-tune the disk-row text.
+- Unassigned drives are now detected directly from the system instead of relying on the Unassigned Devices plugin's own files, so they appear on every version of that plugin and even unformatted or empty drives now show up.
+
 ## Version 2026.06.05
 
 ### Fixed

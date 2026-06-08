@@ -217,7 +217,7 @@
 .dvt-tbl-scroll {
   overflow-x: auto;
 }
-.dvt-tbl--wide { min-width: 0; font-size: .85rem; }
+.dvt-tbl--wide { min-width: 0; }
 .dvt-tbl--wide thead th { font-size: 1.1rem; padding: .4rem .45rem; white-space: normal; line-height: 1.1; }
 .dvt-tbl--wide tbody td { padding: .4rem .45rem; }
 
@@ -355,9 +355,12 @@
 .dvt-scrub-today { font-size: .85em; }
 .dvt-scrub-date  { font-size: .85em; }
 
-/* Small font option (tool). Scales the table text down ~20% to fit more. */
-.dvt-font-small .dvt-tbl--wide          { font-size: .78rem; }
-.dvt-font-small .dvt-tbl--wide thead th { font-size: 1.1rem; }
+/* Three-tier disk-row font size. The wrapper carries one of these and
+   sets --dvt-fs, scaling the table's data cells by ~5% per step around
+   the default. Column headers (thead th) stay fixed. */
+.dvt-font-small   { --dvt-fs: 0.92; }
+.dvt-font-default { --dvt-fs: 1; }
+.dvt-font-large   { --dvt-fs: 1.08; }
 
 .dvt-tbl {
   width: 100%;
@@ -366,7 +369,8 @@
      the look identical, since cells only carry a bottom border. */
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 1.2rem;
+  /* Three-tier scaling: the wrapper sets --dvt-fs (small/default/large). */
+  font-size: calc(1.2rem * var(--dvt-fs, 1));
   table-layout: fixed;
 }
 .dvt-tbl thead th {

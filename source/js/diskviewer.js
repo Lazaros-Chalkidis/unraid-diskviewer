@@ -69,7 +69,7 @@
     var showDecimalPct    = !!cfg.showDecimalPct;
     var showUsedColumn    = !!cfg.showUsedColumn;
     var showSectionIndicators = cfg.showSectionIndicators !== false;
-    var fontSize          = cfg.fontSize === 'large' ? 'large' : 'default';
+    var fontSize          = (cfg.fontSize === 'small' || cfg.fontSize === 'large') ? cfg.fontSize : 'default';
     var STORAGE_KEY  = 'dv_expand_v3';   // v1: row counts under different semantics
                                           // v2: extras above a fixed 8-row baseline
                                           // v3: extras above a section-level baseline (DEFAULT_EXPAND_ROWS as 0..3)
@@ -130,7 +130,7 @@
     // capacity expressed in binary GiB/TiB. Keeping the GB/TB labels (rather
     // than the technically-correct GiB/TiB) since that's the convention
     // every consumer-facing Unraid surface uses too.
-    function formatBytes(bytes, precision){
+    function formatBytes(bytes, precision, alwaysTwo){
         if (!bytes || bytes <= 0) return '0 B';
         if (precision === undefined) precision = 1;
         var units = ['B','KB','MB','GB','TB','PB'];
@@ -138,9 +138,20 @@
         i = Math.min(i, units.length - 1);
         var val = bytes / Math.pow(1000, i);
         var str;
-        if (i >= 3) {
-            str = val.toFixed(precision).replace(/\.?0+$/, '');
+        if (alwaysTwo && i >= 3) {
+            // USED / FREE columns: always two decimals from GB up, with no
+            // trailing-zero trim, so close values stay distinct and the
+            // decimal count is consistent (e.g. 1.49 TB, 8.20 TB, 868.60 GB).
+            str = val.toFixed(2);
+        } else if (i >= 4) {
+            // SIZE column, TB and above: a second decimal so close sizes stay
+            // distinct (1.49 vs 1.53 TB). Trailing zeros are trimmed, so a
+            // clean 2 TB still reads as 2 TB.
+            var dp = Math.max(precision, 2);
+            str = val.toFixed(dp).replace(/\.?0+$/, '');
         } else {
+            // SIZE column, GB and below: whole numbers, matching what Unraid's
+            // Main page shows (a 500 GB drive reads 500 GB, not 500.1 GB).
             str = String(Math.round(val));
         }
         return str + ' ' + units[i];
@@ -461,15 +472,15 @@
         // because each one has its own independent filesystem.
         var sizeText, freeText, usedText;
         var isPoolMember = !!row.is_pool_member;
-        var collapseCapacity = isParity || isPoolMember;
+        var collapseCapacity = isParity || isPoolMember || !!row.no_capacity;
         if (collapseCapacity) {
             sizeText = escapeHtml(formatBytes(size));
             freeText = '-';
             usedText = '-';
         } else if (size > 0) {
             sizeText = escapeHtml(formatBytes(size));
-            freeText = escapeHtml(formatBytes(free));
-            usedText = escapeHtml(formatBytes(size - free));
+            freeText = escapeHtml(formatBytes(free, 1, true));
+            usedText = escapeHtml(formatBytes(size - free, 1, true));
         } else {
             sizeText = '-';
             freeText = '-';
@@ -485,7 +496,7 @@
         // the visual demotion.
         var pctText;
         if (showDecimalPct) {
-            pctText = pct.toFixed(1) + '%';
+            pctText = pct.toFixed(2) + '%';
         } else {
             pctText = Math.round(pct) + '%';
         }
@@ -793,9 +804,10 @@
         // specificity than the zebra paint warn/crit colours over the
         // dv-row--warn / --crit rows in the cache and pool sections.
         container.classList.toggle('dv-pool-highlight', poolHighlightUsed);
-        // "Default" is now the compact rendering (dv-font-small); "Large"
-        // restores the original baseline text size.
-        container.classList.toggle('dv-font-small', fontSize !== 'large');
+        // Disk-row font size: one of three tiers (small / default / large),
+        // each scaling the data cells by ~5% via a CSS variable on the wrapper.
+        container.classList.remove('dv-font-small', 'dv-font-default', 'dv-font-large');
+        container.classList.add('dv-font-' + fontSize);
 
         // Clamp saved expandRows to the current model (disk count may
         // have changed since the value was stored). Using scrollHeight
@@ -1718,7 +1730,7 @@
             showDecimalPct    = !!cfg.showDecimalPct;
             showUsedColumn    = !!cfg.showUsedColumn;
             showSectionIndicators = cfg.showSectionIndicators !== false;
-            fontSize          = cfg.fontSize === 'large' ? 'large' : 'default';
+            fontSize          = (cfg.fontSize === 'small' || cfg.fontSize === 'large') ? cfg.fontSize : 'default';
 
             // Re-bind handlers on the new DOM nodes. Without this, the drag
             // handle in the new tile fragment has no listeners attached.

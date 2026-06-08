@@ -36,13 +36,12 @@ final class DiskViewerEndpoint
     private const PLUGIN_NAME        = 'diskviewer';
     private const CFG_FILE           = '/boot/config/plugins/diskviewer/diskviewer.cfg';
     private const DISKS_INI          = '/var/local/emhttp/disks.ini';
+    // Unraid's own device map (kernel device -> devN designation + id).
+    // Used to resolve the gear link target and per-disk SMART id for
+    // unassigned disks. Present on every Unraid version.
+    private const DEVS_INI           = '/var/local/emhttp/devs.ini';
     private const VAR_INI            = '/var/local/emhttp/var.ini';
     private const POOLS_DIR          = '/boot/config/pools';
-    private const UD_INI             = '/var/local/emhttp/plugins/unassigned.devices/unassigned.devices.ini';
-    // UD 2025.x writes its processed device list here as JSON (sizes in bytes,
-    // booleans for mounted/pass_through). Preferred source; the legacy ini
-    // above is the fallback for older UD versions.
-    private const UD_JSON            = '/var/state/unassigned.devices/unassigned.devices.json';
     // Per-disk SMART overrides written by Unraid's /Main/Device?name=X
     // page when the user edits warning/critical temp thresholds on a
     // specific disk. Sections are keyed by disk id (matching the 'id'
@@ -819,10 +818,14 @@ final class DiskViewerEndpoint
             // thermometer, bad-health thumb with per-axis disk counts).
             // Default on - they're the at-a-glance health summary.
             'show_section_indicators' => ($cfg['SHOW_SECTION_INDICATORS'] ?? '1') === '1',
-            // Widget font size for the disk-info rows. 'small' scales the
-            // data cells to 80%; 'default' is the baseline. Headers and
-            // section labels are unaffected either way.
-            'font_size'           => (($cfg['FONT_SIZE'] ?? 'default') === 'small') ? 'small' : 'default',
+            // Disk-info row font size. The widget uses 'default'/'large' and
+            // the tool uses 'small'/'default' (resolved from TOOL_FONT_SIZE in
+            // tool mode just above). Pass whichever known value through so
+            // both the widget JS (checks 'large') and the tool JS (checks
+            // 'small') can act on it; anything unknown falls back to 'default'.
+            'font_size'           => in_array(($cfg['FONT_SIZE'] ?? 'default'), ['default', 'large', 'small'], true)
+                                        ? ($cfg['FONT_SIZE'] ?? 'default')
+                                        : 'default',
             // default_expand_rows was a user-facing dropdown until 2026.05.05v
             // when it was removed in favour of the drag handle on the footer.
             // The value here still drives the JS-side baseline expansion level:
@@ -889,241 +892,178 @@ final class DiskViewerEndpoint
     // ── Unassigned devices ─────────────────────────────────────────────────
     private static function parseUnassigned(): array
     {
-        // UD 2025.x stores its processed device list as JSON in /var/state,
-        // keyed by partition device, with explicit device/mounted/fstype/size
-        // fields (sizes already in bytes). Prefer that. Fall through to the
-        // legacy ini parser below for older UD versions that still write the
-        // old plugin-path ini.
-        if (is_file(self::UD_JSON)) {
-            $jsonRaw = @file_get_contents(self::UD_JSON);
-            $jd      = $jsonRaw !== false ? json_decode($jsonRaw, true) : null;
-            $jdiag   = [
-                'source'   => 'json',
-                'path'     => self::UD_JSON,
-                'exists'   => true,
-                'size'     => @filesize(self::UD_JSON),
-                'sections' => is_array($jd) ? count($jd) : 0,
-            ];
-            if (is_array($jd)) {
-                $out = [];
-                $accepted = 0;
-                $rejected = [];
+        // Full live replication of Unassigned Devices' own discovery, using
+        // only Unraid-native sources (lsblk, disks.ini, devs.ini, mount info,
+        // smartctl). We deliberately no longer read UD's json/ini cache files:
+        // those vary by UD version and by whether UD Plus is installed, the
+        // base UD plugin does not even write the json some systems carry, and
+        // that fragility was the root cause of disks going missing on certain
+        // users. UD itself computes the list live as: every whole disk MINUS
+        // the disks Unraid has assigned (the device fields in disks.ini, which
+        // already cover the boot flash, array, parity, cache and all pools).
+        $diag = ['source' => 'live', 'method' => 'lsblk - disks.ini'];
 
-                $stripPartition = static function (string $dev): string {
-                    $base = preg_replace('@^/dev/@', '', $dev);
-                    if (strpos($base, 'nvme') === 0) {
-                        $base = preg_replace('/p\d+$/', '', $base);
-                    } else {
-                        $base = preg_replace('/\d+$/', '', $base);
-                    }
-                    return '/dev/' . $base;
-                };
-
-                // First pass: build the raw rows and gather each device so we
-                // can batch a single standby-safe SMART read for temp + health.
-                $pending  = [];
-                $diskList = [];
-                foreach ($jd as $key => $d) {
-                    if (!is_array($d)) continue;
-                    $devPath = (string)($d['device'] ?? '');
-                    if ($devPath === '') { $rejected[] = $key . ' (no device)'; continue; }
-                    // Devices that belong to the array or a pool are tracked
-                    // by UD but are not truly "unassigned".
-                    if (!empty($d['array_disk']) || !empty($d['pool'])) {
-                        $rejected[] = $key . ' (array/pool member)';
-                        continue;
-                    }
-
-                    $mounted = !empty($d['mounted']);
-                    // pass_through disks are reserved for a VM and stay
-                    // unmounted; we still list them (this is the case users
-                    // were missing). They simply report no usage.
-                    $size  = (int)($d['size']  ?? 0);
-                    $used  = (int)($d['used']  ?? 0);
-                    $avail = (int)($d['avail'] ?? 0);
-                    $fsSize = $size ?: ($used + $avail);
-
-                    $name = (string)($d['label'] ?? '');
-                    if ($name === '') $name = (string)($d['disk_label'] ?? '');
-                    if ($name === '') $name = basename($devPath);
-
-                    $diskList[] = $devPath;
-                    $pending[]  = [
-                        'd'       => $d,
-                        'device'  => $devPath,
-                        'whole'   => $stripPartition($devPath),
-                        'name'    => $name,
-                        'mounted' => $mounted,
-                        'fsSize'  => $fsSize,
-                        'used'    => $used,
-                        'avail'   => $avail,
-                        // Unraid's own device id for /Main/Device. The UD JSON
-                        // stores just the number (e.g. "1"); Unraid's page
-                        // expects "dev1". Prefix unless it already carries one.
-                        'ud_device' => (function ($v) {
-                            $v = trim((string)$v);
-                            if ($v === '') return '';
-                            return (strncmp($v, 'dev', 3) === 0) ? $v : 'dev' . $v;
-                        })((string)($d['ud_device'] ?? '')),
-                    ];
-                }
-
-                // UD's list carries neither temperature nor SMART status, so we
-                // read them ourselves from the disk (smartctl -n standby +
-                // persistent cache, which never wakes a sleeping disk).
-                // parseSmartctl strips the partition internally, so the cache
-                // key matches the tool's own deep-SMART pass (no double read).
-                $smartMap = self::smartAttrsForDevices($diskList);
-
-                foreach ($pending as $p) {
-                    $attrs = $smartMap[$p['device']] ?? null;
-
-                    // Temperature in Celsius when SMART exposed it (same unit as
-                    // array/pool disks), else "*" - most USB sticks have none.
-                    $temp = (is_array($attrs) && $attrs['temp'] !== null)
-                          ? (string)$attrs['temp'] : '*';
-
-                    // Health from the conservative attribute verdict. "na" (no
-                    // SMART, e.g. a plain USB stick) becomes "unknown" so the
-                    // thumb renders neutral instead of a misleading healthy green.
-                    [, $vSev] = self::smartVerdict($attrs);
-                    $smart = $vSev === 'critical' ? 'critical'
-                           : ($vSev === 'warning' ? 'warning'
-                           : ($vSev === 'ok' ? 'healthy' : 'unknown'));
-
-                    // Speed off the parent disk's aggregate I/O (matches the way
-                    // array/pool disks are measured), not the single partition.
-                    $speed = $p['mounted']
-                           ? self::diskSpeed($p['whole'])
-                           : ['bps' => 0, 'dir' => ''];
-
-                    $tt = self::diskTempThresholds($p['d']);
-                    $ut = self::diskUtilThresholds($p['d'], self::nativeUtilThresholds());
-
-                    $out[] = [
-                        'name'   => $p['name'],
-                        'device' => $p['device'],
-                        'main_dev' => $p['ud_device'],
-                        'kind'   => 'unassigned',
-                        'group'  => 'unassigned',
-                        'status' => $p['mounted'] ? 'DISK_OK' : 'DISK_NP',
-                        'spun'   => $p['mounted'],
-                        'temp'   => $temp,
-                        'temp_warning'  => $tt['warning'],
-                        'temp_critical' => $tt['critical'],
-                        'space_warning'  => $ut['warning'],
-                        'space_critical' => $ut['critical'],
-                        'smart'  => $smart,
-                        'size'   => $p['fsSize'],
-                        'used'   => $p['used'],
-                        'free'   => $p['avail'],
-                        'pct'    => $p['fsSize'] > 0 ? round($p['used'] / $p['fsSize'] * 100, 2) : 0,
-                        'speed_bps'    => $speed['bps'],
-                        'speed_dir'    => $speed['dir'],
-                        'errors'       => 0,
-                        'is_summary'   => false,
-                        'is_parity'    => false,
-                        'spin_disabled'=> false,
-                    ];
-                    $accepted++;
-                }
-                $jdiag['accepted'] = $accepted;
-                $jdiag['rejected'] = $rejected;
-                self::writeUDDiagnostic($jdiag);
-                return $out;
+        // 1. Assigned set: "/dev/" + the device field of every disks.ini
+        //    section. This is exactly UD's $unraid_disks.
+        $assigned = [];
+        $disksIni = self::cachedIniRead(self::DISKS_INI, true);
+        if (is_array($disksIni)) {
+            foreach ($disksIni as $d) {
+                $dev = is_array($d) ? trim((string)($d['device'] ?? '')) : '';
+                if ($dev !== '') $assigned['/dev/' . $dev] = true;
             }
-            // JSON present but not decodable: note it and fall through.
-            $jdiag['note'] = 'json present but not decodable';
-            self::writeUDDiagnostic($jdiag);
         }
 
-        // ── Legacy UD (pre-2025): ini at the old plugin path ──────────────
-        // Only the standard UD plugin path. We tried fallbacks in an
-        // earlier build but at least one of them picked up an Unraid
-        // state file with /dev/disk/by-id/* sections that the parser
-        // happily mistook for UD entries and rendered as 34 fake
-        // tiles. Single path is safer; the diagnostic file below tells
-        // us if the standard path isn't where this user's UD plugin is
-        // writing.
-        $data    = self::cachedIniRead(self::UD_INI, true);
-        $diag    = [
-            'source'   => 'ini',
-            'path'     => self::UD_INI,
-            'exists'   => is_file(self::UD_INI),
-            'size'     => is_file(self::UD_INI) ? @filesize(self::UD_INI) : null,
-            'sections' => is_array($data) ? count($data) : 0,
-        ];
+        // Defensive net beyond UD: never list the boot flash even if a user's
+        // disks.ini somehow omits it. Resolve the disk behind /boot from the
+        // live mount table. This can only ADD to the exclusion set, so it can
+        // never hide a genuine unassigned disk.
+        $mounts = @file('/proc/mounts', FILE_IGNORE_NEW_LINES);
+        if (is_array($mounts)) {
+            foreach ($mounts as $ln) {
+                $f = explode(' ', $ln);
+                if (($f[1] ?? '') === '/boot' && strncmp((string)($f[0] ?? ''), '/dev/', 5) === 0) {
+                    $boot = self::parentDiskName(preg_replace('@^/dev/@', '', $f[0]));
+                    if ($boot !== '') $assigned['/dev/' . $boot] = true;
+                    break;
+                }
+            }
+        }
+        $diag['assigned'] = count($assigned);
 
-        if (empty($data)) {
+        // 2. Enumerate every block device once. -P (key="value") output is
+        //    parse-stable across util-linux versions.
+        $rows = self::lsblkRows();
+        if (empty($rows)) {
+            $diag['note'] = 'lsblk returned nothing';
             self::writeUDDiagnostic($diag);
             return [];
         }
+        $disks   = [];   // disk kernel name => disk row
+        $byParent = [];  // disk kernel name => [partition rows]
+        foreach ($rows as $r) {
+            $name = (string)($r['NAME'] ?? '');
+            $type = (string)($r['TYPE'] ?? '');
+            if ($name === '') continue;
+            if ($type === 'disk') {
+                // Skip non-physical block devices (ram/loop/optical/md/dm).
+                if (preg_match('/^(zram|loop|sr|md|dm-|nbd|ram)/', $name)) continue;
+                $disks[$name] = $r;
+            } elseif ($type === 'part') {
+                $pk = (string)($r['PKNAME'] ?? '');
+                if ($pk === '') $pk = self::parentDiskName($name);
+                $byParent[$pk][] = $r;
+            }
+        }
+
+        // 3. Unraid's own device map: kernel device => devN designation + id.
+        $devs = self::udDevsInfo();
+
+        $globalUtil = self::nativeUtilThresholds();
+        $skipped    = [];
+        $plan       = [];
+        $diskList   = [];
+
+        foreach ($disks as $name => $disk) {
+            $path = '/dev/' . $name;
+            if (isset($assigned[$path])) { $skipped[] = $name . ' (assigned)'; continue; }
+
+            // Rows that carry filesystem / mount info for this disk: its
+            // partitions, plus the disk row itself for a disk formatted with
+            // no partition table.
+            $scan = $byParent[$name] ?? [];
+            if ((string)($disk['MOUNTPOINT'] ?? '') !== '' || (string)($disk['FSTYPE'] ?? '') !== '') {
+                $scan[] = $disk;
+            }
+
+            $mounted = false;
+            $fsTotal = 0; $fsUsed = 0; $fsFree = 0;
+            $fsType  = ''; $label = '';
+            foreach ($scan as $pt) {
+                if ($fsType === '' && (string)($pt['FSTYPE'] ?? '') !== '') $fsType = (string)$pt['FSTYPE'];
+                if ($label  === '' && (string)($pt['LABEL'] ?? '') !== '') $label  = (string)$pt['LABEL'];
+                $mp = trim((string)($pt['MOUNTPOINT'] ?? ''));
+                if ($mp !== '' && is_dir($mp)) {
+                    $tot = @disk_total_space($mp);
+                    $fre = @disk_free_space($mp);
+                    if ($tot !== false && $fre !== false) {
+                        $mounted  = true;
+                        $fsTotal += (int)$tot;
+                        $fsFree  += (int)$fre;
+                        $fsUsed  += (int)$tot - (int)$fre;
+                    }
+                }
+            }
+
+            $rawSize = (int)($disk['SIZE'] ?? 0);
+            $model   = trim((string)($disk['MODEL'] ?? ''));
+            // Mounted disks show the filesystem size (so the used bar is right);
+            // bare or unmounted disks show the raw disk size.
+            $size = ($mounted && $fsTotal > 0) ? $fsTotal : $rawSize;
+
+            // Display name: the filesystem label the user gave the volume,
+            // else the disk model, else the kernel name.
+            $dispName = $label !== '' ? $label : ($model !== '' ? $model : $name);
+
+            $info = $devs[$name] ?? [];
+            $diskList[] = $path;
+            $plan[] = [
+                'path'    => $path,
+                'name'    => $dispName,
+                'mounted' => $mounted,
+                'size'    => $size,
+                'used'    => $fsUsed,
+                'free'    => $fsFree,
+                'devN'    => (string)($info['name'] ?? ''),
+                'id'      => (string)($info['id'] ?? ''),
+            ];
+        }
+
+        // 4. One batched, standby-safe SMART read for temp + health. The whole
+        //    disk path is the cache key, matching the tool's deep-SMART pass,
+        //    so a disk is never read twice in one load.
+        $smartMap = self::smartAttrsForDevices($diskList);
 
         $out = [];
-        $accepted = 0;
-        $rejected = [];
-        foreach ($data as $key => $d) {
-            if (!is_array($d)) continue;
+        foreach ($plan as $p) {
+            $attrs = $smartMap[$p['path']] ?? null;
+            $temp  = (is_array($attrs) && $attrs['temp'] !== null) ? (string)$attrs['temp'] : '*';
 
-            // Shape validation. A real UD entry always has a device
-            // field AND at least one UD-specific marker field
-            // (mounted/mountpoint/partitions/fstype/serial). State
-            // files and other unrelated content keyed by /dev/disk/by-id
-            // paths typically have neither, so this catches them
-            // without making us depend on the exact device-path format
-            // each UD plugin version chooses to write.
-            $devPath = (string)($d['device'] ?? '');
-            if ($devPath === '') {
-                $rejected[] = $key . ' (no device field)';
-                continue;
-            }
-            $hasUdMarker = isset($d['mounted'])
-                        || isset($d['mountpoint'])
-                        || isset($d['partitions'])
-                        || isset($d['fstype'])
-                        || isset($d['serial']);
-            if (!$hasUdMarker) {
-                $rejected[] = $key . ' (no UD marker field)';
-                continue;
-            }
+            [, $vSev] = self::smartVerdict($attrs);
+            $smart = $vSev === 'critical' ? 'critical'
+                   : ($vSev === 'warning' ? 'warning'
+                   : ($vSev === 'ok' ? 'healthy' : 'unknown'));
 
-            $mounted = ((string)($d['mounted'] ?? '0') === '1');
-            $size    = (int)($d['size']     ?? 0) * 1024;
-            $used    = (int)($d['used']     ?? 0) * 1024;
-            $avail   = (int)($d['avail']    ?? 0) * 1024;
-            $fsSize  = $size ?: ($used + $avail);
-            $fsFree  = $avail;
-            $fsUsed  = $used;
+            $speed = $p['mounted'] ? self::diskSpeed($p['path']) : ['bps' => 0, 'dir' => ''];
 
-            // Normalize SMART: UD reports "PASSED" / "FAILED" / empty
-            $smartRaw = strtoupper(trim((string)($d['smart_status'] ?? $d['health'] ?? '')));
-            if ($smartRaw === 'PASSED')      $smart = 'healthy';
-            elseif ($smartRaw === 'FAILED')  $smart = 'critical';
-            elseif ($smartRaw === '')        $smart = 'unknown';
-            else                             $smart = 'warning';
-
-            $isSpun  = $mounted;
-            $speed   = $isSpun ? self::diskSpeed($devPath) : ['bps' => 0, 'dir' => ''];
-            $tt      = self::diskTempThresholds($d);
-            $ut      = self::diskUtilThresholds($d, self::nativeUtilThresholds());
+            // Per-disk temp overrides resolve through the disk id (smart-one.cfg);
+            // util overrides for unassigned disks fall back to the global values.
+            $tt = self::diskTempThresholds(['id' => $p['id']]);
+            $ut = self::diskUtilThresholds([], $globalUtil);
 
             $out[] = [
-                'name'   => (string)($d['label'] ?? $d['device'] ?? $key),
-                'device' => $devPath,
+                'name'   => $p['name'],
+                'device' => $p['path'],
+                'main_dev' => $p['devN'],
                 'kind'   => 'unassigned',
                 'group'  => 'unassigned',
-                'status' => $mounted ? 'DISK_OK' : 'DISK_NP',
-                'spun'   => $isSpun,
-                'temp'   => (string)($d['temperature'] ?? $d['temp'] ?? '*'),
+                'status' => $p['mounted'] ? 'DISK_OK' : 'DISK_NP',
+                'spun'   => $p['mounted'],
+                // Unmounted (or bare/unformatted) disks have no meaningful
+                // used/free figures. Collapse those columns to a dash, the
+                // same way parity and pool members do, while still showing
+                // the raw disk size, temperature and SMART health.
+                'no_capacity' => !$p['mounted'],
+                'temp'   => $temp,
                 'temp_warning'  => $tt['warning'],
                 'temp_critical' => $tt['critical'],
                 'space_warning'  => $ut['warning'],
                 'space_critical' => $ut['critical'],
                 'smart'  => $smart,
-                'size'   => $fsSize,
-                'used'   => $fsUsed,
-                'free'   => $fsFree,
-                'pct'    => $fsSize > 0 ? round($fsUsed / $fsSize * 100, 2) : 0,
+                'size'   => $p['size'],
+                'used'   => $p['used'],
+                'free'   => $p['free'],
+                'pct'    => $p['size'] > 0 ? round($p['used'] / $p['size'] * 100, 2) : 0,
                 'speed_bps'    => $speed['bps'],
                 'speed_dir'    => $speed['dir'],
                 'errors'       => 0,
@@ -1131,14 +1071,68 @@ final class DiskViewerEndpoint
                 'is_parity'    => false,
                 'spin_disabled'=> false,
             ];
-            $accepted++;
         }
 
-        $diag['accepted'] = $accepted;
-        $diag['rejected'] = $rejected;
+        $diag['enumerated'] = count($disks);
+        $diag['accepted']   = count($out);
+        $diag['skipped']    = $skipped;
         self::writeUDDiagnostic($diag);
 
         return $out;
+    }
+
+    // Runs one lsblk pass and returns each block device as an assoc row.
+    // -P emits key="value" pairs that survive spaces in MODEL/LABEL and is
+    // stable across util-linux versions. Memoised for the request.
+    private static function lsblkRows(): array
+    {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+        $cached = [];
+        $out = @shell_exec('lsblk -b -P -o NAME,TYPE,SIZE,MODEL,FSTYPE,LABEL,MOUNTPOINT,PKNAME 2>/dev/null');
+        if (is_string($out) && $out !== '') {
+            foreach (preg_split('/\r?\n/', trim($out)) as $line) {
+                if ($line === '') continue;
+                $r = [];
+                if (preg_match_all('/([A-Z]+)="([^"]*)"/', $line, $m, PREG_SET_ORDER)) {
+                    foreach ($m as $kv) $r[$kv[1]] = $kv[2];
+                }
+                if (!empty($r['NAME'])) $cached[] = $r;
+            }
+        }
+        return $cached;
+    }
+
+    // Maps a partition kernel name to its whole-disk name (sdae1 -> sdae,
+    // nvme0n1p2 -> nvme0n1). Fallback when lsblk PKNAME is unavailable.
+    private static function parentDiskName(string $name): string
+    {
+        if (strpos($name, 'nvme') === 0) return preg_replace('/p\d+$/', '', $name);
+        return preg_replace('/\d+$/', '', $name);
+    }
+
+    // Reads Unraid's own devs.ini and returns kernel device => devN + id.
+    // devN feeds the gear link (/Main/Device?name=devN) and id lets per-disk
+    // SMART temp overrides resolve. Present on every Unraid version, so it is
+    // version-independent. Memoised for the request.
+    private static function udDevsInfo(): array
+    {
+        static $cached = null;
+        if ($cached !== null) return $cached;
+        $cached = [];
+        $ini = self::cachedIniRead(self::DEVS_INI, true);
+        if (is_array($ini)) {
+            foreach ($ini as $sec) {
+                if (!is_array($sec)) continue;
+                $dev = trim((string)($sec['device'] ?? ''));
+                if ($dev === '') continue;
+                $cached[$dev] = [
+                    'name' => trim((string)($sec['name'] ?? '')),
+                    'id'   => trim((string)($sec['id'] ?? '')),
+                ];
+            }
+        }
+        return $cached;
     }
 
     // Diagnostic writer for UD detection. Single overwritten JSON file.
@@ -1368,9 +1362,13 @@ final class DiskViewerEndpoint
             $fsSize  = (int)($d['fsSize'] ?? 0) * 1024;
             $fsFree  = (int)($d['fsFree'] ?? 0) * 1024;
             $fsUsed  = (int)($d['fsUsed'] ?? 0) * 1024;
+            // Raw physical device size, kept separately. For a pool member
+            // the fs fields above belong to the whole pool (only the primary
+            // member carries them), so the member row must show this instead.
+            $rawSize = (int)($d['size'] ?? 0) * 1024;
             if ($fsSize === 0) {
                 // For parity (or unmounted) use raw disk size
-                $fsSize = (int)($d['size'] ?? 0) * 1024;
+                $fsSize = $rawSize;
             }
             $pct = $fsSize > 0 ? round($fsUsed / $fsSize * 100, 2) : 0;
 
@@ -1449,6 +1447,7 @@ final class DiskViewerEndpoint
                 'space_critical' => $ut['critical'],
                 'smart'         => self::smartHealth($d),
                 'size'          => $fsSize,
+                'raw_size'      => $rawSize,
                 'used'          => $fsUsed,
                 'free'          => $fsFree,
                 'pct'           => $pct,
@@ -1556,7 +1555,7 @@ final class DiskViewerEndpoint
         $totalDevices = 0;
 
         // Helper: summary tile for a group of disks
-        $makeSummary = function(string $label, array $tiles) use ($warn, $crit): array {
+        $makeSummary = function(string $label, array $tiles, ?array $capOverride = null) use ($warn, $crit): array {
             $total = 0; $used = 0;
             $smartWorst = 'healthy';
             $rank = ['unknown' => 0, 'healthy' => 1, 'warning' => 2, 'critical' => 3];
@@ -1584,6 +1583,16 @@ final class DiskViewerEndpoint
                 }
             }
             $free = max(0, $total - $used);
+            // Pools pass the usable capacity Unraid already computed for the
+            // RAID profile (mirror, raidz, RAID1/5/6/10). Summing the member
+            // rows double counts, because only the primary member carries the
+            // pool filesystem totals in disks.ini and the others fall back to
+            // their raw size. So when an override is supplied, use it verbatim.
+            if ($capOverride !== null) {
+                $total = (int)$capOverride['size'];
+                $used  = (int)$capOverride['used'];
+                $free  = (int)$capOverride['free'];
+            }
             $pct  = $total > 0 ? round($used / $total * 100, 2) : 0;
             $severity = $pct >= $crit ? 'critical' : ($pct >= $warn ? 'warning' : 'ok');
             $totalSpeed = $sumR + $sumW;
@@ -1736,7 +1745,25 @@ final class DiskViewerEndpoint
         // Used twice below - once for cache targets, once for non-cache.
         $emitMultiSection = function(string $group, array $tiles) use ($makeSummary, &$totalDevices, &$critNames, &$warnNames, &$sections) {
             $label = strtoupper($group);
-            $summary = $makeSummary($group, $tiles);
+            // The pool's usable capacity lives on the member that carries the
+            // pool filesystem in disks.ini (the primary). Other members report
+            // no fs there, so summing every member double counts. Use the
+            // fs-bearing member's totals, which Unraid has already sized for
+            // the pool's RAID profile (mirror, raidz, RAID1/5/6/10).
+            $capOverride = null;
+            foreach ($tiles as $ct) {
+                $cfs = strtolower(trim((string)($ct['fs'] ?? '')));
+                if ($cfs !== '' && $cfs !== '-' && (int)($ct['size'] ?? 0) > 0) {
+                    if ($capOverride === null || (int)$ct['size'] > (int)$capOverride['size']) {
+                        $capOverride = [
+                            'size' => (int)$ct['size'],
+                            'used' => (int)$ct['used'],
+                            'free' => (int)$ct['free'],
+                        ];
+                    }
+                }
+            }
+            $summary = $makeSummary($group, $tiles, $capOverride);
             $summary['name'] = $group;
             // Rename members to a generic "Device N" ordinal for display.
             // We attach the new label as `display_name` rather than
@@ -1749,6 +1776,9 @@ final class DiskViewerEndpoint
             foreach ($tiles as &$t) {
                 $t['is_pool_member'] = true;
                 $t['display_name']   = 'Device ' . $idx;
+                // Show each member's own physical size, not the pool
+                // filesystem total (only the primary member carries that).
+                if (!empty($t['raw_size'])) $t['size'] = (int)$t['raw_size'];
                 $idx++;
             }
             unset($t);

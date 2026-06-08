@@ -611,7 +611,7 @@
     26px                      /* bolt        */
     minmax(110px, 1.4fr)      /* name        */
     62px                      /* size        */
-    62px                      /* free        */
+    72px                      /* free        */
     minmax(82px, 1.6fr)       /* used (pct + bytes + bar) */
     68px                      /* speed       */
     38px                      /* temp        */
@@ -681,7 +681,7 @@
 
 .dv-row {
   padding: 5px 6px;
-  font-size: 13px;
+  font-size: calc(10.4px * var(--dv-fs, 1.05));
   position: relative;
   border-bottom: 1px solid var(--dv-c-border-subtle);
   transition: background .12s ease;
@@ -944,7 +944,7 @@
 
 .dv-col-name {
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
-  font-size: 13px;
+  font-size: calc(10.4px * var(--dv-fs, 1.05));
   font-weight: 500;
   color: var(--dv-c-text);
   letter-spacing: .02em;
@@ -957,14 +957,14 @@
 .dv-col-size,
 .dv-col-free {
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
-  font-size: 12.5px;
+  font-size: calc(10px * var(--dv-fs, 1.05));
   color: var(--dv-c-text-mid);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.dv-col-free { color: var(--dv-c-text); }
+.dv-col-free { color: var(--dv-c-text); padding-right: 10px; }
 
 /* USED composite cell. Single grid slot holding the percent + optional
    bytes on the top line, with the mini progress bar stacked beneath.
@@ -992,7 +992,7 @@
 
 .dv-col-used-bytes {
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
-  font-size: 11px;
+  font-size: calc(8.8px * var(--dv-fs, 1.05));
   color: var(--dv-c-text);
   overflow: hidden;
   white-space: nowrap;
@@ -1002,7 +1002,7 @@
 
 .dv-col-used-pct {
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
-  font-size: 11px;
+  font-size: calc(8.8px * var(--dv-fs, 1.05));
   font-weight: 500;
   letter-spacing: .02em;
   color: var(--dv-c-text-mid);
@@ -1039,7 +1039,7 @@
 .dv-col-speed-wrap {
   text-align: right;
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
-  font-size: 12px;
+  font-size: calc(9.6px * var(--dv-fs, 1.05));
   color: var(--dv-c-text-faint);
   overflow: hidden;
   white-space: nowrap;
@@ -1083,7 +1083,7 @@
 .dv-col-temp {
   text-align: right;
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
-  font-size: 12px;
+  font-size: calc(9.6px * var(--dv-fs, 1.05));
   letter-spacing: .02em;
 }
 
@@ -1096,20 +1096,15 @@
 .dv-temp-na   { color: var(--dv-c-text-faint); }
 
 /* ──────────────────────────────────────────────────────────────────────
-   Small font option. When the Font size setting is "small", the wrapper
-   gets .dv-font-small and every disk-info cell drops to 80% of its
-   default size. Only the data cells scale - the column headers
-   (.dv-colhd) and the section labels (.dv-section-lbl) keep their sizes
-   so the structural chrome stays legible while the rows compact.
-   Values: 13 -> 10.4, 12.5 -> 10, 12 -> 9.6, 11 -> 8.8. */
-.dv-font-small .dv-row            { font-size: 10.4px; }
-.dv-font-small .dv-col-name       { font-size: 10.4px; }
-.dv-font-small .dv-col-size,
-.dv-font-small .dv-col-free       { font-size: 10px; }
-.dv-font-small .dv-col-used-bytes { font-size: 8.8px; }
-.dv-font-small .dv-col-used-pct   { font-size: 8.8px; }
-.dv-font-small .dv-col-speed-wrap { font-size: 9.6px; }
-.dv-font-small .dv-col-temp       { font-size: 9.6px; }
+   Three-tier disk-row font size. The per-cell sizes above are written as
+   calc(base * var(--dv-fs)); the wrapper carries one of the classes below
+   and sets --dv-fs, shifting every data cell by ~5% per step. Default is
+   ~5% larger than the old compact size; Small is ~5% under Default and
+   Large ~5% over. Only the data cells scale - the column headers
+   (.dv-colhd) and section labels (.dv-section-lbl) keep their sizes. */
+.dv-font-small   { --dv-fs: 1.00; }
+.dv-font-default { --dv-fs: 1.05; }
+.dv-font-large   { --dv-fs: 1.10; }
 
 .dv-col-thumb {
   display: inline-flex;
