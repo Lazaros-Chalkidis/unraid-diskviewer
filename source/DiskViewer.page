@@ -100,6 +100,7 @@ $tile_config = [
     'showDiskErrors'      => $cfg['show_disk_errors'],
     'showDecimalPct'      => $cfg['show_decimal_pct'],
     'showUsedColumn'      => $cfg['show_used_column'],
+    'showIdTooltip'       => $cfg['show_id_tooltip'],
     'showSectionIndicators' => $cfg['show_section_indicators'],
     'fontSize'            => $cfg['font_size'],
     'isResponsive'        => $isResponsiveWebgui,
@@ -141,8 +142,10 @@ $render_subtitle = static function(): string {
     return <<<HTML
 <div class="dv-header-meta">
     <span class="dv-badge-devices" id="dv-badge-devices" title="Total devices">
+        <span class="dv-badge-label">Total</span>
         <span id="dv-device-count">0</span>
         <span class="dv-badge-label">Devices</span>
+        <span class="dv-badge-missing" id="dv-badge-missing" style="display:none;"></span>
     </span>
 </div>
 HTML;

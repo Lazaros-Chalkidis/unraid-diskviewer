@@ -94,7 +94,7 @@ if (isset($_POST['#apply'])) {
     $new_cfg['ENABLE_SPIN_BUTTON']   = $yn($_POST['ENABLE_SPIN_BUTTON'] ?? '1', '1');
 
     // Display
-    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '0', '0');
+    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '1', '1');
     $new_cfg['SHOW_ARRAY']           = $yn($_POST['SHOW_ARRAY']           ?? '1', '1');
     $new_cfg['SHOW_CACHE']           = $yn($_POST['SHOW_CACHE']           ?? '1', '1');
     $new_cfg['SHOW_POOLS']           = $yn($_POST['SHOW_POOLS']           ?? '1', '1');
@@ -133,6 +133,15 @@ if (isset($_POST['#apply'])) {
     // is inserted between SIZE and FREE showing the absolute used
     // bytes (matches Unraid Main page column order).
     $new_cfg['SHOW_USED_COLUMN']     = $yn($_POST['SHOW_USED_COLUMN'] ?? '1', '1');
+    // Disk-name identification tooltip (model, serial, size, device node on
+    // hover, like the Main page Identification column). Default on.
+    $new_cfg['SHOW_ID_TOOLTIP']      = $yn($_POST['SHOW_ID_TOOLTIP'] ?? '1', '1');
+    // Configured-but-missing disks (disconnected / removed, shown as "Not
+    // installed"). Default on so a real failure is never silently hidden.
+    $new_cfg['SHOW_MISSING_DISKS']   = $yn($_POST['SHOW_MISSING_DISKS'] ?? '1', '1');
+    // The Unraid boot (flash) device, shown as its own section after the
+    // unassigned devices. Default on.
+    $new_cfg['SHOW_BOOT_DEVICE']      = $yn($_POST['SHOW_BOOT_DEVICE'] ?? '0', '1');
     // Section-header indicators (errors / high-temp / bad-health icons
     // with disk counts next to ARRAY/CACHE/RAID/POOL labels). Default on.
     $new_cfg['SHOW_SECTION_INDICATORS'] = $yn($_POST['SHOW_SECTION_INDICATORS'] ?? '1', '1');
@@ -159,7 +168,7 @@ if (isset($_POST['#apply'])) {
     $new_cfg['TOOL_REFRESH_ENABLED']     = $yn($_POST['TOOL_REFRESH_ENABLED'] ?? '1', '1');
     $new_cfg['TOOL_REFRESH_INTERVAL']    = $clamp_interval($_POST['TOOL_REFRESH_INTERVAL'] ?? 10);
     $new_cfg['TOOL_ENABLE_SPIN_BUTTON']  = $yn($_POST['TOOL_ENABLE_SPIN_BUTTON'] ?? '1', '1');
-    $new_cfg['TOOL_SHOW_UNASSIGNED']     = $yn($_POST['TOOL_SHOW_UNASSIGNED'] ?? '0', '0');
+    $new_cfg['TOOL_SHOW_UNASSIGNED']     = $yn($_POST['TOOL_SHOW_UNASSIGNED'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_ARRAY']          = $yn($_POST['TOOL_SHOW_ARRAY'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_CACHE']          = $yn($_POST['TOOL_SHOW_CACHE'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_POOLS']          = $yn($_POST['TOOL_SHOW_POOLS'] ?? '1', '1');
@@ -171,6 +180,9 @@ if (isset($_POST['#apply'])) {
     $new_cfg['TOOL_HEADER_CLICK_ACTION'] = in_array($toolClickIn, ['main','widget','tool','settings'], true) ? $toolClickIn : 'main';
     $new_cfg['TOOL_SHOW_DECIMAL_PCT']    = $yn($_POST['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_USED_COLUMN']    = $yn($_POST['TOOL_SHOW_USED_COLUMN'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_ID_TOOLTIP']     = $yn($_POST['TOOL_SHOW_ID_TOOLTIP'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_MISSING_DISKS']  = $yn($_POST['TOOL_SHOW_MISSING_DISKS'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_BOOT_DEVICE']    = $yn($_POST['TOOL_SHOW_BOOT_DEVICE'] ?? '0', '1');
     $new_cfg['TOOL_FONT_SIZE']           = in_array($_POST['TOOL_FONT_SIZE'] ?? 'default', ['small','default','large'], true) ? $_POST['TOOL_FONT_SIZE'] : 'default';
     $toolModeIn = strtolower((string)($_POST['TOOL_SPACE_SEVERITY_MODE'] ?? 'inherit'));
     $new_cfg['TOOL_SPACE_SEVERITY_MODE'] = in_array($toolModeIn, ['inherit','custom','disabled'], true) ? $toolModeIn : 'inherit';
@@ -203,7 +215,7 @@ $def = [
     'REFRESH_INTERVAL'     => '20',
     'DRAG_STEP_ROWS'       => '1',
     'ENABLE_SPIN_BUTTON'   => '1',
-    'SHOW_UNASSIGNED'      => '0',
+    'SHOW_UNASSIGNED'      => '1',
     'SHOW_ARRAY'           => '1',
     'SHOW_CACHE'           => '1',
     'SHOW_POOLS'           => '1',
@@ -214,6 +226,9 @@ $def = [
     'SHOW_DISK_ERRORS'     => '1',
     'SHOW_DECIMAL_PCT'     => '1',
     'SHOW_USED_COLUMN'     => '1',
+    'SHOW_ID_TOOLTIP'      => '1',
+    'SHOW_MISSING_DISKS'   => '1',
+    'SHOW_BOOT_DEVICE'     => '0',
     'SHOW_SECTION_INDICATORS' => '1',
     'FONT_SIZE'            => 'default',
     'SPACE_SEVERITY_MODE'  => 'inherit',
@@ -223,7 +238,7 @@ $def = [
     'TOOL_REFRESH_ENABLED'      => '1',
     'TOOL_REFRESH_INTERVAL'     => '10',
     'TOOL_ENABLE_SPIN_BUTTON'   => '1',
-    'TOOL_SHOW_UNASSIGNED'      => '0',
+    'TOOL_SHOW_UNASSIGNED'      => '1',
     'TOOL_SHOW_ARRAY'           => '1',
     'TOOL_SHOW_CACHE'           => '1',
     'TOOL_SHOW_POOLS'           => '1',
@@ -231,6 +246,9 @@ $def = [
     'TOOL_HEADER_CLICK_ACTION'  => 'main',
     'TOOL_SHOW_DECIMAL_PCT'     => '1',
     'TOOL_SHOW_USED_COLUMN'     => '1',
+    'TOOL_SHOW_ID_TOOLTIP'      => '1',
+    'TOOL_SHOW_MISSING_DISKS'   => '1',
+    'TOOL_SHOW_BOOT_DEVICE'     => '0',
     'TOOL_FONT_SIZE'            => 'default',
     'TOOL_SPACE_SEVERITY_MODE'  => 'inherit',
     'TOOL_SPACE_WARNING_PCT'    => '70',
@@ -398,6 +416,23 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
     </div>
     <div class="dv-sec-bd">
       <div class="dv-r">
+        <div class="dv-r-label">Font size</div>
+        <div class="dv-r-field">
+          <?php
+            $fontSize = (string)($cfg['FONT_SIZE'] ?? 'default');
+            if (!in_array($fontSize, ['small', 'default', 'large'], true)) {
+                $fontSize = 'default';
+            }
+          ?>
+          <select name="FONT_SIZE" class="dv-select">
+            <option value="small"   <?= $fontSize === 'small'   ? 'selected' : '' ?>>Small</option>
+            <option value="default" <?= $fontSize === 'default' ? 'selected' : '' ?>>Default</option>
+            <option value="large"   <?= $fontSize === 'large'   ? 'selected' : '' ?>>Large</option>
+          </select>
+          <span class="dv-r-desc">Text size for the disk rows. Small and Large shift the disk-info text about 5% smaller or larger than Default. Section labels and column headers stay the same size</span>
+        </div>
+      </div>
+      <div class="dv-r">
         <div class="dv-r-label">Show array section</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_ARRAY', $cfg['SHOW_ARRAY'], '1') ?>
@@ -405,7 +440,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show RAID groups</div>
+        <div class="dv-r-label">Show raid groups</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_CACHE', $cfg['SHOW_CACHE'], '1') ?>
           <span class="dv-r-desc">Display multi-disk pool and RAID groups (cache, mirror, raidz, etc)</span>
@@ -421,15 +456,29 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
       <div class="dv-r">
         <div class="dv-r-label">Show unassigned section</div>
         <div class="dv-r-field">
-          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '0') ?>
-          <span class="dv-r-desc dv-r-desc--warn">Mounting and usage come from the Unassigned Devices plugin</span>
+          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '1') ?>
+          <span class="dv-r-desc">Show devices that are not part of the array or a pool</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Boot device</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_BOOT_DEVICE', $cfg['SHOW_BOOT_DEVICE'] ?? '0', '1') ?>
+          <span class="dv-r-desc">Show the Unraid boot (flash) drive as its own Boot Device section after the unassigned devices. It cannot be spun up or down</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Missing disks</div>
+        <div class="dv-r-field">
+          <?= $toggleShow('SHOW_MISSING_DISKS', $cfg['SHOW_MISSING_DISKS'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Show disks that are configured but not currently installed (disconnected or removed), labelled "Not installed". Leave on to catch a failed or unplugged disk; hide only if you have an intentionally empty slot</span>
         </div>
       </div>
       <div class="dv-r">
         <div class="dv-r-label">Enable indicator</div>
         <div class="dv-r-field">
           <?= $toggle('HEADER_SHOW_BADGE', $cfg['HEADER_SHOW_BADGE'], '1') ?>
-          <span class="dv-r-desc">Icon appears in the Unraid header when any disk is critical</span>
+          <span class="dv-r-desc">Show a status icon in the Unraid header summarising disk temperature, SMART health, and utilisation</span>
         </div>
       </div>
       <div class="dv-r">
@@ -487,20 +536,10 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Font size</div>
+        <div class="dv-r-label">Identification tooltip</div>
         <div class="dv-r-field">
-          <?php
-            $fontSize = (string)($cfg['FONT_SIZE'] ?? 'default');
-            if (!in_array($fontSize, ['small', 'default', 'large'], true)) {
-                $fontSize = 'default';
-            }
-          ?>
-          <select name="FONT_SIZE" class="dv-select">
-            <option value="small"   <?= $fontSize === 'small'   ? 'selected' : '' ?>>Small</option>
-            <option value="default" <?= $fontSize === 'default' ? 'selected' : '' ?>>Default</option>
-            <option value="large"   <?= $fontSize === 'large'   ? 'selected' : '' ?>>Large</option>
-          </select>
-          <span class="dv-r-desc">Text size for the disk rows. Small and Large shift the disk-info text about 5% smaller or larger than Default. Section labels and column headers stay the same size</span>
+          <?= $toggleShow('SHOW_ID_TOOLTIP', $cfg['SHOW_ID_TOOLTIP'] ?? '1', '1') ?>
+          <span class="dv-r-desc">Show the drive's identification (model, serial and device node) in a tooltip when you hover over the disk name, like the Main page Identification column</span>
         </div>
       </div>
       <div class="dv-r">
@@ -595,6 +634,21 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
       </div>
       <div class="dv-sec-bd">
         <div class="dv-r">
+          <div class="dv-r-label">Font size</div>
+          <div class="dv-r-field">
+            <?php
+              $toolFontSize = (string)($cfg['TOOL_FONT_SIZE'] ?? 'default');
+              if (!in_array($toolFontSize, ['small', 'default', 'large'], true)) $toolFontSize = 'default';
+            ?>
+            <select name="TOOL_FONT_SIZE" class="dv-select">
+              <option value="small"   <?= $toolFontSize === 'small'   ? 'selected' : '' ?>>Small</option>
+              <option value="default" <?= $toolFontSize === 'default' ? 'selected' : '' ?>>Default</option>
+              <option value="large"   <?= $toolFontSize === 'large'   ? 'selected' : '' ?>>Large</option>
+            </select>
+            <span class="dv-r-desc">Text size for the disk rows on the tool page. Small and Large shift the disk-info text about 5% smaller or larger than Default</span>
+          </div>
+        </div>
+        <div class="dv-r">
           <div class="dv-r-label">Show array section</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_ARRAY', $cfg['TOOL_SHOW_ARRAY'], '1') ?>
@@ -602,7 +656,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
           </div>
         </div>
         <div class="dv-r">
-          <div class="dv-r-label">Show RAID groups</div>
+          <div class="dv-r-label">Show raid groups</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_CACHE', $cfg['TOOL_SHOW_CACHE'], '1') ?>
             <span class="dv-r-desc">Display multi-disk pool and RAID groups (cache, mirror, raidz, etc)</span>
@@ -618,8 +672,22 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         <div class="dv-r">
           <div class="dv-r-label">Show unassigned section</div>
           <div class="dv-r-field">
-            <?= $toggleShow('TOOL_SHOW_UNASSIGNED', $cfg['TOOL_SHOW_UNASSIGNED'], '0') ?>
-            <span class="dv-r-desc dv-r-desc--warn">Mounting and usage come from the Unassigned Devices plugin</span>
+            <?= $toggleShow('TOOL_SHOW_UNASSIGNED', $cfg['TOOL_SHOW_UNASSIGNED'], '1') ?>
+            <span class="dv-r-desc">Show devices that are not part of the array or a pool</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Boot device</div>
+          <div class="dv-r-field">
+            <?= $toggleShow('TOOL_SHOW_BOOT_DEVICE', $cfg['TOOL_SHOW_BOOT_DEVICE'] ?? '0', '1') ?>
+            <span class="dv-r-desc">Show the Unraid boot (flash) drive as its own Boot Device section after the unassigned devices. It cannot be spun up or down</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Missing disks</div>
+          <div class="dv-r-field">
+            <?= $toggleShow('TOOL_SHOW_MISSING_DISKS', $cfg['TOOL_SHOW_MISSING_DISKS'] ?? '1', '1') ?>
+            <span class="dv-r-desc">Show disks that are configured but not currently installed (disconnected or removed), labelled "Not installed". Leave on to catch a failed or unplugged disk; hide only if you have an intentionally empty slot</span>
           </div>
         </div>
 
@@ -637,7 +705,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
             <div class="dv-r-label">Enable indicator</div>
             <div class="dv-r-field">
               <?= $toggle('TOOL_HEADER_SHOW_BADGE', $cfg['TOOL_HEADER_SHOW_BADGE'], '1') ?>
-              <span class="dv-r-desc">Icon appears in the Unraid header when any disk is critical</span>
+              <span class="dv-r-desc">Show a status icon in the Unraid header summarising disk temperature, SMART health, and utilisation</span>
             </div>
           </div>
           <div class="dv-r">
@@ -669,18 +737,10 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
           </div>
         </div>
         <div class="dv-r">
-          <div class="dv-r-label">Font size</div>
+          <div class="dv-r-label">Identification tooltip</div>
           <div class="dv-r-field">
-            <?php
-              $toolFontSize = (string)($cfg['TOOL_FONT_SIZE'] ?? 'default');
-              if (!in_array($toolFontSize, ['small', 'default', 'large'], true)) $toolFontSize = 'default';
-            ?>
-            <select name="TOOL_FONT_SIZE" class="dv-select">
-              <option value="small"   <?= $toolFontSize === 'small'   ? 'selected' : '' ?>>Small</option>
-              <option value="default" <?= $toolFontSize === 'default' ? 'selected' : '' ?>>Default</option>
-              <option value="large"   <?= $toolFontSize === 'large'   ? 'selected' : '' ?>>Large</option>
-            </select>
-            <span class="dv-r-desc">Text size for the disk rows on the tool page. Small and Large shift the disk-info text about 5% smaller or larger than Default</span>
+            <?= $toggleShow('TOOL_SHOW_ID_TOOLTIP', $cfg['TOOL_SHOW_ID_TOOLTIP'] ?? '1', '1') ?>
+            <span class="dv-r-desc">Show the drive's identification (model, serial and device node) in a tooltip when you hover over the disk name, like the Main page Identification column</span>
           </div>
         </div>
         <div class="dv-r">
@@ -991,7 +1051,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         SHOW_ARRAY:           '1',
         SHOW_CACHE:           '1',
         SHOW_POOLS:           '1',
-        SHOW_UNASSIGNED:      '0',
+        SHOW_UNASSIGNED:      '1',
         HEADER_SHOW_BADGE:    '1',
         HEADER_CLICK_ACTION:  'main',
         POOL_HIGHLIGHT_USED:  '0',
@@ -999,6 +1059,9 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         SHOW_DISK_ERRORS:     '1',
         SHOW_DECIMAL_PCT:     '1',
         SHOW_USED_COLUMN:     '1',
+        SHOW_ID_TOOLTIP:      '1',
+        SHOW_MISSING_DISKS:   '1',
+        SHOW_BOOT_DEVICE:     '0',
         SHOW_SECTION_INDICATORS: '1',
         FONT_SIZE:            'default',
         SPACE_SEVERITY_MODE:  'inherit',
@@ -1010,11 +1073,14 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         TOOL_SHOW_ARRAY:           '1',
         TOOL_SHOW_CACHE:           '1',
         TOOL_SHOW_POOLS:           '1',
-        TOOL_SHOW_UNASSIGNED:      '0',
+        TOOL_SHOW_UNASSIGNED:      '1',
         TOOL_HEADER_SHOW_BADGE:    '1',
         TOOL_HEADER_CLICK_ACTION:  'main',
         TOOL_SHOW_DECIMAL_PCT:     '1',
         TOOL_SHOW_USED_COLUMN:     '1',
+        TOOL_SHOW_ID_TOOLTIP:      '1',
+        TOOL_SHOW_MISSING_DISKS:   '1',
+        TOOL_SHOW_BOOT_DEVICE:     '0',
         TOOL_FONT_SIZE:            'default',
         TOOL_SPACE_SEVERITY_MODE:  'inherit',
         TOOL_SPACE_WARNING_PCT:    '70',

@@ -296,7 +296,7 @@
   display: inline-flex;
   align-items: center;
   gap: .3rem;
-  font-size: .7em;
+  font-size: 0.99rem;
   color: var(--dv-c-text-mid);
 }
 
@@ -307,6 +307,10 @@
 }
 
 .dv-badge-label { opacity: .6; }
+
+/* Amber "- N Not installed" suffix shown next to the total device count when
+   one or more configured disks are missing. */
+.dv-badge-missing { color: var(--dv-warn-text); }
 
 
 /* ==============================================================================
@@ -691,9 +695,11 @@
 
 .dv-row:hover { background: var(--dv-c-bg); }
 
-.dv-row--summary { background: var(--dv-c-bg-summary); }
+.dv-row--summary,
+.dv-row--boot { background: var(--dv-c-bg-summary); }
 
-.dv-row--summary:hover { background: var(--dv-c-bg-summary); }
+.dv-row--summary:hover,
+.dv-row--boot:hover { background: var(--dv-c-bg-summary); }
 
 /* Filesystem chip next to summary tile name. Small, muted blue, fits
    between letters of the table without throwing alignment off. Skipped
@@ -826,7 +832,10 @@
   display: none;
   position: absolute;
   top: -32px;
-  left: 28px;
+  /* Start at the bolt and extend right (was centred further in at 28px). The
+     9px left padding lands the text on the bolt icon's left edge, matching the
+     Tool page's left-aligned spin tooltip. */
+  left: 0;
   padding: 5px 9px;
   font-size: 10px;
   font-weight: 600;
@@ -868,6 +877,45 @@
   background: color-mix(in srgb, var(--dv-warn) 35%, #000);
   border: 1px solid color-mix(in srgb, var(--dv-warn) 60%, transparent);
   color: var(--dv-warn-text);
+}
+
+
+/* Disk-name identification tooltip ("MODEL_SERIAL - SIZE (sdX)", the same
+   string Unraid's Main page shows). A neutral, fixed-positioned tip appended
+   to <body> so it escapes the section scroll overflow. Monospace to match the
+   disk-name column, mirroring the Tool page's .dvt-tip. */
+.dv-tip {
+  position: fixed;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,.45);
+  z-index: 9999;
+  pointer-events: none;
+}
+.dv-tip--info {
+  background: #1f2227;
+  border: 1px solid var(--dv-c-border-strong);
+  color: var(--dv-c-text);
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  letter-spacing: .2px;
+}
+/* The name reads as inspectable: a help cursor when an identification exists. */
+.dv-name[data-dv-ident] { cursor: help; }
+
+/* Not-installed disk: a configured array/pool slot with no drive behind it.
+   The name is dimmed and a small "Not installed" label sits beside it, while
+   every metric column collapses to a dash. */
+.dv-name--missing { color: var(--dv-c-text-muted); }
+.dv-missing-label {
+  margin-left: 14px;
+  font-size: calc(8.5px * var(--dv-fs, 1.05));
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--dv-warn-text);
+  white-space: nowrap;
 }
 
 
@@ -952,6 +1000,16 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Not-installed row: let the name cell overflow its track so the
+   "Not installed" label shows in full across the (blank) metric columns,
+   instead of being clipped with an ellipsis. */
+.dv-col-name--missing {
+  overflow: visible;
+  text-overflow: clip;
+  position: relative;
+  z-index: 2;
 }
 
 .dv-col-size,

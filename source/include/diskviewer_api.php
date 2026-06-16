@@ -704,7 +704,7 @@ final class DiskViewerEndpoint
                 'REFRESH_ENABLED'     => '1',
                 'REFRESH_INTERVAL'    => '10',
                 'ENABLE_SPIN_BUTTON'  => '1',
-                'SHOW_UNASSIGNED'     => '0',
+                'SHOW_UNASSIGNED'     => '1',
                 'SHOW_ARRAY'          => '1',
                 'SHOW_CACHE'          => '1',
                 'SHOW_POOLS'          => '1',
@@ -712,6 +712,9 @@ final class DiskViewerEndpoint
                 'HEADER_CLICK_ACTION' => 'main',
                 'SHOW_DECIMAL_PCT'    => '1',
                 'SHOW_USED_COLUMN'    => '1',
+                'SHOW_ID_TOOLTIP'     => '1',
+                'SHOW_MISSING_DISKS'  => '1',
+                'SHOW_BOOT_DEVICE'    => '0',
                 'FONT_SIZE'           => 'default',
                 'SPACE_SEVERITY_MODE' => 'inherit',
                 'SPACE_WARNING_PCT'   => '70',
@@ -785,7 +788,7 @@ final class DiskViewerEndpoint
             'refresh_enabled'     => ($cfg['REFRESH_ENABLED']  ?? '1') === '1',
             'refresh_interval'    => max(5, (int)($cfg['REFRESH_INTERVAL'] ?? 20)),
             'drag_step_rows'      => max(1, min(5, (int)($cfg['DRAG_STEP_ROWS'] ?? 1))),
-            'show_unassigned'     => ($cfg['SHOW_UNASSIGNED'] ?? '0') === '1',
+            'show_unassigned'     => ($cfg['SHOW_UNASSIGNED'] ?? '1') === '1',
             'show_array'          => ($cfg['SHOW_ARRAY']      ?? '1') === '1',
             'show_cache'          => ($cfg['SHOW_CACHE']      ?? '1') === '1',
             'show_pools'          => ($cfg['SHOW_POOLS']      ?? '1') === '1',
@@ -814,6 +817,20 @@ final class DiskViewerEndpoint
             // matching the Unraid Main page column layout. Default off
             // to keep the compact layout existing users are used to.
             'show_used_column'    => ($cfg['SHOW_USED_COLUMN']  ?? '1') === '1',
+            // Disk-name identification tooltip. When on, hovering a disk name
+            // shows the Main-style identification string (model, serial, size
+            // and device node). Default on. Resolved per-mode from
+            // SHOW_ID_TOOLTIP / TOOL_SHOW_ID_TOOLTIP via the tool remap above.
+            'show_id_tooltip'     => ($cfg['SHOW_ID_TOOLTIP']   ?? '1') === '1',
+            // Whether configured-but-missing disks (disconnected / removed,
+            // shown as "Not installed") appear at all. Default on so a real
+            // failure is never silently hidden. Resolved per-mode from
+            // SHOW_MISSING_DISKS / TOOL_SHOW_MISSING_DISKS via the tool remap.
+            'show_missing_disks'  => ($cfg['SHOW_MISSING_DISKS'] ?? '1') === '1',
+            // Whether the Unraid boot (flash) device is shown as its own Boot
+            // Device section after the unassigned devices. Default off. Resolved
+            // per-mode from SHOW_BOOT_DEVICE / TOOL_SHOW_BOOT_DEVICE.
+            'show_boot_device'    => ($cfg['SHOW_BOOT_DEVICE']  ?? '0') === '1',
             // Section-header indicators (errors triangle, high-temp
             // thermometer, bad-health thumb with per-axis disk counts).
             // Default on - they're the at-a-glance health summary.
@@ -1016,6 +1033,7 @@ final class DiskViewerEndpoint
                 'free'    => $fsFree,
                 'devN'    => (string)($info['name'] ?? ''),
                 'id'      => (string)($info['id'] ?? ''),
+                'raw'     => $rawSize,
             ];
         }
 
@@ -1061,6 +1079,12 @@ final class DiskViewerEndpoint
                 'space_critical' => $ut['critical'],
                 'smart'  => $smart,
                 'size'   => $p['size'],
+                'raw_size' => $p['raw'],
+                // Identification for the hover tooltip: the device id from
+                // devs.ini (model+serial), falling back to the display name,
+                // plus the kernel device node.
+                'ident_id'  => ($p['id'] !== '' ? $p['id'] : $p['name']),
+                'dev_short' => basename($p['path']),
                 'used'   => $p['used'],
                 'free'   => $p['free'],
                 'pct'    => $p['size'] > 0 ? round($p['used'] / $p['size'] * 100, 2) : 0,
@@ -1195,7 +1219,6 @@ final class DiskViewerEndpoint
             $file     = $cacheFile;
             register_shutdown_function(function () use ($snapshot, $file) {
                 @mkdir(dirname($file), 0755, true);
-                @chmod(dirname($file), 0777);
                 @file_put_contents($file, json_encode($snapshot), LOCK_EX);
             });
         }
@@ -1268,18 +1291,41 @@ final class DiskViewerEndpoint
         if ($type === 'parity' || strpos($name, 'parity') === 0) {
             $rawSize = (int)($d['size']   ?? 0);
             $rawDev  = trim((string)($d['device'] ?? ''));
-            if ($rawSize <= 0 && $rawDev === '') {
+            $rawId   = trim((string)($d['id']   ?? ''));
+            $rawIdSb = trim((string)($d['idSb'] ?? ''));
+            // Skip only a never-assigned parity slot (single-parity arrays
+            // still carry a parity2 entry with size 0 and no identity). A
+            // parity disk that is assigned but currently missing keeps its
+            // superblock id, so it stays visible as a "Not installed" warning,
+            // consistent with how missing data and pool disks are handled.
+            if ($rawSize <= 0 && $rawDev === '' && $rawId === '' && $rawIdSb === '') {
                 return ['kind' => 'skip', 'group' => '', 'is_parity' => true];
             }
             return ['kind' => 'array', 'group' => 'array', 'is_parity' => true];
         }
         // Array data
         if ($type === 'data' || preg_match('/^disk\d+$/', $name)) {
+            // Skip never-assigned slots. Unraid keeps a placeholder entry in
+            // disks.ini for every configured array position, and the unused
+            // ones are completely empty: no device, no recorded identity and
+            // size 0 (status DISK_NP). Those are not disks, just empty slots,
+            // so they should not render. A disk that is assigned but currently
+            // missing (disconnected, failed) still carries its idSb, so it is
+            // kept visible as a warning rather than hidden.
+            $rawSize = (int)($d['size'] ?? 0);
+            $rawDev  = trim((string)($d['device'] ?? ''));
+            $rawId   = trim((string)($d['id']   ?? ''));
+            $rawIdSb = trim((string)($d['idSb'] ?? ''));
+            if ($rawSize <= 0 && $rawDev === '' && $rawId === '' && $rawIdSb === '') {
+                return ['kind' => 'skip', 'group' => '', 'is_parity' => false];
+            }
             return ['kind' => 'array', 'group' => 'array', 'is_parity' => false];
         }
-        // Flash/boot device - skip
+        // Flash/boot device. Classified as its own "boot" group so it can be
+        // shown as a Boot Device section after the unassigned devices, gated by
+        // SHOW_BOOT_DEVICE. It is never spinnable (handled in the tile loop).
         if ($type === 'flash' || $name === 'flash') {
-            return ['kind' => 'skip', 'group' => '', 'is_parity' => false];
+            return ['kind' => 'boot', 'group' => 'boot', 'is_parity' => false];
         }
         // Pool member: match against pool names. The list comes pre-sorted
         // longest-first from listPools() so the first match wins correctly
@@ -1335,10 +1381,18 @@ final class DiskViewerEndpoint
             $memberCount[$c['group']] = ($memberCount[$c['group']] ?? 0) + 1;
         }
 
+        // Display setting: whether configured-but-missing disks (no device,
+        // size 0) are shown. Fetched once here and reused for unassigned below.
+        $cfg = self::config();
+        $showMissing = !empty($cfg['show_missing_disks']);
+        $showBoot    = !empty($cfg['show_boot_device']);
+
         foreach ($disks as $key => $d) {
             if (!is_array($d)) continue;
             $cls = $classMap[$key] ?? null;
             if ($cls === null || $cls['kind'] === 'skip') continue;
+            // Boot (flash) device hidden by its Display setting.
+            if ($cls['kind'] === 'boot' && !$showBoot) continue;
 
             $name    = (string)($d['name'] ?? $key);
             $status  = (string)($d['status'] ?? '');
@@ -1391,7 +1445,21 @@ final class DiskViewerEndpoint
             // server-side as defence in depth.
             $isArrayMember     = ($cls['kind'] === 'array');
             $isMultiPoolMember = ($cls['kind'] === 'pool' && (($memberCount[$cls['group']] ?? 0) >= 2));
-            $spinDisabled      = ($isArrayMember || $isMultiPoolMember);
+            $isBoot            = ($cls['kind'] === 'boot');
+            // Not installed: a configured array or pool disk with no physical
+            // device behind it (device field empty and size 0). This is the
+            // disconnected / missing case - the slot is configured (it passed
+            // classify, so it is not an empty never-assigned array slot) but
+            // the drive is absent. A spun-down disk still has a device and a
+            // size, so it is never caught here. Such a disk cannot be spun, so
+            // its bolt is forced static (no spin tooltip) and the renderers
+            // blank every metric column and label it "Not installed".
+            $notInstalled      = ($devPath === '' && $rawSize <= 0);
+            // Hidden by the Display setting: drop a configured-but-missing disk
+            // entirely (so it leaves the device count too) when the user has
+            // turned missing disks off. Default keeps them visible.
+            if ($notInstalled && !$showMissing) continue;
+            $spinDisabled      = ($isArrayMember || $isMultiPoolMember || $notInstalled || $isBoot);
 
             // Per-disk temperature thresholds. Uses the disks.ini
             // hotTemp/maxTemp override when set, NVMe-aware defaults when
@@ -1435,6 +1503,9 @@ final class DiskViewerEndpoint
 
             $devices[] = [
                 'name'          => $name,
+                // The boot (flash) device shows as "Boot Device". name stays
+                // the disks.ini key ("flash") so the gear link keeps working.
+                'display_name'  => ($cls['kind'] === 'boot' ? 'Boot Device' : null),
                 'device'        => $devPath,
                 'kind'          => $cls['kind'],
                 'group'         => $cls['group'],
@@ -1448,6 +1519,15 @@ final class DiskViewerEndpoint
                 'smart'         => self::smartHealth($d),
                 'size'          => $fsSize,
                 'raw_size'      => $rawSize,
+                // Identification for the Main-style hover tooltip on the disk
+                // name: the model+serial id from disks.ini and the kernel
+                // device node. idSb is the fallback for a disk that is assigned
+                // but currently missing - its live id is blank while the
+                // superblock id survives, so the tooltip still identifies it.
+                'ident_id'      => (trim((string)($d['id'] ?? '')) !== '')
+                                     ? trim((string)$d['id'])
+                                     : trim((string)($d['idSb'] ?? '')),
+                'dev_short'     => ($devPath !== '' ? basename($devPath) : ''),
                 'used'          => $fsUsed,
                 'free'          => $fsFree,
                 'pct'           => $pct,
@@ -1456,18 +1536,23 @@ final class DiskViewerEndpoint
                 // reiserfs/ntfs/ext4). Parity disks have no FS so this is
                 // empty string for them - same convention the official
                 // Unraid Main page uses (blank FS column on parity rows).
-                'fs'            => strtolower(trim((string)($d['fsType'] ?? ''))),
+                // The boot flash is always FAT32 (vfat); fall back to that
+                // when emhttpd does not populate fsType for it, so the FS
+                // badge still shows, matching the official Main page.
+                'fs'            => ($cls['kind'] === 'boot')
+                                     ? (strtolower(trim((string)($d['fsType'] ?? ''))) ?: 'vfat')
+                                     : strtolower(trim((string)($d['fsType'] ?? ''))),
                 'speed_bps'     => $speed['bps'],
                 'speed_dir'     => $speed['dir'],
                 'errors'        => $tileErrors,
                 'is_summary'    => false,
                 'is_parity'     => $cls['is_parity'],
                 'spin_disabled' => $spinDisabled,
+                'not_installed' => $notInstalled,
             ];
         }
 
-        // Append unassigned
-        $cfg = self::config();
+        // Append unassigned (reuses $cfg fetched before the disk loop)
         if ($cfg['show_unassigned']) {
             foreach (self::parseUnassigned() as $ud) {
                 $devices[] = $ud;
@@ -1543,7 +1628,9 @@ final class DiskViewerEndpoint
 
         // Group devices
         $byGroup = [];
+        $missingDevices = 0;
         foreach ($devices as $d) {
+            if (!empty($d['not_installed'])) $missingDevices++;
             $g = $d['group'];
             if (!isset($byGroup[$g])) $byGroup[$g] = [];
             $byGroup[$g][] = $d;
@@ -1730,7 +1817,10 @@ final class DiskViewerEndpoint
         $multiPool    = [];  // multi-disk non-cache - render below multiCache
         $singleAll    = [];  // every single-disk pool combined into POOL
         foreach ($byGroup as $group => $tiles) {
-            if ($group === 'unassigned') continue;
+            // 'boot' has its own dedicated section below; skipping it here
+            // stops the flash drive being swept into POOL as a single-disk
+            // pool and then rendered a second time.
+            if ($group === 'unassigned' || $group === 'boot') continue;
             $tiles = array_map($classify, $tiles);
             $isCache = in_array(strtolower($group), $cacheTargets, true);
             if (count($tiles) >= 2) {
@@ -1867,6 +1957,23 @@ final class DiskViewerEndpoint
             $sections[] = [
                 'id'    => 'unassigned',
                 'label' => 'UNASSIGNED',
+                'count' => count($tiles),
+                'tiles' => $tiles,
+            ];
+        }
+
+        // 4. BOOT section (the Unraid flash drive), shown last, after the
+        // unassigned devices. Single tile, no summary, never spinnable.
+        if (!empty($byGroup['boot']) && $cfg['show_boot_device']) {
+            $tiles = array_map($classify, $byGroup['boot']);
+            foreach ($tiles as $t) {
+                $totalDevices++;
+                if ($t['severity'] === 'critical') $critNames[] = $t['name'];
+                elseif ($t['severity'] === 'warning') $warnNames[] = $t['name'];
+            }
+            $sections[] = [
+                'id'    => 'boot',
+                'label' => 'BOOT',
                 'count' => count($tiles),
                 'tiles' => $tiles,
             ];
@@ -2070,6 +2177,7 @@ final class DiskViewerEndpoint
         return [
             'ts'            => time(),
             'total_devices' => $totalDevices,
+            'missing_devices' => $missingDevices,
             'critical_count'=> count($critNames),
             'warning_count' => count($warnNames),
             'critical_names'=> array_values($critNames),
@@ -2097,6 +2205,7 @@ final class DiskViewerEndpoint
                 'show_fs_badge'           => $cfg['show_fs_badge'],
                 'show_used_column'        => $cfg['show_used_column'],
                 'show_decimal_pct'        => $cfg['show_decimal_pct'],
+                'show_id_tooltip'         => $cfg['show_id_tooltip'],
                 'font_size'               => $cfg['font_size'],
             ],
         ];
@@ -2260,26 +2369,46 @@ final class DiskViewerEndpoint
         return $sched;
     }
 
-    // Identify which known pools a cron command scrubs. Handles direct
+    // Identify which known pools a cron command scrubs. Handles Unraid's
+    // dynamix `zfs_scrub`/`btrfs_scrub start <pool>` helpers, direct
     // `zpool scrub <pool>` and `btrfs scrub start [...] /mnt/<pool>` commands,
     // and follows a User Scripts cron line into its script file (one level) to
-    // find the scrub command inside.
+    // find the scrub command inside. Pool names match case-insensitively.
     private static function scrubTargetsFromCommand(string $cmd, array $poolNames): array
     {
         $found = [];
         $scan = function (string $text) use (&$found, $poolNames) {
+            // Resolve a candidate to one of the pool names we know, matching
+            // case-insensitively and accepting either a bare name or a
+            // /mnt/<pool> path. Returns the stored name (so the schedule map is
+            // keyed exactly as the later tile-name lookup expects) or null.
+            $canon = function (string $cand) use ($poolNames) {
+                $cand = trim($cand);
+                if (stripos($cand, '/mnt/') === 0) $cand = substr($cand, 5);
+                $cand = trim($cand, '/');
+                foreach ($poolNames as $pn) {
+                    if (strcasecmp((string)$pn, $cand) === 0) return $pn;
+                }
+                return null;
+            };
+            // Unraid dynamix scrub helpers: "zfs_scrub start <pool>" and
+            // "btrfs_scrub start <pool|/mnt/pool>". The pool is passed as a bare
+            // name, so this matches none of the patterns below.
+            if (preg_match_all('#(?:zfs|btrfs)_scrub\s+start\s+([^\s;&|]+)#i', $text, $mm)) {
+                foreach ($mm[1] as $p) { $c = $canon($p); if ($c !== null) $found[$c] = true; }
+            }
             // zpool scrub <name> [<name> ...]
             if (preg_match_all('/zpool\s+scrub\s+(?:-\S+\s+)*([^\s;&|]+)/i', $text, $mm)) {
-                foreach ($mm[1] as $p) { $p = trim($p); if (in_array($p, $poolNames, true)) $found[$p] = true; }
+                foreach ($mm[1] as $p) { $c = $canon($p); if ($c !== null) $found[$c] = true; }
             }
             // btrfs scrub start ... /mnt/<name>
             if (preg_match_all('#btrfs\s+scrub\s+start[^\n;&|]*?/mnt/([^\s/;&|]+)#i', $text, $mm)) {
-                foreach ($mm[1] as $p) { $p = trim($p); if (in_array($p, $poolNames, true)) $found[$p] = true; }
+                foreach ($mm[1] as $p) { $c = $canon($p); if ($c !== null) $found[$c] = true; }
             }
             // Generic /mnt/<name> appearing on a line that also mentions scrub.
             if (stripos($text, 'scrub') !== false
                 && preg_match_all('#/mnt/([A-Za-z0-9_.\-]+)#', $text, $mm)) {
-                foreach ($mm[1] as $p) { $p = trim($p); if (in_array($p, $poolNames, true)) $found[$p] = true; }
+                foreach ($mm[1] as $p) { $c = $canon($p); if ($c !== null) $found[$c] = true; }
             }
         };
 
@@ -2831,6 +2960,7 @@ final class DiskViewerEndpoint
                         'hottest_temp'  => $hotTemp > -999 ? $hotTemp : null,
                         'hottest_name'  => $hotName,
                         'device_count'  => (int)($model['total_devices'] ?? 0),
+                        'missing_count' => (int)($model['missing_devices'] ?? 0),
                         'temp_unit'     => $model['cfg']['temp_unit'] ?? 'C',
                     ];
                     echo json_encode($model, JSON_UNESCAPED_SLASHES);

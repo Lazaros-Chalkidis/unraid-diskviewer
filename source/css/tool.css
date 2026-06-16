@@ -32,8 +32,10 @@
   --dvt-text-dim:      rgba(255,255,255,.45);
   --dvt-text-muted:    rgba(255,255,255,.30);
   --dvt-accent:        #42a5f5;
+  --dvt-member:        #42a5f5;
   --dvt-radius:        6px;
   --dvt-bg-subtle:     rgba(255,255,255,.04);
+  --dvt-bg-summary:    rgba(255,255,255,.12);
 
   /* severity colours (match the widget) */
   --dvt-ok:            #4caf50;
@@ -157,8 +159,8 @@
   gap: .75rem;
 }
 .dvt-header__icon   { width: 36px; height: 36px; object-fit: contain; }
-.dvt-header__title  { margin: 0; font-size: 1.45rem; font-weight: 700; color: var(--dvt-text); }
-.dvt-header__sub    { font-size: .95rem; color: var(--dvt-text-mid); margin-left: 6px; }
+.dvt-header__title  { margin: 0; font-size: 1.6rem; font-weight: 700; color: var(--dvt-text); text-transform: uppercase; }
+.dvt-header__sub    { font-size: 0.99rem; color: var(--dvt-text-mid); margin-left: 6px; }
 .dvt-header__right  { display: flex; flex-direction: column; align-items: flex-end; gap: .7rem; }
 .dvt-header__icons  { display: flex; align-items: center; gap: .3rem; }
 .dvt-header__icons a {
@@ -343,6 +345,37 @@
   border: 1px solid color-mix(in srgb, var(--dvt-crit) 60%, transparent);
   color: var(--dvt-crit-text);
 }
+/* Neutral variant for the disk-name identification tooltip
+   ("MODEL_SERIAL - SIZE (sdX)", the same string Unraid's Main page shows).
+   Monospace to match the disk identifiers. */
+.dvt-tip--info {
+  background: #1f2227;
+  border: 1px solid var(--dvt-border-strong);
+  color: var(--dvt-text);
+  font-weight: 500;
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  letter-spacing: .2px;
+}
+/* The name reads as inspectable: a help cursor when an identification exists. */
+.dvt-name[data-dvt-ident] { cursor: help; }
+
+/* Not-installed disk: a configured pool/array slot with no drive behind it.
+   The name is dimmed and a small "Not installed" label sits beside it, while
+   every metric column collapses to n/a. */
+.dvt-name--missing { color: var(--dvt-text-dim); }
+
+/* Header subtitle: amber "- N Not installed" suffix shown next to the total
+   device count when one or more configured disks are missing. */
+.dvt-sub-missing { color: var(--dvt-warn-text); }
+
+.dvt-missing-label {
+  margin-left: 14px;
+  font-size: .75em;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--dvt-warn-text);
+  white-space: nowrap;
+}
 
 /* Not-yet-wired placeholder columns */
 .dvt-ph { color: var(--dvt-text-muted); }
@@ -459,6 +492,11 @@
 }
 .dvt-col-used-pct--warn { color: var(--dvt-warn); }
 .dvt-col-used-pct--crit { color: var(--dvt-crit); }
+
+/* Age/Hours column: two stacked lines, years on top (primary) and total
+   power-on hours below (smaller and dimmer). Fonts are reduced so both lines
+   fit within the normal row height. */
+.dvt-col-age { font-size: .9em; white-space: nowrap; }
 .dvt-col-bar { height: 4px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
 .dvt-light .dvt-col-bar { background: rgba(0,0,0,.10); }
 .dvt-col-bar--empty { background: transparent; }
@@ -490,9 +528,20 @@
    member rows of pool sections alternate - matching the widget. The summary
    fill below wins via !important so a summary row never reads as a zebra row. */
 .dvt-tbl__row.dvt-zebra-even td { background: rgba(255,255,255,.025); }
-.dvt-tbl__row--summary td { background: var(--dvt-bg-subtle) !important; font-weight: 600; }
-.dvt-tbl__row--member td  { color: var(--dvt-text-mid); }
+.dvt-tbl__row--summary td { background: var(--dvt-bg-summary) !important; font-weight: 600; }
+.dvt-tbl__row--boot td { background: var(--dvt-bg-summary) !important; }
+.dvt-tbl__row--member td  { background: color-mix(in srgb, var(--dvt-member) 10%, transparent); color: var(--dvt-text-mid); }
 .dvt-tbl__name { font-weight: 500; }
+
+/* Missing-disk row: let the name cell overflow its fixed-width column so the
+   "Not installed" label shows in full across the (now-blank) metric columns,
+   instead of being clipped with an ellipsis. */
+.dvt-tbl__row--missing .dvt-tbl__name {
+  overflow: visible;
+  text-overflow: clip;
+  position: relative;
+  z-index: 1;
+}
 
 .dvt-light .dvt-tbl__row.dvt-zebra-even td { background: rgba(0,0,0,.025); }
 
@@ -547,6 +596,7 @@
   align-items: center;
   justify-content: center;
   line-height: 0;
+  vertical-align: middle;
 }
 .dvt-thumb svg { width: 14px; height: 14px; }
 .dvt-thumb--down svg { transform: rotate(180deg); }
@@ -554,6 +604,13 @@
 .dvt-thumb--warn { color: var(--dvt-warn); }
 .dvt-thumb--crit { color: var(--dvt-crit); }
 .dvt-thumb--na   { color: var(--dvt-text-muted); }
+.dvt-health { position: relative; display: inline-block; vertical-align: middle; line-height: 0; }
+.dvt-health-wear {
+  position: absolute; left: 100%; top: 50%;
+  margin-left: 5px; transform: translateY(-50%);
+  font-size: .9em; line-height: 1;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 
 /* Per-disk settings gear (S column). Aggressive resets so Unraid's global
    anchor/button styling does not bleed through. */
@@ -604,6 +661,30 @@
   --dvt-text-dim:      rgba(0,0,0,.50);
   --dvt-text-muted:    rgba(0,0,0,.30);
   --dvt-bg-subtle:     rgba(0,0,0,.04);
+  --dvt-bg-summary:    rgba(0,0,0,.05);
+  --dvt-member:        #1976d2;
+  --dvt-ok-text:       #2e7d32;
+  --dvt-warn-text:     #b35e00;
+  --dvt-crit-text:     #c62828;
+}
+/* Azure: cool-tint the shared light base so the page reads as part of the
+   blue azure desktop instead of a stark white panel. Applied together with
+   .dvt-light, so it only needs to nudge the surfaces and the accent. */
+.dvt-theme-azure {
+  --dvt-bg:       #eef3f8;
+  --dvt-surface:  #f9fbfd;
+  --dvt-surface2: #eef3f8;
+  --dvt-member:   #1565c0;
+}
+/* Gray: lift the near-black dark base to medium-dark surfaces so the tool
+   sits on Unraid's gray desktop instead of looking like a black island. */
+.dvt-theme-gray {
+  --dvt-bg:            #262626;
+  --dvt-surface:       #2e2e2e;
+  --dvt-surface2:      #363636;
+  --dvt-text:          rgba(255,255,255,.92);
+  --dvt-text-mid:      rgba(255,255,255,.70);
+  --dvt-border:        rgba(255,255,255,.13);
 }
 .dvt-light .dvt-tab.active {
   background: rgba(255,255,255,.85);

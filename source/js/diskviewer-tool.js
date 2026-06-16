@@ -54,6 +54,7 @@
     var _enableSpin    = false;
     var _showUsedBytes = false;  // show absolute used size next to the percent
     var _showDecimal   = false;  // one decimal place in the used percent
+    var _showIdTooltip = true;   // disk-name identification tooltip
     var _refreshTimer  = null;
     var _lastSections  = [];
 
@@ -136,6 +137,19 @@
         return str + ' ' + units[i];
     }
 
+    // Identification string for the disk-name hover tooltip: "MODEL_SERIAL
+    // (sdX)" - the drive model+serial and its kernel device node. Each piece is
+    // omitted gracefully when missing, and summary / aggregate rows return ''
+    // so they get no tooltip. Mirrors the widget's diskIdent().
+    function diskIdent(tile){
+        if (!tile || tile.is_summary || !_showIdTooltip || tile.not_installed) return '';
+        var id  = (tile.ident_id || '').toString().trim();
+        var dev = (tile.dev_short || '').toString().trim();
+        var s = id;
+        if (dev) s += (s ? ' ' : '') + '(' + dev + ')';
+        return s;
+    }
+
     function esc(s) {
         return String(s == null ? '' : s)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -179,6 +193,7 @@
             _enableSpin = !!cfg.enable_spin_button;
             _showUsedBytes = !!cfg.show_used_column;
             _showDecimal   = !!cfg.show_decimal_pct;
+            _showIdTooltip = cfg.show_id_tooltip !== false;
             renderOverviewDisks(model.sections || []);
             wireSpin();
             wireBulkSpin();
@@ -188,7 +203,16 @@
             ensureFixedThead();
             startSpeedPolling();
             var sub = document.getElementById('dvt-subtitle');
-            if (sub) sub.textContent = (ov.device_count || 0) + ' Devices';
+            if (sub) {
+                var totalDev   = ov.device_count || 0;
+                var missingDev = ov.missing_count || 0;
+                if (missingDev > 0) {
+                    sub.innerHTML = 'Total ' + totalDev + ' Devices '
+                                  + '<span class="dvt-sub-missing">- ' + missingDev + ' Not installed</span>';
+                } else {
+                    sub.textContent = 'Total ' + totalDev + ' Devices';
+                }
+            }
         }).catch(function (err) {
             var sub = document.getElementById('dvt-subtitle');
             if (sub) sub.textContent = 'Failed to load';
@@ -237,14 +261,14 @@
         { key: 'bolt',    label: '',            cls: 'dvt-tbl__ctr',  width: 38  },
         { key: 'disk',    label: 'Disk',        cls: 'dvt-tbl__name', width: 110 },
         { key: 'fs',      label: 'FS',          cls: 'dvt-tbl__ctr',  width: 60  },
-        { key: 'size',    label: 'Size',        cls: 'dvt-tbl__num',  width: 76  },
+        { key: 'size',    label: 'Size',        cls: 'dvt-tbl__num',  width: 62  },
         { key: 'free',    label: 'Free',        cls: 'dvt-tbl__num',  width: 86  },
-        { key: 'used',    label: 'Used',        cls: 'dvt-tbl__num',  width: 150 },
+        { key: 'used',    label: 'Used',        cls: 'dvt-tbl__num',  hdCls: 'dvt-tbl__ctr', width: 150 },
         { key: 'speed',   label: 'Speed r/w',   cls: 'dvt-tbl__num',  width: 96  },
         { key: 'temp',    label: 'Temp',        cls: 'dvt-tbl__num',  width: 64  },
-        { key: 'health',  label: 'Health',      cls: 'dvt-tbl__ctr',  width: 56  },
+        { key: 'health',  label: 'Health',      cls: 'dvt-tbl__ctr',  width: 78  },
         { key: 'errors',  label: 'Errors',      cls: 'dvt-tbl__num',  width: 64  },
-        { key: 'age',     label: 'Age',         cls: 'dvt-tbl__num',  width: 70,  ph: true },
+        { key: 'age',     label: 'Age/Hours',   cls: 'dvt-tbl__num',  width: 120, ph: true, fsw: true },
         { key: 'realloc', label: 'Realloc',     cls: 'dvt-tbl__num',  width: 72,  ph: true },
         { key: 'pending', label: 'Pending',     cls: 'dvt-tbl__num',  width: 72,  ph: true },
         { key: 'crc',     label: 'CRC',         cls: 'dvt-tbl__num',  width: 66,  ph: true },
@@ -277,8 +301,14 @@
         var colgroup = '<colgroup>';
         var thead = '<thead><tr>';
         for (var c = 0; c < COLS.length; c++) {
-            colgroup += '<col style="width:' + COLS[c].width + 'px">';
-            var hdCls = COLS[c].cls;
+            // Columns flagged fsw scale their reserved width with the font-size
+            // tier (--dvt-fs), so a column whose content is already tight (Age)
+            // grows in lockstep with the text and fits the same at every tier.
+            var colW = COLS[c].fsw
+                     ? 'calc(' + COLS[c].width + 'px * var(--dvt-fs, 1))'
+                     : (COLS[c].width + 'px');
+            colgroup += '<col style="width:' + colW + '">';
+            var hdCls = COLS[c].hdCls || COLS[c].cls;
             var sevForCol = colSev[COLS[c].key];
             if (sevForCol && sevForCol !== 'ok') hdCls += ' dvt-hd--' + sevForCol;
             thead += '<th class="' + hdCls + '">' + esc(COLS[c].label) + '</th>';
@@ -295,10 +325,11 @@
             if (!tiles.length) continue;
             var secId = sec.id || '';
             // Zebra eligibility mirrors the widget: only the combined single-disk
-            // pool section ('pools'/'cache') and multi-disk pool sections
-            // ('pool_<name>') stripe their member rows. ARRAY never zebras, and
-            // summary rows are excluded everywhere - they keep their summary fill.
-            var zebra = (secId === 'cache' || secId === 'pools' || secId.indexOf('pool_') === 0);
+            // pool sections ('pools'/'cache') stripe their rows. ARRAY and
+            // multi-disk pool sections ('pool_<name>') never zebra - their member
+            // rows carry the member-blue fill instead (matching the widget), and
+            // summary rows everywhere keep their summary fill.
+            var zebra = (secId === 'cache' || secId === 'pools');
 
             // Bulk spin up/down all - only on the combined POOL section, like the
             // widget, and only when the spin feature is enabled.
@@ -312,6 +343,12 @@
             html += '<tr class="dvt-sec-row"><td colspan="' + nCols + '">'
                   + '<div class="dvt-sec-row__inner"><span class="dvt-sec-lbl">' + esc(sec.label || sec.id || '') + '</span>' + actions + '</div></td></tr>';
 
+            // A section that contains a summary row treats its remaining rows as
+            // members (matching the widget) - they get the member-blue fill.
+            var secHasSummary = false;
+            for (var hs = 0; hs < tiles.length; hs++) {
+                if (tiles[hs].is_summary) { secHasSummary = true; break; }
+            }
             var memberIdx = 0;
             for (var t = 0; t < tiles.length; t++) {
                 var tile = tiles[t];
@@ -320,7 +357,7 @@
                     zCls = (memberIdx % 2 === 0) ? ' dvt-zebra-odd' : ' dvt-zebra-even';
                     memberIdx++;
                 }
-                html += renderDiskRow(tile, secId, zCls);
+                html += renderDiskRow(tile, secId, zCls, secHasSummary);
             }
         }
         html += '</tbody></table></div>';
@@ -400,7 +437,10 @@
         // and font-size always match the live table.
         var realThead = realTable.querySelector('thead');
         var realCols  = realTable.querySelector('colgroup');
-        var light = document.querySelector('.dvt-wrapper.dvt-light') ? ' dvt-light' : '';
+        var dvtWrap = document.querySelector('.dvt-wrapper');
+        var light   = (dvtWrap && dvtWrap.classList.contains('dvt-light')) ? ' dvt-light' : '';
+        var themeM  = dvtWrap ? (dvtWrap.className.match(/\bdvt-theme-[a-z]+\b/) || [''])[0] : '';
+        var theme   = themeM ? ' ' + themeM : '';
         var fontCls = (function () {
             var host = document.getElementById('dvt-overview-disks');
             if (!host) return '';
@@ -410,7 +450,7 @@
             return '';
         })();
 
-        _fixedWrap.className = 'dvt-fixed-thead-wrap' + light + fontCls;
+        _fixedWrap.className = 'dvt-fixed-thead-wrap' + theme + light + fontCls;
         _fixedWrap.innerHTML = '';
         var clone = document.createElement('table');
         clone.className = 'dvt-tbl dvt-tbl--wide dvt-fixed-thead';
@@ -582,7 +622,7 @@
         var spinDisabled = !!tile.spin_disabled;
         var boltCls = spun ? 'dvt-bolt dvt-bolt--on' : 'dvt-bolt dvt-bolt--off';
 
-        if (isSummary) {
+        if (isSummary || tile.group === 'boot') {
             return '<span class="dvt-bolt dvt-bolt--static" aria-hidden="true">' + STACK_SVG + '</span>';
         }
         var canButton = !isParity && !spinDisabled && _enableSpin;
@@ -595,32 +635,46 @@
         return '<span class="' + boltCls + ' dvt-bolt--static" aria-hidden="true">' + BOLT_SVG + '</span>';
     }
 
-    function renderDiskRow(tile, secId, zCls) {
+    function renderDiskRow(tile, secId, zCls, secHasSummary) {
         var isParity  = !!tile.is_parity;
         var isMember  = !!tile.is_pool_member;
         var isSummary = !!tile.is_summary;
-        var collapse  = isParity || isMember || !!tile.no_capacity;
+        // Visual member (matches the widget): any non-summary row in a section
+        // that has a summary row. Drives only the member-blue fill - the
+        // capacity collapse below still keys off is_pool_member, so array data
+        // disks keep showing their own size/free/used.
+        var isMemberRow = !!secHasSummary && !isSummary;
+        var notInstalled = !!tile.not_installed;  // configured disk, no device
+        var collapse  = isParity || isMember || !!tile.no_capacity || notInstalled;
         var spun      = !!tile.spun;
         var sev = tile.severity || 'ok';
 
         // Reason-aware empty labels (instead of a bare dash).
         var NA   = muted('n/a');
         var SPUN = muted(SLEEP_HTML);
-        // For SMART/temp: summary aggregates have no per-disk value (n/a); an
-        // asleep disk wasn't read (spun down); an active disk with no/missing
-        // value is n/a (e.g. NVMe lacks realloc/crc).
-        function metricEmpty() { return isSummary ? NA : (!spun ? SPUN : NA); }
+        // For SMART/temp: summary aggregates are synthetic totals with no
+        // per-disk value, so these columns read blank on them; an asleep disk
+        // wasn't read (spun down); an active disk with no/missing value is n/a
+        // (e.g. NVMe lacks realloc/crc).
+        function metricEmpty() { return isSummary ? '' : (!spun ? SPUN : NA); }
 
         var name = esc((tile.display_name || tile.name || '').toUpperCase());
+        // Disk name wrapped so the Main-style identification tooltip has a
+        // precise hover target (the name text, not the whole cell).
+        var nameTip  = diskIdent(tile);
+        var nameCell = '<span class="dvt-name' + (notInstalled ? ' dvt-name--missing' : '') + '"'
+                     + (nameTip ? ' data-dvt-ident="' + esc(nameTip) + '"' : '')
+                     + '>' + name + '</span>'
+                     + (notInstalled ? ' <span class="dvt-missing-label">NOT INSTALLED or MISSING</span>' : '');
         var size = (tile.size > 0) ? formatBytes(tile.size) : NA;
-        var free = collapse ? NA : (tile.size > 0 ? formatBytes(tile.free, 1, true) : NA);
+        var free = collapse ? '' : (tile.size > 0 ? formatBytes(tile.free, 1, true) : NA);
 
         // USED composite cell, same as the widget: a used percent (coloured by
         // space severity, so it respects the Space severity setting) with an
         // optional absolute size next to it and a mini progress bar below.
         var usedCell;
         if (collapse) {
-            usedCell = '<div class="dvt-col-used dvt-col-used--na">' + NA + '</div>';
+            usedCell = '';
         } else if (tile.size > 0) {
             var pct = (tile.pct != null) ? +tile.pct
                     : ((tile.size - (tile.free || 0)) / tile.size * 100);
@@ -648,8 +702,8 @@
         // tile is its own standalone single-disk pool with its own filesystem.
         var fsRaw = (tile.fs || '').toString().trim();
         var fs = fsRaw.toLowerCase();
-        var showFs = (isSummary || !!tile.style_as_summary || secId === 'pools') && fsRaw;
-        var fsHtml = showFs ? '<span class="dvt-fs-pill">' + esc(fsRaw) + '</span>' : NA;
+        var showFs = (isSummary || !!tile.style_as_summary || secId === 'pools' || secId === 'boot') && fsRaw;
+        var fsHtml = showFs ? '<span class="dvt-fs-pill">' + esc(fsRaw) + '</span>' : '';
 
         // Temp
         var rawT = tile.temp, tempCell, tempCls = '';
@@ -681,22 +735,39 @@
                      + '" title="Disk settings" aria-label="Open disk settings">' + GEAR_SVG + '</a>';
 
         var errCount = +tile.errors || 0;
-        var errText = errCount > 0 ? '<span class="dvt-crit">' + errCount + '</span>' : '0';
+        var errText = isSummary ? '' : (errCount > 0 ? '<span class="dvt-crit">' + errCount + '</span>' : '0');
 
         // Deep SMART attributes (null when the disk is asleep or has no data).
         var sa = tile.smart_attrs || null;
+        // NVMe wear (Percentage Used) sits to the right of the health thumb.
+        // Non-NVMe disks don't report it, so the slot stays blank (no n/a).
+        // Thresholds match the verdict: green below 75%, amber 75-89%, red 90%+.
+        if (sa && sa.wear_pct !== null && sa.wear_pct !== undefined) {
+            var wcls = sa.wear_pct >= 90 ? 'dvt-crit' : sa.wear_pct >= 75 ? 'dvt-warn' : 'dvt-ok';
+            // Wrap so the thumb stays centered in the column (same position as
+            // every other row) and the wear % is absolutely positioned to its
+            // right, out of flow, instead of shifting the thumb to the left.
+            healthHtml = '<span class="dvt-health">' + healthHtml
+                       + '<span class="dvt-health-wear ' + wcls + '">' + sa.wear_pct + '%</span></span>';
+        }
         function smartNum(v, warnGt, critGt) {
             if (v === null || v === undefined) return metricEmpty();
-            var cls = '';
-            if (critGt !== undefined && v > critGt) cls = ' dvt-crit';
-            else if (warnGt !== undefined && v > warnGt) cls = ' dvt-warn';
-            return '<span class="' + cls.trim() + '">' + v + '</span>';
+            // Healthy (at or below the warn threshold) reads green; warn amber;
+            // crit red. n/a is handled above and stays neutral.
+            var cls;
+            if (critGt !== undefined && v > critGt) cls = 'dvt-crit';
+            else if (warnGt !== undefined && v > warnGt) cls = 'dvt-warn';
+            else cls = 'dvt-ok';
+            return '<span class="' + cls + '">' + v + '</span>';
         }
         var ageCell;
         if (sa && sa.age_hours !== null && sa.age_hours !== undefined) {
-            var yrs = sa.age_hours / 8760;
-            ageCell = (yrs >= 1) ? (Math.round(yrs * 10) / 10) + ' yr'
-                                 : Math.round(sa.age_hours / 24) + ' d';
+            // Single line "8.0 y/70.404 h": years from age_hours/8760 to one
+            // decimal, then the full power-on hours with a period thousands
+            // separator. Same colour for both.
+            var yrTxt = (sa.age_hours / 8760).toFixed(1) + ' y';
+            var hrTxt = String(sa.age_hours).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' h';
+            ageCell = '<span class="dvt-col-age">' + yrTxt + ' / ' + hrTxt + '</span>';
         } else {
             ageCell = metricEmpty();
         }
@@ -737,25 +808,33 @@
             return 'in ' + Math.round(days / 30) + ' mo';
         }
         var scrubCapable = (fs === 'btrfs' || fs === 'zfs') && (isSummary || (!isParity && !isMember));
-        var scrubCell  = scrubCapable ? (tile.scrub_last_ts ? relAge(tile.scrub_last_ts, tile.scrub_last_fmt) : muted('no scrub')) : NA;
-        var fragCell   = (fs === 'zfs' && scrubCapable && tile.scrub_frag != null && tile.scrub_frag !== '')
-                       ? esc(tile.scrub_frag) : NA;
-        var nscrubCell = scrubCapable ? (tile.scrub_next_ts ? relFuture(tile.scrub_next_ts) : muted('no schedule')) : NA;
+        // Scrub is a pool/array-level operation shown on the summary row, so the
+        // member devices of an array or multi-disk pool read blank here (not n/a).
+        var scrubCell  = isMemberRow ? '' : (scrubCapable ? (tile.scrub_last_ts ? relAge(tile.scrub_last_ts, tile.scrub_last_fmt) : muted('no scrub')) : NA);
+        var fragCell   = isMemberRow ? '' : ((fs === 'zfs' && scrubCapable && tile.scrub_frag != null && tile.scrub_frag !== '')
+                       ? esc(tile.scrub_frag) : NA);
+        var nscrubCell = isMemberRow ? '' : (scrubCapable ? (tile.scrub_next_ts ? relFuture(tile.scrub_next_ts) : muted('no schedule')) : NA);
+
+        var speedCellHtml = '<span class="dvt-speed-cell">' + speedCell(tile) + '</span>';
 
         var cells = {
             bolt:    boltCell(tile),
-            disk:    name,
+            disk:    nameCell,
             fs:      fsHtml,
             size:    size,
             free:    free,
             used:    usedCell,
-            speed:   '<span class="dvt-speed-cell">' + speedCell(tile) + '</span>',
+            speed:   speedCellHtml,
             temp:    tempCell,
             health:  healthHtml,
             s:       gearHtml,
             age:     ageCell,
+            // SMART counters: smartNum(value, warnAbove, critAbove); 0 / healthy
+            // reads green. Pending warns at 1+ and crits above 5; realloc warns
+            // at 1+ and crits above 10; CRC warns above 100 and never crits
+            // (UDMA CRC is cable-related and cumulative).
             realloc: smartNum(sa ? sa.realloc : null, 0, 10),
-            pending: smartNum(sa ? sa.pending : null, -1, 0),
+            pending: smartNum(sa ? sa.pending : null, 0, 5),
             crc:     smartNum(sa ? sa.crc : null, 100, undefined),
             verdict: verdictCell,
             scrub:   scrubCell,
@@ -764,9 +843,25 @@
             nscrub:  nscrubCell
         };
 
+        // Configured but missing disk: blank every column except the bolt,
+        // the name (which carries the "NOT INSTALLED or MISSING" label) and the gear, so
+        // the row reads as absent with no stale FS / power / SMART / scrub
+        // values. The name cell is allowed to overflow (see the row--missing
+        // CSS) so the label shows in full across the now-empty columns.
+        if (notInstalled) {
+            cells.fs = cells.size = cells.free = cells.used = '';
+            cells.speed = cells.temp = cells.health = '';
+            cells.age = cells.realloc = cells.pending = cells.crc = '';
+            cells.verdict = cells.scrub = cells.errors = cells.frag = cells.nscrub = '';
+        }
+
         var rowCls = 'dvt-tbl__row';
         if (isSummary) rowCls += ' dvt-tbl__row--summary';
-        else if (isMember) rowCls += ' dvt-tbl__row--member';
+        else if (isMemberRow) rowCls += ' dvt-tbl__row--member';
+        if (notInstalled) rowCls += ' dvt-tbl__row--missing';
+        // Boot device row: summary-grey fill so it is distinct from its
+        // transparent section divider (grey only - no bold, no bolt resize).
+        if (secId === 'boot') rowCls += ' dvt-tbl__row--boot';
         rowCls += (zCls || '');
 
         var tds = '';
@@ -892,14 +987,22 @@
         document.body.appendChild(_tip);
         return _tip;
     }
-    function showTip(btn, variant, text) {
+    function showTip(btn, variant, text, align) {
         var tip = ensureTip();
         tip.className = 'dvt-tip dvt-tip--' + variant;
         tip.innerHTML = text;
         tip.style.display = 'block';
         var r = btn.getBoundingClientRect();
         var tr = tip.getBoundingClientRect();
-        var left = r.left + (r.width / 2) - (tr.width / 2);
+        // The name tip and per-row bolt tips are left-aligned under their
+        // control's first letter; the bulk tips are right-aligned to the
+        // button's right edge (they sit at the far right of the table, so a
+        // centred tip would hang out over the scroll area). The 9px offset
+        // matches the tip's horizontal padding so the visible text, not the
+        // box edge, lines up with the button edge.
+        var left = (align === 'left')  ? (r.left - 9)
+                 : (align === 'right') ? (r.right + 9 - tr.width)
+                 : (r.left + (r.width / 2) - (tr.width / 2));
         left = Math.max(6, Math.min(left, window.innerWidth - tr.width - 6));
         var top = r.top - tr.height - 6;
         if (top < 4) top = r.bottom + 6; // flip below if no room above
@@ -913,21 +1016,27 @@
         if (!host || host._dvtTipWired) return;
         host._dvtTipWired = true;
         host.addEventListener('mouseover', function (ev) {
+            var nameEl = ev.target.closest && ev.target.closest('.dvt-name[data-dvt-ident]');
+            if (nameEl) {
+                var ident = nameEl.getAttribute('data-dvt-ident') || '';
+                if (ident) showTip(nameEl, 'info', esc(ident), 'left');
+                return;
+            }
             var bulk = ev.target.closest && ev.target.closest('button.dvt-bulk-spin');
             if (bulk) {
-                if (bulk.getAttribute('data-dvt-bulk') === 'down') showTip(bulk, 'crit', '\u26A0 Spin down all pool disks');
-                else showTip(bulk, 'ok', 'Spin up all pool disks');
+                if (bulk.getAttribute('data-dvt-bulk') === 'down') showTip(bulk, 'crit', '\u26A0 Spin down all pool disks', 'right');
+                else showTip(bulk, 'ok', 'Spin up all pool disks', 'right');
                 return;
             }
             var bolt = ev.target.closest && ev.target.closest('button.dvt-bolt');
             if (bolt) {
                 var name = (bolt.getAttribute('data-dvt-name') || '').toUpperCase();
-                if (bolt.getAttribute('data-dvt-spin') === 'down') showTip(bolt, 'crit', '\u26A0 Spin down ' + esc(name) + ' now');
-                else showTip(bolt, 'ok', 'Spin up ' + esc(name));
+                if (bolt.getAttribute('data-dvt-spin') === 'down') showTip(bolt, 'crit', '\u26A0 Spin down ' + esc(name) + ' now', 'left');
+                else showTip(bolt, 'ok', 'Spin up ' + esc(name), 'left');
             }
         });
         host.addEventListener('mouseout', function (ev) {
-            if (ev.target.closest && (ev.target.closest('button.dvt-bulk-spin') || ev.target.closest('button.dvt-bolt'))) hideTip();
+            if (ev.target.closest && (ev.target.closest('button.dvt-bulk-spin') || ev.target.closest('button.dvt-bolt') || ev.target.closest('.dvt-name[data-dvt-ident]'))) hideTip();
         });
         // Hide while scrolling so the fixed tooltip never lingers in the wrong spot.
         window.addEventListener('scroll', hideTip, { passive: true });

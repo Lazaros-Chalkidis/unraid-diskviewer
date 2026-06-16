@@ -23,8 +23,10 @@ $cfg = @parse_plugin_cfg('diskviewer', true) ?: [];
 // are simpler and don't need per-theme accent shifts.
 $dynamix_cfg  = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
 $unraid_theme = $dynamix_cfg['display']['theme'] ?? '';
-$dvt_light    = in_array($unraid_theme, ['white', 'azure'], true);
+$dvt_theme    = in_array($unraid_theme, ['black','white','azure','gray'], true) ? $unraid_theme : 'black';
+$dvt_light    = in_array($dvt_theme, ['white', 'azure'], true);
 $lightClass   = $dvt_light ? ' dvt-light' : '';
+$themeClass   = ' dvt-theme-' . $dvt_theme;
 
 $tool_config = [
     'dvToken'    => DiskViewerEndpoint::generateNonce(),
@@ -37,7 +39,7 @@ $tool_config_json = json_encode($tool_config, JSON_UNESCAPED_SLASHES);
 <link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/tool.css">
 <script>window.diskviewerToolConfig = <?= $tool_config_json ?>;</script>
 
-<div class="dvt-wrapper<?= $lightClass ?>">
+<div class="dvt-wrapper<?= $themeClass . $lightClass ?>">
 
   <div class="dvt-panel">
 

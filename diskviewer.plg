@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.06.08">
+ <!ENTITY version   "2026.06.16">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "d654fe5aff50f6567a36faebc002e6c5">
+ <!ENTITY md5       "d4bf00387d6c762323792b14b131a747">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,26 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.06.16
+
+### Fixed
+- A pool scrub scheduled in Unraid is now detected, so the Tool page shows the next scrub time instead of always reading "no schedule". This covers both ZFS and BTRFS pool scrubs.
+- Empty array slots are no longer shown as phantom rows. Unraid keeps a placeholder entry for every configured array position and the unused ones were appearing as blank rows. A disk that is assigned but currently missing still appears, since that is a real warning worth seeing.
+- A configured array or pool disk whose drive is missing (disconnected or removed) is now shown as "NOT INSTALLED or MISSING": the name is dimmed with a label beside it, spaced clearly from the name, and every column is blank instead of an empty 0 percent row, and its spin control shows no tooltip since there is no drive to spin. This covers missing parity, data and pool disks, and can be turned off separately for the widget and the Tool page under Settings, Display.
+
+### New Features
+- The Unraid boot (flash) drive is now shown as its own Boot Device section after the unassigned devices, on both the widget and the Tool page. It cannot be spun up or down from the bolt, and a new Boot device Display setting (separate for each, on by default) controls whether it appears.
+- Hovering a disk name now shows a tooltip with the drive's identification (model, serial and device node), like the Main page Identification column. It works on both the widget and the Tool page, for array, pool and unassigned disks, and can be turned on or off separately for each under Settings, Display.
+- NVMe drives now show their wear level, the percentage of rated life used, next to the health icon in the Tool page Health column, coloured green, amber or red as it rises. Drives that do not report it stay blank.
+
+### Improvements
+- The Reallocated, Pending and CRC columns on the Tool page are now colour-coded green, amber or red, so a healthy zero stands out from a count worth watching.
+- The Age column now shows the drive's age in years next to its total power-on hours, on a single line.
+- Pool and array totals rows are cleaner: columns that apply only to a single disk are left blank instead of showing "n/a", and pool-level values such as scrub and fragmentation show once on the summary row instead of on every member.
+- On the Tool page, array disks and multi-disk pool members now carry the same subtle row highlight as on the widget, making them easy to tell apart from the totals row.
+- The spin tooltip on the bolt now starts at the bolt and extends to the right, on both the widget and the Tool page, instead of being centred over the bolt.
+- The header icon's tooltip is now sized to its contents with aligned columns, and grows as needed so a disk's error count is never cut off.
 
 ## Version 2026.06.08
 

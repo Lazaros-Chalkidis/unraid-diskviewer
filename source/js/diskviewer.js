@@ -68,6 +68,7 @@
     var showDiskErrors    = cfg.showDiskErrors !== false;
     var showDecimalPct    = !!cfg.showDecimalPct;
     var showUsedColumn    = !!cfg.showUsedColumn;
+    var showIdTooltip     = cfg.showIdTooltip !== false;  // disk-name identification tooltip
     var showSectionIndicators = cfg.showSectionIndicators !== false;
     var fontSize          = (cfg.fontSize === 'small' || cfg.fontSize === 'large') ? cfg.fontSize : 'default';
     var STORAGE_KEY  = 'dv_expand_v3';   // v1: row counts under different semantics
@@ -155,6 +156,19 @@
             str = String(Math.round(val));
         }
         return str + ' ' + units[i];
+    }
+
+    // Build the identification string for the hover tooltip on the disk name:
+    // "MODEL_SERIAL (sdX)" - the drive model+serial and its kernel device node.
+    // Each piece is omitted gracefully when missing, and summary / aggregate
+    // rows return an empty string so they get no tooltip.
+    function diskIdent(row){
+        if (!row || row.is_summary || !showIdTooltip || row.not_installed) return '';
+        var id  = (row.ident_id || '').toString().trim();
+        var dev = (row.dev_short || '').toString().trim();
+        var s = id;
+        if (dev) s += (s ? ' ' : '') + '(' + dev + ')';
+        return s;
     }
 
     function escapeHtml(s){
@@ -280,6 +294,7 @@
         if (id && id.indexOf('pool_') === 0) return 1;
         if (id === 'pools') return 2;
         if (id === 'unassigned') return 2;
+        if (id === 'boot') return 2;   // flash drive: visible by default, like UD
         return 3;
     }
 
@@ -400,6 +415,7 @@
         var isSummary = !!row.is_summary;
         var isParity  = !!row.is_parity;
         var spinDisabled = !!row.spin_disabled;
+        var notInstalled = !!row.not_installed;  // configured disk, no device
         var severity  = row.severity || 'ok';
         var size      = +row.size || 0;
         var free      = +row.free || 0;
@@ -420,6 +436,10 @@
         var stylesAsSummary = !!row.style_as_summary;
         if (isSummary)            cls += ' dv-row--summary';
         if (isMember)             cls += ' dv-row--member';
+        // The boot device is the sole item of its section; give its row the
+        // summary grey so it reads as distinct from the (transparent) section
+        // header instead of blending into it.
+        if (row.group === 'boot') cls += ' dv-row--boot';
         if (severity === 'warning')  cls += ' dv-row--warn';
         if (severity === 'critical') cls += ' dv-row--crit';
 
@@ -451,11 +471,11 @@
         var boltLabel = spun ? 'Click to spin down' : 'Click to spin up';
         var boltEl;
         var canBeButton = !isSummary && !isParity && !spinDisabled && enableSpinButton;
-        if (isSummary) {
-            // Summary tile renders the aggregate icon (stack-2 style)
-            // instead of a bolt. Bolt only makes sense on real devices
-            // (a spin state). Aggregate rows have no spin state. The
-            // icon visually signals "this row is a synthesis, not a disk".
+        if (isSummary || row.group === 'boot') {
+            // Summary tiles (and the boot device) render the aggregate icon
+            // (stack-2 style) instead of a bolt. Bolt only makes sense on real
+            // spinnable devices; aggregate rows and the boot flash have no spin
+            // state. The icon marks the row as a section-level entry, not a disk.
             boltEl = '<span class="dv-bolt dv-bolt--static" aria-hidden="true">' + STACK_SVG + '</span>';
         } else if (canBeButton) {
             boltEl = '<button type="button" class="' + boltCls + '" aria-label="' + boltLabel + '" data-dv-spin="' + (spun ? 'down' : 'up') + '" data-dv-name="' + escapeHtml(row.name || '') + '">' + BOLT_SVG + '</button>';
@@ -472,7 +492,7 @@
         // because each one has its own independent filesystem.
         var sizeText, freeText, usedText;
         var isPoolMember = !!row.is_pool_member;
-        var collapseCapacity = isParity || isPoolMember || !!row.no_capacity;
+        var collapseCapacity = isParity || isPoolMember || !!row.no_capacity || notInstalled;
         if (collapseCapacity) {
             sizeText = escapeHtml(formatBytes(size));
             freeText = '-';
@@ -565,6 +585,20 @@
         var smartTitle = smart === 'unknown' ? 'no data' : smart;
         var thumbHtml = '<span class="dv-thumb ' + thumbCol + ' dv-thumb--' + thumbDir + '" title="SMART: ' + escapeHtml(smartTitle) + '">' + THUMB_SVG + '</span>';
 
+        // Configured but missing disk: every metric column is left blank (no
+        // "0 B", no dashes) so the row reads as absent and the "NOT INSTALLED or MISSING"
+        // label below is free to span the empty space. The bolt is static
+        // (spin disabled server side) so it shows no spin tooltip. The wrapping
+        // spans/divs stay in place so the grid columns do not shift.
+        if (notInstalled) {
+            sizeText     = '';
+            freeText     = '';
+            usedCellHtml = '<div class="dv-col-used"></div>';
+            speedHtml    = '';
+            tempText     = '';
+            thumbHtml    = '';
+        }
+
         // Gear
         var settingsHref = '/Main/Device?name=' + devName;
         var gearEl = '<a class="dv-col-gear" href="' + settingsHref + '" title="Disk settings" aria-label="Open disk settings">' + GEAR_SVG + '</a>';
@@ -575,16 +609,22 @@
         // pool tiles with style_as_summary). Shown inline next to the
         // name as a small blue chip ("xfs", "btrfs", "zfs", "mixed").
         // Empty / unknown FS skips rendering the pill entirely.
-        var nameHtml = nameEsc;
+        // Disk name, wrapped so the Main-style identification tooltip has a
+        // precise hover target (the name text itself, not the whole cell).
+        var nameTip  = diskIdent(row);
+        var nameHtml = '<span class="dv-name' + (notInstalled ? ' dv-name--missing' : '') + '"'
+                     + (nameTip ? ' data-dv-ident="' + escapeHtml(nameTip) + '"' : '')
+                     + '>' + nameEsc + '</span>'
+                     + (notInstalled ? ' <span class="dv-missing-label">NOT INSTALLED or MISSING</span>' : '');
         if ((isSummary || stylesAsSummary) && row.fs && showFsBadge) {
             nameHtml += ' <span class="dv-fs-pill">' + escapeHtml(row.fs) + '</span>';
         }
 
         var toastHtml = '<div class="dv-row-toast" role="tooltip" aria-hidden="true"></div>';
 
-        return '<div class="' + cls + '" data-name="' + escapeHtml(row.name || '') + '" data-severity="' + severity + '"' + (isSummary ? ' data-is-summary="1"' : '') + '>' +
+        return '<div class="' + cls + '" data-name="' + escapeHtml(row.name || '') + '" data-severity="' + severity + '"' + (isSummary ? ' data-is-summary="1"' : '') + (notInstalled ? ' data-dv-missing="1"' : '') + '>' +
             '<span class="dv-col-bolt">' + boltEl + '</span>' +
-            '<div class="dv-col-name">' + nameHtml + '</div>' +
+            '<div class="dv-col-name' + (notInstalled ? ' dv-col-name--missing' : '') + '">' + nameHtml + '</div>' +
             '<span class="dv-col-size">' + sizeText + '</span>' +
             '<span class="dv-col-free">' + freeText + '</span>' +
             usedCellHtml +
@@ -607,13 +647,15 @@
         var rawLabel = sec.label || '';
         var count    = +sec.count || 0;
         var raid     = sec.raid || '';
+        var secId    = sec.id || '';
         var pieces = [];
         if (rawLabel) pieces.push(rawLabel);
-        pieces.push((count === 1 ? 'DEVICE' : 'DEVICES') + ' ' + count);
+        // The boot section is always a single flash device, so a "DEVICE 1"
+        // count adds nothing; show just the label, matching the tool.
+        if (secId !== 'boot') pieces.push((count === 1 ? 'DEVICE' : 'DEVICES') + ' ' + count);
         if (raid) pieces.push(raid);
         var label = escapeHtml(pieces.join(' · '));
         var rows  = sec.tiles || [];
-        var secId = sec.id || '';
 
         var hasSummary = false;
         for (var i = 0; i < rows.length; i++) {
@@ -783,6 +825,17 @@
         // Header: device count
         var countEl = $('dv-device-count');
         if (countEl) countEl.textContent = model.total_devices;
+        var missingEl = $('dv-badge-missing');
+        if (missingEl) {
+            var dvMissing = model.missing_devices || 0;
+            if (dvMissing > 0) {
+                missingEl.textContent = '- ' + dvMissing + ' Not installed';
+                missingEl.style.display = '';
+            } else {
+                missingEl.textContent = '';
+                missingEl.style.display = 'none';
+            }
+        }
 
         // Body: render ALL sections - the user scrolls inside the container
         // or drags the footer handle to grow the visible area.
@@ -1028,6 +1081,9 @@
         for (var r = 0; r < rows.length; r++) {
             var row = rows[r];
             if (row.getAttribute('data-is-summary') === '1') continue;
+            // Missing (not-installed) disks have no device and no speed; leave
+            // their speed cell blank rather than letting the poll write a "-".
+            if (row.getAttribute('data-dv-missing') === '1') continue;
             var name = row.getAttribute('data-name') || '';
             var d = byName[name];
             if (!d) continue;
@@ -1488,6 +1544,58 @@
     // 14. Scroll Hint Tooltip
     // ============================================================================
 
+    // ── Disk-name identification tooltip ────────────────────────────────
+    // Plugin-styled hover tooltip (not the browser's native title) showing the
+    // Main-page identification string for the disk under the cursor. One shared
+    // element is appended to <body> so it escapes the widget's scroll overflow,
+    // positioned over the hovered name and flipped below when there is no room
+    // above. Mirrors the Tool page's .dvt-tip mechanism for a consistent look.
+    function wireNameTips(){
+        var container = $('dv-sections');
+        if (!container || container._dvNameTipWired) return;
+        container._dvNameTipWired = true;
+
+        var tip = null;
+        function ensureTip(){
+            if (tip) return tip;
+            tip = document.createElement('div');
+            tip.className = 'dv-tip dv-tip--info';
+            tip.style.display = 'none';
+            document.body.appendChild(tip);
+            return tip;
+        }
+        function showTip(el, text){
+            var t = ensureTip();
+            t.textContent = text;
+            t.style.display = 'block';
+            var r  = el.getBoundingClientRect();
+            var tr = t.getBoundingClientRect();
+            // Left-align under the disk name's first letter (not centred).
+            // Subtract the tip's 9px horizontal padding so the visible text,
+            // not the box edge, lines up with the first character.
+            var left = r.left - 9;
+            left = Math.max(6, Math.min(left, window.innerWidth - tr.width - 6));
+            var top = r.top - tr.height - 6;
+            if (top < 4) top = r.bottom + 6;   // flip below if no room above
+            t.style.left = Math.round(left) + 'px';
+            t.style.top  = Math.round(top) + 'px';
+        }
+        function hideTip(){ if (tip) tip.style.display = 'none'; }
+
+        container.addEventListener('mouseover', function(ev){
+            var el = ev.target.closest && ev.target.closest('.dv-name[data-dv-ident]');
+            if (!el) return;
+            var text = el.getAttribute('data-dv-ident') || '';
+            if (text) showTip(el, text);
+        });
+        container.addEventListener('mouseout', function(ev){
+            if (ev.target.closest && ev.target.closest('.dv-name[data-dv-ident]')) hideTip();
+        });
+        container.addEventListener('scroll', hideTip, { passive: true });
+        container.addEventListener('wheel',  hideTip, { passive: true });
+        window.addEventListener('scroll', hideTip, { passive: true });
+    }
+
     // ── Scroll hint badge ───────────────────────────────────────────────
     // Tiny badge that appears next to the cursor for 2 seconds when the
     // user enters the .dv-sections panel and content is scrollable. The
@@ -1654,6 +1762,7 @@
         wireSpinButtons();
         wireBulkSpin();
         wireScrollHint();
+        wireNameTips();
         // Paint cached data first (instant), then trigger the real fetch.
         // Order matters: paintFromCache before fetchState so the user sees
         // disks immediately even if the AJAX call takes a couple of seconds.
@@ -1729,6 +1838,7 @@
             showDiskErrors    = cfg.showDiskErrors !== false;
             showDecimalPct    = !!cfg.showDecimalPct;
             showUsedColumn    = !!cfg.showUsedColumn;
+            showIdTooltip     = cfg.showIdTooltip !== false;
             showSectionIndicators = cfg.showSectionIndicators !== false;
             fontSize          = (cfg.fontSize === 'small' || cfg.fontSize === 'large') ? cfg.fontSize : 'default';
 
@@ -1756,6 +1866,7 @@
             wireSpinButtons();
             wireBulkSpin();
             wireScrollHint();
+            wireNameTips();
 
             // Paint instantly from the embedded model.
             paintFromCache();

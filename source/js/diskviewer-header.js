@@ -323,10 +323,18 @@ function DiskViewerButton(){
             white: { bg: '#ffffff', border: '#cdcdcd', text: '#222222' },
             azure: { bg: '#fbfdff', border: '#bcd2e8', text: '#1a3149' }
         };
-        var bodyClasses = (document.body && document.body.className || '').split(/\s+/);
+        // Prefer the theme injected server-side (window.diskviewerTheme, set
+        // by DiskViewerButton.page from the Unraid display config). Fall back
+        // to a recognised body class, then dark, so the panel still adapts if
+        // the global is ever missing.
         var unraidTheme = 'black';
-        for (var ti = 0; ti < bodyClasses.length; ti++) {
-            if (themePalette[bodyClasses[ti]]) { unraidTheme = bodyClasses[ti]; break; }
+        if (window.diskviewerTheme && themePalette[window.diskviewerTheme]) {
+            unraidTheme = window.diskviewerTheme;
+        } else {
+            var bodyClasses = (document.body && document.body.className || '').split(/\s+/);
+            for (var ti = 0; ti < bodyClasses.length; ti++) {
+                if (themePalette[bodyClasses[ti]]) { unraidTheme = bodyClasses[ti]; break; }
+            }
         }
         var pal = themePalette[unraidTheme];
         tooltipText = pal.text;
@@ -347,7 +355,6 @@ function DiskViewerButton(){
             'line-height:1.5;' +
             'white-space:nowrap;' +
             'pointer-events:none;' +
-            'min-width:220px;' +
             'max-width:360px;';
         document.body.appendChild(diskTooltip);
 
@@ -429,7 +436,11 @@ function DiskViewerButton(){
         }
         var axisLabel = { health: 'HEALTH', errors: 'ERRORS', temp: 'TEMP', used: 'USED' };
         var sevColor  = { critical: '#f44336', warning: '#ffb300' };
-        var rows = '';
+        // One grid for the whole list so the three columns line up across rows
+        // and each name sits right next to its metric. The old per-row grid used
+        // a 1fr name column, which stretched the name out and left a big gap
+        // before the axis/value.
+        var cells = '';
         for (var i = 0; i < issues.length; i++) {
             var it    = issues[i] || {};
             var color = sevColor[it.severity] || tooltipText;
@@ -438,14 +449,13 @@ function DiskViewerButton(){
             // axis label would be redundant there; blank it for that axis only.
             var ax    = (it.axis === 'errors') ? '' : (axisLabel[it.axis] || String(it.axis || '').toUpperCase());
             var label = String(it.label || '');
-            rows +=
-                '<div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:2px 0;color:' + color + ';">' +
-                  '<span style="font-weight:600;text-align:left;">'                                 + escapeHtml(name)  + '</span>' +
-                  '<span style="opacity:0.9;font-size:10px;font-weight:700;letter-spacing:0.04em;">' + escapeHtml(ax)    + '</span>' +
-                  '<span style="font-weight:700;text-align:right;">'                                + escapeHtml(label) + '</span>' +
-                '</div>';
+            cells +=
+                '<span style="font-weight:600;text-align:left;color:' + color + ';">'                                  + escapeHtml(name)  + '</span>' +
+                '<span style="opacity:0.9;font-size:10px;font-weight:700;letter-spacing:0.04em;color:' + color + ';">' + escapeHtml(ax)    + '</span>' +
+                '<span style="font-weight:700;text-align:right;color:' + color + ';">'                                 + escapeHtml(label) + '</span>';
         }
-        diskTooltip.innerHTML = rows;
+        diskTooltip.innerHTML =
+            '<div style="display:grid;grid-template-columns:auto auto auto;gap:3px 14px;align-items:center;">' + cells + '</div>';
     }
 
     // Cheap HTML escape - disk names from disks.ini are user-controlled
