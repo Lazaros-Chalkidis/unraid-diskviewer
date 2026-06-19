@@ -1,30 +1,20 @@
-/* ==========================================================================
-   DISK VIEWER -- Tool Page Script
+/* ============================================================================
+   DISK VIEWER
    Copyright (C) 2026 Lazaros Chalkidis
    License: GPLv3
-   /plugins/diskviewer/js/diskviewer-tool.js
+   ========================================================================= */
 
-   Standalone tool page logic: tab switching, lazy per-tab loading, and AJAX
-   to the shared diskviewer_api.php endpoint. Fully separate from the widget
-   script (diskviewer.js). Talks to the same backend via ?action= routes.
-   ========================================================================== */
 (function () {
     'use strict';
 
-    // ── Config ────────────────────────────────────────────────────────────
     var _cfg   = window.diskviewerToolConfig || {};
     var _token = _cfg.dvToken || '';
-    // Unraid rejects state-changing POSTs (spin) without its csrf_token. Prefer
-    // the value injected by the page, fall back to the global Unraid sets on
-    // every webGui page.
+
+    // prefer the token the page injected, fall back to the global unraid sets
     function csrfToken() { return _cfg.csrfToken || window.csrf_token || ''; }
 
     var API = '/plugins/diskviewer/include/diskviewer_api.php';
 
-    // ── Fetch helpers ───────────────────────────────────────────────────────
-    // Mirrors the StreamViewer pattern: action + CSRF token on the query
-    // string, XMLHttpRequest header so the backend can distinguish AJAX from a
-    // direct hit. Returns a promise resolving to parsed JSON.
     function apiUrl(action, extra) {
         var url = API + '?action=' + encodeURIComponent(action)
                 + '&_dvt=' + encodeURIComponent(_token);
@@ -42,7 +32,6 @@
         });
     }
 
-    // ── Tab switching ───────────────────────────────────────────────────────
     var TAB_MAP = {
         dvtTabOverview: 'dvtPanelOverview',
         dvtTabDisks:    'dvtPanelDisks'
@@ -52,20 +41,18 @@
     var _disksLoaded    = false;
     var _lastUnit      = 'C';
     var _enableSpin    = false;
-    var _showUsedBytes = false;  // show absolute used size next to the percent
-    var _showDecimal   = false;  // one decimal place in the used percent
-    var _showIdTooltip = true;   // disk-name identification tooltip
+    var _showUsedBytes = false;
+    var _showDecimal   = false;
+    var _showIdTooltip = true;
+    var _showPower     = false;
     var _refreshTimer  = null;
     var _lastSections  = [];
 
-    // Icon glyphs (mirrored from the widget so the bolt/spin affordance looks
-    // identical on the tool page).
     var BOLT_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
     var STACK_SVG  = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l-9 4.5l9 4.5l9 -4.5l-9 -4.5"/><path d="M3 13.5l9 4.5l9 -4.5"/></svg>';
     var ARROW_UP   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
     var ARROW_DOWN = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>';
-    // Health thumb (SMART) and per-disk settings gear, mirrored from the widget
-    // so the affordances look identical on the tool page.
+
     var THUMB_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V10z"/></svg>';
     var GEAR_SVG   = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 01-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 01.872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 012.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 012.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 01.872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 01-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 01-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 110-5.858 2.929 2.929 0 010 5.858z"/></svg>';
 
@@ -84,13 +71,11 @@
             if (panel) panel.style.display = (panelIds[j] === tabId) ? 'block' : 'none';
         }
 
-        // Lazy load each tab the first time it is opened.
         if (tabId === 'dvtTabDisks' && !_disksLoaded) {
             _disksLoaded = true;
             loadDisksTab();
         }
 
-        // The fixed clone header belongs to the overview tab only.
         syncFixedThead();
     }
 
@@ -109,9 +94,7 @@
         }
     }
 
-    // ── Formatting ──────────────────────────────────────────────────────────
-    // Decimal (1000-based) byte formatting, matching the widget so a 2TB drive
-    // reads as 2 TB. Mirrors diskviewer.js formatBytes.
+    // decimal units, kept identical to the widget's formatBytes
     function formatBytes(bytes, precision, alwaysTwo) {
         if (!bytes || bytes <= 0) return '0 B';
         if (precision === undefined) precision = 1;
@@ -119,11 +102,7 @@
         var i = Math.floor(Math.log(bytes) / Math.log(1000));
         i = Math.min(i, units.length - 1);
         var val = bytes / Math.pow(1000, i);
-        // TB and above get a second decimal so close sizes stay distinct
-        // (e.g. 1.49 TB vs 1.53 TB), matching the widget and Unraid's dashboard.
-        // Trailing zeros are trimmed, so a clean 2 TB still reads as 2 TB.
-        // The USED / FREE columns pass alwaysTwo: two decimals from GB up with
-        // no trim, so usage values stay consistent and distinct.
+
         var str;
         if (alwaysTwo && i >= 3) {
             str = val.toFixed(2);
@@ -131,16 +110,12 @@
             var dp = Math.max(precision, 2);
             str = val.toFixed(dp).replace(/\.?0+$/, '');
         } else {
-            // SIZE column, GB and below: whole numbers, matching Unraid's Main.
+
             str = String(Math.round(val));
         }
         return str + ' ' + units[i];
     }
 
-    // Identification string for the disk-name hover tooltip: "MODEL_SERIAL
-    // (sdX)" - the drive model+serial and its kernel device node. Each piece is
-    // omitted gracefully when missing, and summary / aggregate rows return ''
-    // so they get no tooltip. Mirrors the widget's diskIdent().
     function diskIdent(tile){
         if (!tile || tile.is_summary || !_showIdTooltip || tile.not_installed) return '';
         var id  = (tile.ident_id || '').toString().trim();
@@ -165,8 +140,6 @@
         if (el) el.innerHTML = html;
     }
 
-    // ── Overview tab ──────────────────────────────────────────────────────
-    // Equalizer loading animation, same shape as the StreamViewer widget.
     function buildLoading() {
         return '<div class="dvt-loading">'
              + '<div class="dvt-loading__bars">'
@@ -194,6 +167,7 @@
             _showUsedBytes = !!cfg.show_used_column;
             _showDecimal   = !!cfg.show_decimal_pct;
             _showIdTooltip = cfg.show_id_tooltip !== false;
+            _showPower     = !!cfg.show_power;
             renderOverviewDisks(model.sections || []);
             wireSpin();
             wireBulkSpin();
@@ -220,8 +194,6 @@
         });
     }
 
-    // Apply the tool's font-size setting by setting one of three tier classes
-    // on the disk container. CSS scales the table's data cells by ~5% per tier.
     function applyFontSize(cfg) {
         var host = document.getElementById('dvt-overview-disks');
         if (!host) return;
@@ -230,16 +202,13 @@
         host.classList.add('dvt-font-' + fs);
     }
 
-    // Auto-refresh polling for the overview. Set up once; reloads the
-    // overview data on the configured interval when enabled.
     function setupRefresh(cfg) {
         if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
         if (!cfg.refresh_enabled) return;
-        // cfg.refresh_interval is already in milliseconds (the backend sends
-        // seconds * 1000). Use it directly with a 5s floor.
+
         var ms = Math.max(5000, parseInt(cfg.refresh_interval, 10) || 10000);
         _refreshTimer = setInterval(function () {
-            // Only refresh while the overview tab is visible.
+
             if (_activeTab !== 'dvtTabOverview') return;
             fetchJson('tool_overview').then(function (model) {
                 var ov = model.overview || {};
@@ -251,12 +220,6 @@
         }, ms);
     }
 
-
-
-    // Column definitions in the order requested. width is the fixed colgroup
-    // width (px); the table has a min-width so 17 columns scroll rather than
-    // crush. `ph: true` marks columns whose backend (SMART / scrub) is not yet
-    // wired - they render a dash for now.
     var COLS = [
         { key: 'bolt',    label: '',            cls: 'dvt-tbl__ctr',  width: 38  },
         { key: 'disk',    label: 'Disk',        cls: 'dvt-tbl__name', width: 110 },
@@ -279,9 +242,6 @@
         { key: 's',       label: 'Settings',    cls: 'dvt-tbl__ctr',  width: 84  }
     ];
 
-    // Single unified table. One table with a fixed colgroup keeps every column
-    // the same width across ARRAY / CACHE / POOL, with section divider rows
-    // inside the tbody.
     function renderOverviewDisks(sections) {
         var anyTiles = false;
         for (var i = 0; i < sections.length; i++) {
@@ -294,19 +254,29 @@
 
         _lastSections = sections;
 
-        // Worst-state severity per column, used to colour the Temp / Health /
-        // Errors headers like the widget does.
         var colSev = worstColSeverity(sections);
+
+        // if any nvme reports a draw (and the native toggle is on), the temp column needs more room for "9.00 W / 42 C"
+        var hasPower = false;
+        if (_showPower) {
+            for (var hs = 0; hs < sections.length && !hasPower; hs++) {
+                var ht = sections[hs].tiles || [];
+                for (var hi = 0; hi < ht.length; hi++) {
+                    if ((+ht[hi].power || 0) > 0) { hasPower = true; break; }
+                }
+            }
+        }
 
         var colgroup = '<colgroup>';
         var thead = '<thead><tr>';
         for (var c = 0; c < COLS.length; c++) {
-            // Columns flagged fsw scale their reserved width with the font-size
-            // tier (--dvt-fs), so a column whose content is already tight (Age)
-            // grows in lockstep with the text and fits the same at every tier.
-            var colW = COLS[c].fsw
-                     ? 'calc(' + COLS[c].width + 'px * var(--dvt-fs, 1))'
-                     : (COLS[c].width + 'px');
+
+            var colBaseW = COLS[c].width;
+            var colFsw   = COLS[c].fsw;
+            if (COLS[c].key === 'temp' && hasPower) { colBaseW = 100; colFsw = true; }
+            var colW = colFsw
+                     ? 'calc(' + colBaseW + 'px * var(--dvt-fs, 1))'
+                     : (colBaseW + 'px');
             colgroup += '<col style="width:' + colW + '">';
             var hdCls = COLS[c].hdCls || COLS[c].cls;
             var sevForCol = colSev[COLS[c].key];
@@ -324,15 +294,9 @@
             var tiles = sec.tiles || [];
             if (!tiles.length) continue;
             var secId = sec.id || '';
-            // Zebra eligibility mirrors the widget: only the combined single-disk
-            // pool sections ('pools'/'cache') stripe their rows. ARRAY and
-            // multi-disk pool sections ('pool_<name>') never zebra - their member
-            // rows carry the member-blue fill instead (matching the widget), and
-            // summary rows everywhere keep their summary fill.
+
             var zebra = (secId === 'cache' || secId === 'pools');
 
-            // Bulk spin up/down all - only on the combined POOL section, like the
-            // widget, and only when the spin feature is enabled.
             var actions = '';
             if (_enableSpin && secId === 'pools') {
                 actions = '<span class="dvt-bulk-actions">'
@@ -343,8 +307,6 @@
             html += '<tr class="dvt-sec-row"><td colspan="' + nCols + '">'
                   + '<div class="dvt-sec-row__inner"><span class="dvt-sec-lbl">' + esc(sec.label || sec.id || '') + '</span>' + actions + '</div></td></tr>';
 
-            // A section that contains a summary row treats its remaining rows as
-            // members (matching the widget) - they get the member-blue fill.
             var secHasSummary = false;
             for (var hs = 0; hs < tiles.length; hs++) {
                 if (tiles[hs].is_summary) { secHasSummary = true; break; }
@@ -364,7 +326,6 @@
         setHtml('dvt-overview-disks', html);
     }
 
-    // Worst severity per column across every tile, for header tinting.
     function worstColSeverity(sections) {
         var rank = { ok: 0, warn: 1, crit: 2 };
         var w = { temp: 'ok', health: 'ok', errors: 'ok' };
@@ -391,22 +352,12 @@
         return w;
     }
 
-    // ── Fixed clone header ──────────────────────────────────────────────────
-    // CSS position:sticky does not work for the column header here: somewhere
-    // in Unraid's page layout an ancestor establishes an overflow/scroll
-    // context, so a sticky <th> pins to that ancestor (which never scrolls)
-    // and the header just scrolls away with the rows. The reliable fix is to
-    // clone the header into a position:fixed bar appended to <body> - that
-    // escapes every ancestor - and show it below the Unraid top menu whenever
-    // the real header has scrolled up out of view.
-    var _fixedWrap  = null;   // fixed-positioned container in <body>
-    var _fixedTable = null;   // cloned table inside the wrap
+    var _fixedWrap  = null;
+    var _fixedTable = null;
     var _fixedBound = false;
 
-    // Height of the Unraid top menu bar, so the clone pins just below it.
-    // Measured from a fixed/sticky header element when one is found; otherwise
-    // falls back to the common ~52px. Cached after first successful measure.
     var _hdrOffset = null;
+    // find the height of whatever unraid is using as a fixed/sticky header so the cloned thead sits right under it
     function unraidHeaderOffset() {
         if (_hdrOffset !== null) return _hdrOffset;
         var sels = ['#header', '.header', 'header', '#menu'];
@@ -419,7 +370,7 @@
                 if (h > 20 && h < 200) { _hdrOffset = Math.round(h); return _hdrOffset; }
             }
         }
-        return 52; // not cached, so a late-loading header can still be picked up
+        return 52;  // sensible default if no fixed header was found
     }
 
     function ensureFixedThead() {
@@ -433,8 +384,7 @@
             _fixedWrap.style.display = 'none';
             document.body.appendChild(_fixedWrap);
         }
-        // Rebuild the clone from the current thead each render so labels, theme
-        // and font-size always match the live table.
+
         var realThead = realTable.querySelector('thead');
         var realCols  = realTable.querySelector('colgroup');
         var dvtWrap = document.querySelector('.dvt-wrapper');
@@ -463,6 +413,7 @@
         syncFixedThead();
     }
 
+    // floats a clone of the table header once the real one scrolls under the unraid bar
     function syncFixedThead() {
         if (!_fixedWrap || !_fixedTable) return;
         var realTable = document.querySelector('#dvt-overview-disks .dvt-tbl--wide');
@@ -475,22 +426,17 @@
         var off    = unraidHeaderOffset();
         var sRect  = scroller.getBoundingClientRect();
         var hRect  = realThead.getBoundingClientRect();
-        // Show only once the real header has scrolled above the offset line and
-        // while at least part of the scroll area is still below it.
+
         var show = (hRect.top < off) && (sRect.bottom > off + 4);
         if (!show) { _fixedWrap.style.display = 'none'; return; }
 
-        // Pin to the scroll container's visible box (so the clone never spills
-        // past the panel) and clip the overflow. The inner clone table keeps the
-        // full table width and is shifted left by the container's scrollLeft so
-        // its columns line up with the horizontally-scrolled rows beneath.
         _fixedWrap.style.position = 'fixed';
         _fixedWrap.style.top      = off + 'px';
         _fixedWrap.style.left     = Math.round(sRect.left) + 'px';
         _fixedWrap.style.width    = Math.round(sRect.width) + 'px';
         _fixedWrap.style.zIndex   = '90';
         _fixedTable.style.width = realTable.offsetWidth + 'px';
-        _fixedTable.style.transform = 'translateX(' + (-scroller.scrollLeft) + 'px)';
+        _fixedTable.style.transform = 'translateX(' + (-scroller.scrollLeft) + 'px)';  // keep the clone in sync with horizontal scroll
         _fixedWrap.style.display = 'block';
     }
 
@@ -499,18 +445,12 @@
         _fixedBound = true;
         window.addEventListener('scroll', syncFixedThead, { passive: true });
         window.addEventListener('resize', syncFixedThead, { passive: true });
-        // Track the inner container's horizontal scroll too.
+
         var host = document.getElementById('dvt-overview-disks');
         if (host) host.addEventListener('scroll', syncFixedThead, { passive: true, capture: true });
     }
 
-    // ── Live speed poller ───────────────────────────────────────────────────
-    // Speed runs on its own 2s cadence, independent of the page's general
-    // refresh interval - exactly like the widget. It hits the lightweight
-    // ?action=speeds projection and patches only the speed cell of each row,
-    // then recomputes the per-section summary speed locally (sum of members,
-    // dominant direction wins) so the aggregate stays live too.
-    var SPEED_INTERVAL = 2000;
+    var SPEED_INTERVAL = 2000;  // speeds poll faster than the rest of the page
     var _speedTimer = null;
 
     function startSpeedPolling() {
@@ -533,7 +473,7 @@
             if (arr[i] && arr[i].name) byName[arr[i].name] = arr[i];
         }
         var rows = host.querySelectorAll('.dvt-tbl__row');
-        // secId -> running totals + the section's summary row reference
+
         var agg = {};
         for (var r = 0; r < rows.length; r++) {
             var row = rows[r];
@@ -555,7 +495,7 @@
             else if (dir === 'w') agg[secId].sumW += bps;
             if (d.spun) agg[secId].anySpun = true;
         }
-        // Patch each section's summary speed from the locally summed members.
+
         for (var sid in agg) {
             if (!agg.hasOwnProperty(sid)) continue;
             var a = agg[sid];
@@ -567,12 +507,8 @@
         }
     }
 
-
-    // Muted label for "no value" cells (spun down / n/a / no scrub / idle), so
-    // empty cells read as a reason instead of a bare dash.
     function muted(txt) { return '<span class="dvt-na">' + txt + '</span>'; }
 
-    // Spun-down disks read as a small drive icon + "sleep" instead of text.
     var SLEEP_HTML = '<i class="fa fa-hdd-o dvt-sleep-ico" aria-hidden="true"></i>sleep';
 
     function buildSpeed(spun, bps, dir) {
@@ -590,11 +526,6 @@
         return buildSpeed(!!tile.spun, +tile.speed_bps || 0, tile.speed_dir || '');
     }
 
-    // Update a speed cell smoothly: when the disk keeps reading/writing in the
-    // same direction we only rewrite the number text, leaving the arrow element
-    // in place. This makes a steadily-changing throughput read as a live flow
-    // instead of the whole cell flashing on every 2s poll. Only a start/stop or
-    // a direction flip rebuilds the markup.
     function updateSpeedCell(cell, spun, bps, dir) {
         bps = +bps || 0;
         var active = spun && bps > 0;
@@ -639,28 +570,20 @@
         var isParity  = !!tile.is_parity;
         var isMember  = !!tile.is_pool_member;
         var isSummary = !!tile.is_summary;
-        // Visual member (matches the widget): any non-summary row in a section
-        // that has a summary row. Drives only the member-blue fill - the
-        // capacity collapse below still keys off is_pool_member, so array data
-        // disks keep showing their own size/free/used.
+
         var isMemberRow = !!secHasSummary && !isSummary;
-        var notInstalled = !!tile.not_installed;  // configured disk, no device
+        var notInstalled = !!tile.not_installed;
         var collapse  = isParity || isMember || !!tile.no_capacity || notInstalled;
         var spun      = !!tile.spun;
         var sev = tile.severity || 'ok';
 
-        // Reason-aware empty labels (instead of a bare dash).
         var NA   = muted('n/a');
         var SPUN = muted(SLEEP_HTML);
-        // For SMART/temp: summary aggregates are synthetic totals with no
-        // per-disk value, so these columns read blank on them; an asleep disk
-        // wasn't read (spun down); an active disk with no/missing value is n/a
-        // (e.g. NVMe lacks realloc/crc).
+
         function metricEmpty() { return isSummary ? '' : (!spun ? SPUN : NA); }
 
         var name = esc((tile.display_name || tile.name || '').toUpperCase());
-        // Disk name wrapped so the Main-style identification tooltip has a
-        // precise hover target (the name text, not the whole cell).
+
         var nameTip  = diskIdent(tile);
         var nameCell = '<span class="dvt-name' + (notInstalled ? ' dvt-name--missing' : '') + '"'
                      + (nameTip ? ' data-dvt-ident="' + esc(nameTip) + '"' : '')
@@ -669,9 +592,6 @@
         var size = (tile.size > 0) ? formatBytes(tile.size) : NA;
         var free = collapse ? '' : (tile.size > 0 ? formatBytes(tile.free, 1, true) : NA);
 
-        // USED composite cell, same as the widget: a used percent (coloured by
-        // space severity, so it respects the Space severity setting) with an
-        // optional absolute size next to it and a mini progress bar below.
         var usedCell;
         if (collapse) {
             usedCell = '';
@@ -697,15 +617,11 @@
             usedCell = NA;
         }
 
-        // FS pill - on the section summary rows (ARRAY / multi-disk pool
-        // aggregate) AND on every disk in the combined POOL section, where each
-        // tile is its own standalone single-disk pool with its own filesystem.
         var fsRaw = (tile.fs || '').toString().trim();
         var fs = fsRaw.toLowerCase();
         var showFs = (isSummary || !!tile.style_as_summary || secId === 'pools' || secId === 'boot') && fsRaw;
         var fsHtml = showFs ? '<span class="dvt-fs-pill">' + esc(fsRaw) + '</span>' : '';
 
-        // Temp
         var rawT = tile.temp, tempCell, tempCls = '';
         var hasTemp = false;
         if (rawT && rawT !== '*' && rawT !== '-') {
@@ -720,7 +636,12 @@
         }
         if (!hasTemp) tempCell = metricEmpty();
 
-        // Health thumb (SMART) - same hand icon as the widget. Down = critical.
+        // nvme power to the left of temp, like unraid (native toggle on and a draw reported)
+        if (_showPower && !isSummary) {
+            var pw = +tile.power || 0;
+            if (pw > 0) tempCell = '<span class="dvt-pwr">' + (pw < 10 ? pw.toFixed(2) : pw.toFixed(1)) + ' W / </span>' + tempCell;
+        }
+
         var smart = tile.smart || 'unknown';
         var thumbDir = smart === 'critical' ? 'down' : 'up';
         var thumbCol = smart === 'critical' ? 'dvt-thumb--crit' :
@@ -729,31 +650,25 @@
         var healthHtml = '<span class="dvt-thumb ' + thumbCol + ' dvt-thumb--' + thumbDir
                        + '" title="SMART: ' + esc(smart === 'unknown' ? 'no data' : smart) + '">' + THUMB_SVG + '</span>';
 
-        // Per-disk settings gear - links to Unraid's device page, like the widget.
         var devName = encodeURIComponent(tile.main_dev || tile.name || '');
-        var gearHtml = '<a class="dvt-gear" href="/Main/Device?name=' + devName
+        // gear links to a real device page; summaries are synthetic, so no gear there (matches unraid main)
+        var gearHtml = isSummary ? '' : '<a class="dvt-gear" href="/Main/Device?name=' + devName
                      + '" title="Disk settings" aria-label="Open disk settings">' + GEAR_SVG + '</a>';
 
         var errCount = +tile.errors || 0;
         var errText = isSummary ? '' : (errCount > 0 ? '<span class="dvt-crit">' + errCount + '</span>' : '0');
 
-        // Deep SMART attributes (null when the disk is asleep or has no data).
         var sa = tile.smart_attrs || null;
-        // NVMe wear (Percentage Used) sits to the right of the health thumb.
-        // Non-NVMe disks don't report it, so the slot stays blank (no n/a).
-        // Thresholds match the verdict: green below 75%, amber 75-89%, red 90%+.
+
         if (sa && sa.wear_pct !== null && sa.wear_pct !== undefined) {
             var wcls = sa.wear_pct >= 90 ? 'dvt-crit' : sa.wear_pct >= 75 ? 'dvt-warn' : 'dvt-ok';
-            // Wrap so the thumb stays centered in the column (same position as
-            // every other row) and the wear % is absolutely positioned to its
-            // right, out of flow, instead of shifting the thumb to the left.
+
             healthHtml = '<span class="dvt-health">' + healthHtml
                        + '<span class="dvt-health-wear ' + wcls + '">' + sa.wear_pct + '%</span></span>';
         }
         function smartNum(v, warnGt, critGt) {
             if (v === null || v === undefined) return metricEmpty();
-            // Healthy (at or below the warn threshold) reads green; warn amber;
-            // crit red. n/a is handled above and stays neutral.
+
             var cls;
             if (critGt !== undefined && v > critGt) cls = 'dvt-crit';
             else if (warnGt !== undefined && v > warnGt) cls = 'dvt-warn';
@@ -762,9 +677,7 @@
         }
         var ageCell;
         if (sa && sa.age_hours !== null && sa.age_hours !== undefined) {
-            // Single line "8.0 y/70.404 h": years from age_hours/8760 to one
-            // decimal, then the full power-on hours with a period thousands
-            // separator. Same colour for both.
+
             var yrTxt = (sa.age_hours / 8760).toFixed(1) + ' y';
             var hrTxt = String(sa.age_hours).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' h';
             ageCell = '<span class="dvt-col-age">' + yrTxt + ' / ' + hrTxt + '</span>';
@@ -780,9 +693,6 @@
             verdictCell = metricEmpty();
         }
 
-        // Scrub columns. Only btrfs/zfs pool representatives (summary or
-        // standalone single-disk pool) can scrub; anything else is n/a. A
-        // scrub-capable pool with no history reads "no scrub".
         function relAge(ts, fmt) {
             var d = new Date(ts * 1000), now = new Date();
             if (d.getFullYear() === now.getFullYear()
@@ -790,8 +700,7 @@
                 && d.getDate() === now.getDate()) {
                 return '<span class="dvt-scrub-today">today</span>';
             }
-            // The backend preformats the date with the user's own Unraid date
-            // format; fall back to YYYY/MM/DD only if it is missing.
+
             var label = fmt;
             if (!label) {
                 var mm = ('0' + (d.getMonth() + 1)).slice(-2);
@@ -800,6 +709,7 @@
             }
             return '<span class="dvt-scrub-date">' + esc(label) + '</span>';
         }
+        // next-scrub label, rough on purpose (days, then months)
         function relFuture(ts) {
             var days = Math.ceil((ts - Date.now() / 1000) / 86400);
             if (days <= 0)  return 'soon';
@@ -808,8 +718,7 @@
             return 'in ' + Math.round(days / 30) + ' mo';
         }
         var scrubCapable = (fs === 'btrfs' || fs === 'zfs') && (isSummary || (!isParity && !isMember));
-        // Scrub is a pool/array-level operation shown on the summary row, so the
-        // member devices of an array or multi-disk pool read blank here (not n/a).
+
         var scrubCell  = isMemberRow ? '' : (scrubCapable ? (tile.scrub_last_ts ? relAge(tile.scrub_last_ts, tile.scrub_last_fmt) : muted('no scrub')) : NA);
         var fragCell   = isMemberRow ? '' : ((fs === 'zfs' && scrubCapable && tile.scrub_frag != null && tile.scrub_frag !== '')
                        ? esc(tile.scrub_frag) : NA);
@@ -829,10 +738,7 @@
             health:  healthHtml,
             s:       gearHtml,
             age:     ageCell,
-            // SMART counters: smartNum(value, warnAbove, critAbove); 0 / healthy
-            // reads green. Pending warns at 1+ and crits above 5; realloc warns
-            // at 1+ and crits above 10; CRC warns above 100 and never crits
-            // (UDMA CRC is cable-related and cumulative).
+
             realloc: smartNum(sa ? sa.realloc : null, 0, 10),
             pending: smartNum(sa ? sa.pending : null, 0, 5),
             crc:     smartNum(sa ? sa.crc : null, 100, undefined),
@@ -843,11 +749,6 @@
             nscrub:  nscrubCell
         };
 
-        // Configured but missing disk: blank every column except the bolt,
-        // the name (which carries the "NOT INSTALLED or MISSING" label) and the gear, so
-        // the row reads as absent with no stale FS / power / SMART / scrub
-        // values. The name cell is allowed to overflow (see the row--missing
-        // CSS) so the label shows in full across the now-empty columns.
         if (notInstalled) {
             cells.fs = cells.size = cells.free = cells.used = '';
             cells.speed = cells.temp = cells.health = '';
@@ -859,9 +760,8 @@
         if (isSummary) rowCls += ' dvt-tbl__row--summary';
         else if (isMemberRow) rowCls += ' dvt-tbl__row--member';
         if (notInstalled) rowCls += ' dvt-tbl__row--missing';
-        // Boot device row: summary-grey fill so it is distinct from its
-        // transparent section divider (grey only - no bold, no bolt resize).
-        if (secId === 'boot') rowCls += ' dvt-tbl__row--boot';
+
+        if (secId === 'boot' && !isMemberRow) rowCls += ' dvt-tbl__row--boot';
         rowCls += (zCls || '');
 
         var tds = '';
@@ -874,9 +774,6 @@
              + (isSummary ? ' data-dvt-summary="1"' : '') + '>' + tds + '</tr>';
     }
 
-    // Spin click handler (event delegation on the overview container). POSTs to
-    // the shared spin action, same as the widget. The action is session-gated
-    // and feature-gated by enable_spin_button server-side.
     function wireSpin() {
         var host = document.getElementById('dvt-overview-disks');
         if (!host || host._dvtSpinWired) return;
@@ -898,7 +795,7 @@
                 credentials: 'same-origin',
                 body: body
             }).then(function (r) { return r.json(); }).then(function (r) {
-                // Re-pull the overview so the bolt + speed reflect the new state.
+
                 _overviewLoaded = false;
                 loadOverview();
             }).catch(function () {
@@ -908,10 +805,6 @@
         });
     }
 
-    // Bulk spin up/down all pool disks. Mirrors the widget: gather the
-    // currently-eligible pool members, then fire spin commands serially with a
-    // throttle so we never hit the controller with a burst of wake-ups (which
-    // can cause NCQ timeouts on unrelated disks sharing the lane).
     function wireBulkSpin() {
         var host = document.getElementById('dvt-overview-disks');
         if (!host || host._dvtBulkWired) return;
@@ -973,11 +866,6 @@
         });
     }
 
-    // ── Custom hover tooltip ────────────────────────────────────────────────
-    // Plugin-styled tooltip (not the browser's native title) for the spin bolts
-    // and the bulk spin buttons, matching the widget's coloured hover toast. One
-    // shared element is appended to <body> (so it escapes the table's overflow)
-    // and positioned over the hovered control.
     var _tip = null;
     function ensureTip() {
         if (_tip) return _tip;
@@ -994,18 +882,13 @@
         tip.style.display = 'block';
         var r = btn.getBoundingClientRect();
         var tr = tip.getBoundingClientRect();
-        // The name tip and per-row bolt tips are left-aligned under their
-        // control's first letter; the bulk tips are right-aligned to the
-        // button's right edge (they sit at the far right of the table, so a
-        // centred tip would hang out over the scroll area). The 9px offset
-        // matches the tip's horizontal padding so the visible text, not the
-        // box edge, lines up with the button edge.
+
         var left = (align === 'left')  ? (r.left - 9)
                  : (align === 'right') ? (r.right + 9 - tr.width)
                  : (r.left + (r.width / 2) - (tr.width / 2));
         left = Math.max(6, Math.min(left, window.innerWidth - tr.width - 6));
         var top = r.top - tr.height - 6;
-        if (top < 4) top = r.bottom + 6; // flip below if no room above
+        if (top < 4) top = r.bottom + 6;
         tip.style.left = Math.round(left) + 'px';
         tip.style.top  = Math.round(top) + 'px';
     }
@@ -1038,19 +921,15 @@
         host.addEventListener('mouseout', function (ev) {
             if (ev.target.closest && (ev.target.closest('button.dvt-bulk-spin') || ev.target.closest('button.dvt-bolt') || ev.target.closest('.dvt-name[data-dvt-ident]'))) hideTip();
         });
-        // Hide while scrolling so the fixed tooltip never lingers in the wrong spot.
+
         window.addEventListener('scroll', hideTip, { passive: true });
     }
 
-    // ── Disks tab ───────────────────────────────────────────────────────────
-    // Master-detail: sidebar disk list + per-disk detail panel with deep
-    // SMART data, loaded on demand per selection. Built in the Tab 2 iteration.
     function loadDisksTab() {
         var sb = document.getElementById('dvt-disks-sidebar');
         if (sb) sb.innerHTML = '<div style="padding:1rem;color:var(--dvt-text-dim);">Disk list pending</div>';
     }
 
-    // ── Boot ──────────────────────────────────────────────────────────────
     function boot() {
         wireTabs();
         loadOverview();
@@ -1062,6 +941,5 @@
         boot();
     }
 
-    // Expose for console debugging / manual checks.
     window.diskviewerTool = { switchTab: switchTab, fetchJson: fetchJson };
 })();

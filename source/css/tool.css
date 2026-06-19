@@ -1,25 +1,10 @@
-/* ==========================================================================
-   DISK VIEWER -- Tool Page Styles
+/* ============================================================================
+   DISK VIEWER
    Copyright (C) 2026 Lazaros Chalkidis
    License: GPLv3
-   /plugins/diskviewer/css/tool.css
+   ========================================================================= */
 
-   SECTIONS
-    1. CSS Custom Properties        6. Shared Components
-    2. Layout                       7. Overview Tab
-    3. Tabs                         8. Disks Tab (sidebar + detail)
-    4. Panel + States               9. Responsive
-    5. Page Header                 10. Light Theme Overrides
-
-   The tool is a standalone System Information page, fully separate from the
-   dashboard widget (its own page, js, and css). Tokens are duplicated here
-   rather than shared with widget.css so the tool has no load-order
-   dependency on the widget stylesheet. Visual language matches the rest of
-   the Aegis ecosystem (StreamViewer tool conventions: 80% centred wrapper,
-   rounded-top tabs, surface cards).
-   ========================================================================== */
-
-/* ── 1. CSS CUSTOM PROPERTIES ─────────────────────────────────────────── */
+/* tokens, duplicated from the widget so the tool has no load-order dependency on it */
 :root {
   --dvt-bg:            #1a1a1a;
   --dvt-surface:       #242424;
@@ -37,7 +22,6 @@
   --dvt-bg-subtle:     rgba(255,255,255,.04);
   --dvt-bg-summary:    rgba(255,255,255,.12);
 
-  /* severity colours (match the widget) */
   --dvt-ok:            #4caf50;
   --dvt-warn:          #ef9f27;
   --dvt-crit:          #e24b4a;
@@ -46,11 +30,6 @@
   --dvt-crit-text:     #ff6a6a;
 }
 
-/* ── 2. LAYOUT ────────────────────────────────────────────────────────────
-   Width follows the StreamViewer/Logs Viewer convention: 80% of the viewport
-   on desktop (10% gutter each side) and 95% on tablet/mobile below 768px.
-   The parent's max-width constraint (imposed by the dynamix template, ~1180px)
-   is lifted at runtime by the inline script in DiskViewerTool.page. */
 .dvt-wrapper {
   width: 96%;
   max-width: 96%;
@@ -66,7 +45,6 @@
   }
 }
 
-/* ── 3. TABS ──────────────────────────────────────────────────────────── */
 .dvt-tabs {
   display: flex;
   align-items: flex-end;
@@ -78,6 +56,7 @@
   scrollbar-width: none;
 }
 .dvt-tabs::-webkit-scrollbar { display: none; }
+/* tabs */
 .dvt-tab {
   display: inline-flex;
   align-items: center;
@@ -104,7 +83,6 @@
 }
 .dvt-tabs .dvt-tab--right { margin-left: auto; }
 
-/* ── 4. PANEL + STATES ────────────────────────────────────────────────── */
 .dvt-panel {
   padding: 1.25rem;
   box-sizing: border-box;
@@ -114,7 +92,6 @@
 }
 .dvt-tab-panel { display: block; }
 
-/* Loading animation - equalizer bars, ported from the StreamViewer widget. */
 .dvt-loading {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: .6rem; padding: 1.5rem 1rem;
@@ -143,7 +120,7 @@
 .dvt-disabled h2   { margin: 0 0 .5rem; color: var(--dvt-text); font-weight: 600; }
 .dvt-disabled p    { margin: 0 auto; color: var(--dvt-text-dim); }
 
-/* ── 5. PAGE HEADER ──────────────────────────────────────────────────── */
+/* page header */
 .dvt-header {
   display: flex;
   align-items: flex-start;
@@ -188,7 +165,6 @@
   width: auto !important;
 }
 
-/* ── 6. SHARED COMPONENTS ──────────────────────────────────────────────── */
 .dvt-select {
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -203,19 +179,11 @@
   cursor: pointer;
 }
 
-/* ── 7. OVERVIEW TAB ───────────────────────────────────────────────────
-   Disk rows render in the same visual language as the widget but with room
-   to breathe - every column visible at a comfortable width. */
+/* disks tab */
 .dvt-overview-disks { margin-top: .5rem; }
 .dvt-empty { padding: 2rem; text-align: center; color: var(--dvt-text-dim); }
 
-/* 17-column overview is wider than the panel. Scroll it horizontally INSIDE
-   the panel so it never spills past the rounded border. overflow-x:auto makes
-   this a horizontal scroll container; with no height set, overflow-y stays
-   non-scrolling (the box grows to content height) so the page keeps its single
-   vertical scrollbar. Header pinning is handled by the JS fixed clone, not CSS
-   sticky, so making this a scroll context is fine - the clone tracks both this
-   container's horizontal scroll and the page's vertical scroll. */
+/* overview table */
 .dvt-tbl-scroll {
   overflow-x: auto;
 }
@@ -223,17 +191,10 @@
 .dvt-tbl--wide thead th { font-size: 1.1rem; padding: .4rem .45rem; white-space: normal; line-height: 1.1; }
 .dvt-tbl--wide tbody td { padding: .4rem .45rem; }
 
-/* On desktop the table fills the panel and table-layout:fixed scales the
-   columns to fit, so no horizontal scroll (target: 1920 fits without scroll).
-   Only on tablet/phone widths do we force a min-width so the 19 columns get a
-   horizontal scrollbar instead of being crushed unreadable. */
 @media (max-width: 1024px) {
   .dvt-tbl--wide { min-width: 1500px; }
 }
 
-/* Spin bolt (mirrors the widget). Aggressive resets so the Unraid global
-   button styling does not bleed through (it otherwise shows as a bordered
-   box on the only rows that become buttons - single-disk pools). */
 .dvt-bolt {
   display: inline-flex !important;
   align-items: center !important;
@@ -268,7 +229,6 @@
   border-color: color-mix(in srgb, var(--dvt-ok) 55%, transparent) !important;
 }
 
-/* Bulk spin up/down all (POOL section header). Mirrors the widget control. */
 .dvt-bulk-actions { display: inline-flex; align-items: center; gap: 6px; }
 .dvt-bulk-spin {
   display: inline-flex !important;
@@ -307,7 +267,6 @@
 .dvt-bulk-spin:disabled,
 .dvt-bulk-spin.dvt-bolt--busy { opacity: .5 !important; cursor: wait !important; }
 
-/* Speed cell */
 .dvt-speed {
   display: inline-flex;
   align-items: center;
@@ -322,8 +281,6 @@
 .dvt-speed--w svg { color: var(--dvt-crit); }
 .dvt-speed-na { line-height: 14px; color: var(--dvt-text-muted); }
 
-/* Plugin hover tooltip (replaces the browser title) for spin + bulk controls.
-   Fixed-positioned, appended to <body>, coloured like the widget's toast. */
 .dvt-tip {
   position: fixed;
   padding: 5px 9px;
@@ -345,9 +302,7 @@
   border: 1px solid color-mix(in srgb, var(--dvt-crit) 60%, transparent);
   color: var(--dvt-crit-text);
 }
-/* Neutral variant for the disk-name identification tooltip
-   ("MODEL_SERIAL - SIZE (sdX)", the same string Unraid's Main page shows).
-   Monospace to match the disk identifiers. */
+
 .dvt-tip--info {
   background: #1f2227;
   border: 1px solid var(--dvt-border-strong);
@@ -356,16 +311,11 @@
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
   letter-spacing: .2px;
 }
-/* The name reads as inspectable: a help cursor when an identification exists. */
-.dvt-name[data-dvt-ident] { cursor: help; }
 
-/* Not-installed disk: a configured pool/array slot with no drive behind it.
-   The name is dimmed and a small "Not installed" label sits beside it, while
-   every metric column collapses to n/a. */
+.dvt-name[data-dvt-ident] { cursor: default; }
+
 .dvt-name--missing { color: var(--dvt-text-dim); }
 
-/* Header subtitle: amber "- N Not installed" suffix shown next to the total
-   device count when one or more configured disks are missing. */
 .dvt-sub-missing { color: var(--dvt-warn-text); }
 
 .dvt-missing-label {
@@ -377,7 +327,6 @@
   white-space: nowrap;
 }
 
-/* Not-yet-wired placeholder columns */
 .dvt-ph { color: var(--dvt-text-muted); }
 .dvt-na {
   color: var(--dvt-text-muted);
@@ -388,21 +337,16 @@
 .dvt-scrub-today { font-size: .85em; }
 .dvt-scrub-date  { font-size: .85em; }
 
-/* Three-tier disk-row font size. The wrapper carries one of these and
-   sets --dvt-fs, scaling the table's data cells by ~5% per step around
-   the default. Column headers (thead th) stay fixed. */
 .dvt-font-small   { --dvt-fs: 0.92; }
 .dvt-font-default { --dvt-fs: 1; }
 .dvt-font-large   { --dvt-fs: 1.08; }
 
 .dvt-tbl {
   width: 100%;
-  /* separate (not collapse) so position:sticky works on <th>. A collapsed
-     table ignores sticky headers in WebKit and older Chrome. Spacing 0 keeps
-     the look identical, since cells only carry a bottom border. */
+
   border-collapse: separate;
   border-spacing: 0;
-  /* Three-tier scaling: the wrapper sets --dvt-fs (small/default/large). */
+
   font-size: calc(1.2rem * var(--dvt-fs, 1));
   table-layout: fixed;
 }
@@ -414,25 +358,14 @@
   text-transform: uppercase;
   color: var(--dvt-text-dim);
   padding: .45rem .6rem;
-  /* The real thead stays in normal flow. Pinning is done by a JS-built fixed
-     clone (.dvt-fixed-thead) appended to <body>, because CSS position:sticky
-     is unreliable here: an ancestor in Unraid's layout establishes a scroll /
-     overflow context that traps sticky so the header never pins to the
-     viewport. Solid background + box-shadow divider so the clone matches. */
+
   background: var(--dvt-surface);
   box-shadow: inset 0 -1px 0 var(--dvt-border);
 }
-/* Numeric / centred headers must match the alignment of their cells, or the
-   label sits at the opposite edge of the column from the value. */
+
 .dvt-tbl thead th.dvt-tbl__num { text-align: right; }
 .dvt-tbl thead th.dvt-tbl__ctr { text-align: center; }
 
-/* Fixed clone of the column header. Built in JS and appended to <body> so it
-   escapes any overflow ancestor that would trap a CSS sticky element. The wrap
-   is positioned (top/left/width) inline by syncFixedThead(); we only give it
-   the floating chrome here. It carries the same dvt-tbl/dvt-tbl--wide classes
-   as the real table so columns line up; the wrap may also carry dvt-light /
-   dvt-font-small so theme + font-size match. */
 .dvt-fixed-thead-wrap {
   box-sizing: border-box;
   overflow: hidden;
@@ -446,9 +379,9 @@
 }
 .dvt-fixed-thead tbody { display: none; }
 .dvt-fixed-thead thead th {
-  /* drop shadow under the floating bar so it reads as detached from the rows */
+
   box-shadow: inset 0 -1px 0 var(--dvt-border), 0 4px 8px rgba(0,0,0,.28);
-  /* When pinned, the bar grows ~20%: larger field height + proportional font. */
+
   font-size: 1.32rem !important;
   padding-top: .56rem !important;
   padding-bottom: .56rem !important;
@@ -472,12 +405,9 @@
 }
 .dvt-tbl tbody td.dvt-tbl__num { font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas; }
 
-/* Give the last column breathing room from the table's right edge. */
 .dvt-tbl tbody td:last-child,
 .dvt-tbl thead th:last-child { padding-right: .9rem; }
 
-/* USED composite cell - percent (severity coloured) + optional bytes + mini
-   progress bar, ported from the widget. */
 .dvt-col-used { display: flex; flex-direction: column; gap: 3px; line-height: 1.1; overflow: hidden; padding-left: 26px; }
 .dvt-col-used--na { padding-left: 0; align-items: center; justify-content: center; }
 .dvt-col-used-line { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
@@ -493,11 +423,9 @@
 .dvt-col-used-pct--warn { color: var(--dvt-warn); }
 .dvt-col-used-pct--crit { color: var(--dvt-crit); }
 
-/* Age/Hours column: two stacked lines, years on top (primary) and total
-   power-on hours below (smaller and dimmer). Fonts are reduced so both lines
-   fit within the normal row height. */
 .dvt-col-age { font-size: .9em; white-space: nowrap; }
 .dvt-col-bar { height: 4px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+/* light theme overrides */
 .dvt-light .dvt-col-bar { background: rgba(0,0,0,.10); }
 .dvt-col-bar--empty { background: transparent; }
 .dvt-bar-fill { height: 100%; transition: width .3s ease; border-radius: 2px; }
@@ -505,7 +433,6 @@
 .dvt-bar-fill--warn { background: var(--dvt-warn); }
 .dvt-bar-fill--crit { background: var(--dvt-crit); }
 
-/* Section divider row inside the single table */
 .dvt-sec-row__inner {
   display: flex;
   align-items: center;
@@ -523,19 +450,12 @@
   background: transparent !important;
 }
 
-/* Zebra is applied per-section in JS (class, not :nth-child) so the section
-   divider rows and the ARRAY/CACHE/POOL summary rows are excluded and only the
-   member rows of pool sections alternate - matching the widget. The summary
-   fill below wins via !important so a summary row never reads as a zebra row. */
 .dvt-tbl__row.dvt-zebra-even td { background: rgba(255,255,255,.025); }
 .dvt-tbl__row--summary td { background: var(--dvt-bg-summary) !important; font-weight: 600; }
 .dvt-tbl__row--boot td { background: var(--dvt-bg-summary) !important; }
 .dvt-tbl__row--member td  { background: color-mix(in srgb, var(--dvt-member) 10%, transparent); color: var(--dvt-text-mid); }
 .dvt-tbl__name { font-weight: 500; }
 
-/* Missing-disk row: let the name cell overflow its fixed-width column so the
-   "Not installed" label shows in full across the (now-blank) metric columns,
-   instead of being clipped with an ellipsis. */
 .dvt-tbl__row--missing .dvt-tbl__name {
   overflow: visible;
   text-overflow: clip;
@@ -545,21 +465,15 @@
 
 .dvt-light .dvt-tbl__row.dvt-zebra-even td { background: rgba(0,0,0,.025); }
 
-/* Severity text colours */
 .dvt-ok   { color: var(--dvt-ok-text); }
 .dvt-warn { color: var(--dvt-warn-text); }
 .dvt-crit { color: var(--dvt-crit-text); }
 
-/* Column-header tinting by worst state (Temp / Health / Errors), like the
-   widget. Overrides the default dim header colour. */
 .dvt-tbl thead th.dvt-hd--warn { color: var(--dvt-warn-text) !important; }
 .dvt-tbl thead th.dvt-hd--crit { color: var(--dvt-crit-text) !important; }
 
-/* Summary-row indicator icon (the stack glyph left of ARRAY / CACHE / POOL)
-   is enlarged so it reads clearly as the section aggregate. */
 .dvt-tbl__row--summary .dvt-bolt svg { width: 18px; height: 18px; }
 
-/* Health status dot (legacy; the Health column now uses the thumb hand) */
 .dvt-dot {
   display: inline-block;
   width: 9px;
@@ -572,7 +486,6 @@
 .dvt-dot--crit { background: var(--dvt-crit); }
 .dvt-dot--na   { background: var(--dvt-text-muted); }
 
-/* FS pill - same blue chip as the widget. */
 .dvt-fs-pill {
   display: inline-block;
   font-size: 8px;
@@ -589,8 +502,9 @@
   background: rgba(21,101,192,.10);
   color: #1565c0;
 }
+.dvt-pwr { color: #6bb3ff; }
+.dvt-light .dvt-pwr { color: #1565c0; }
 
-/* Health thumb (SMART) - hand icon, mirrors the widget. Down = critical. */
 .dvt-thumb {
   display: inline-flex;
   align-items: center;
@@ -612,8 +526,6 @@
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 
-/* Per-disk settings gear (S column). Aggressive resets so Unraid's global
-   anchor/button styling does not bleed through. */
 .dvt-gear {
   display: inline-flex !important;
   align-items: center !important;
@@ -631,9 +543,6 @@
 .dvt-gear:hover { color: var(--dvt-text); }
 .dvt-gear svg { width: 14px; height: 14px; }
 
-/* ── 8. DISKS TAB (sidebar + detail) ───────────────────────────────────
-   Master-detail: a scrollable disk list on the left, full per-disk detail on
-   the right. Markup + styling land in the Tab 2 iteration. */
 .dvt-disks-layout {
   display: grid;
   grid-template-columns: 220px 1fr;
@@ -643,12 +552,10 @@
   .dvt-disks-layout { grid-template-columns: 1fr; }
 }
 
-/* ── 9. RESPONSIVE ─────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .dvt-header__right { align-items: flex-start; }
 }
 
-/* ── 10. LIGHT THEME OVERRIDES ─────────────────────────────────────────── */
 .dvt-light {
   --dvt-bg:            #f5f5f5;
   --dvt-surface:       #ffffff;
@@ -667,17 +574,14 @@
   --dvt-warn-text:     #b35e00;
   --dvt-crit-text:     #c62828;
 }
-/* Azure: cool-tint the shared light base so the page reads as part of the
-   blue azure desktop instead of a stark white panel. Applied together with
-   .dvt-light, so it only needs to nudge the surfaces and the accent. */
+
 .dvt-theme-azure {
   --dvt-bg:       #eef3f8;
   --dvt-surface:  #f9fbfd;
   --dvt-surface2: #eef3f8;
   --dvt-member:   #1565c0;
 }
-/* Gray: lift the near-black dark base to medium-dark surfaces so the tool
-   sits on Unraid's gray desktop instead of looking like a black island. */
+
 .dvt-theme-gray {
   --dvt-bg:            #262626;
   --dvt-surface:       #2e2e2e;

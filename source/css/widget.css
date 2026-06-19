@@ -1,62 +1,10 @@
 /* ============================================================================
-   DISK VIEWER  -  Widget Stylesheet
-   /plugins/diskviewer/css/widget.css
-
+   DISK VIEWER
    Copyright (C) 2026 Lazaros Chalkidis
    License: GPLv3
-
-   Section ordering follows the rendering order of the widget itself: tokens
-   first, then the wrapper, header, badges, body, sections, rows, cells,
-   drag handle, empty state, and finally responsive overrides at the bottom.
-   Each section is delimited by a banner comment so jumping between them
-   in an editor is fast (search for the section number).
    ========================================================================= */
 
-/* ==============================================================================
-   1. CSS Custom Properties
-   ============================================================================== */
-
-/* ==========================================================================
-   DISK VIEWER - Widget Styles
-   Copyright (C) 2026 Lazaros Chalkidis
-   License: GPLv3
-   /plugins/diskviewer/css/widget.css
-
-   SECTIONS
-    1. CSS Custom Properties
-    2. Widget wrapper
-    3. Header (responsive 7.2+)
-    4. Header (legacy)
-    5. Subtitle and critical badge
-    6. Body
-    7. Section headers
-    8. Tile grid
-    9. Tile internals (name, gear, value, temp, heart, fill)
-   10. Drag handle
-   11. Empty state
-   12. Light theme overrides
-   ========================================================================== */
-
-/* TABLE OF CONTENTS:
-      1. FOUNDATION — variables, themes
-      2. WRAPPER
-      3. HEADER & DEVICE COUNT BADGE
-      4. BODY & SCROLL HINT
-      5. SECTION HEADERS & BULK ACTIONS
-      6. DATA DISPLAY — column header, rows, cells, bars
-      7. BOLT BUTTON (per-row spin control)
-      8. DRAG HANDLE
-      9. REFRESH BUTTON
-     10. EMPTY STATE
-     11. RESPONSIVE — media queries
-   ──────────────────────────────────────────────────────────────────────── */
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   1. FOUNDATION — variables, themes
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 1. CSS CUSTOM PROPERTIES ─────────────────────────────────────────────── */
+/* colours and tokens */
 :root {
   --dv-c-text:          rgba(255,255,255,.87);
   --dv-c-text-mid:      rgba(255,255,255,.65);
@@ -83,18 +31,11 @@
 
   --dv-member:          #42a5f5;
 
-  /* Zebra row colours for combined CACHE / POOL sections. Lightened so the
-     striping reads softer: the base is less black and the alternate is a
-     fainter grey. Solid tokens (not live overlays) so the contrast is
-     independent of whatever sits behind the widget.
-
-     PREVIOUS VALUES (revert here if needed):
-       zebra.png step:  odd #1a1a1a / even #1f1f1f
-       original:        odd #1e1e1e / even #1a1a1a */
   --dv-row-odd:         #232323;
   --dv-row-even:        #2b2b2b;
 }
 
+/* light themes (white, azure) */
 .dv-light {
   --dv-c-text:          rgba(0,0,0,.85);
   --dv-c-text-mid:      rgba(0,0,0,.60);
@@ -116,41 +57,10 @@
 
   --dv-member:          #1976d2;
 
-  /* Zebra (light). From zebra.png: odd rows are the panel base
-     (#fafafa), even rows get rgba(0,0,0,.025) overlay resolving to
-     roughly #f3f3f3.
-     PREVIOUS VALUES (revert here if needed):
-       --dv-row-odd:  #f0f1f3;
-       --dv-row-even: #fafbfc; */
   --dv-row-odd:         #fafafa;
   --dv-row-even:        #f3f3f3;
 }
 
-
-/* ==============================================================================
-   2. Per-Theme Tuning
-   ============================================================================== */
-
-/* ── PER-THEME TUNING ─────────────────────────────────────────────────────
-   Unraid ships four official themes. The :root block above and the
-   .dv-light block above it cover the two extremes (pure dark and pure
-   light). Black and white themes inherit those directly; azure and gray
-   need additional tuning, applied here.
-
-   The PHP layer attaches dv-theme-{name} to the widget wrapper for all
-   four themes, plus dv-light for white/azure (preserving the legacy
-   two-state CSS without churn). So the rule order is:
-     1. :root defaults                       (black, default)
-     2. .dv-light overrides                  (white + azure shared light base)
-     3. .dv-theme-azure tweaks the .dv-light base toward cool/azure
-     4. .dv-theme-gray overrides :root with medium-dark surfaces
-   ──────────────────────────────────────────────────────────────────────── */
-
-/* Azure: light theme with cool blue accents. Inherits .dv-light first.
-   Sticky column header takes a faint azure tint so the widget reads as
-   "in the same family" as the Azure theme background instead of looking
-   like a plain white widget pasted on a blue page. The member highlight
-   shifts slightly bluer to harmonise with the cooler palette. */
 .dv-theme-azure {
   --dv-c-bg-sticky:     #eef3f8;
   --dv-member:          #1565c0;
@@ -159,13 +69,6 @@
   --dv-row-even:        #f9fbfd;
 }
 
-/* Gray: medium-dark theme. The Unraid Gray theme has a system background
-   in the #3b3b3b range, somewhere between the pure black bg of the Dark
-   theme and the off-white of the Light theme. The default :root values
-   are tuned for pure black and look like a darker island stamped on the
-   gray desktop. Lifting solid-coloured surfaces (the sticky column header)
-   and warming up the text/border tones a notch keeps the widget visually
-   embedded rather than floating. */
 .dv-theme-gray {
   --dv-c-text:          rgba(255,255,255,.92);
   --dv-c-text-mid:      rgba(255,255,255,.70);
@@ -185,44 +88,17 @@
   --dv-row-even:        #2a2a2a;
 }
 
-
-/* ==============================================================================
-   3. Widget Wrapper
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   2. WRAPPER
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 2. WIDGET WRAPPER ─────────────────────────────────────────────────── */
+/* widget shell */
 .dv-widget-wrap {
   color: var(--dv-c-text);
   font-size: 13px;
   line-height: 1.3;
-  /* CSS containment lets the browser skip work outside the widget when
-     something inside it changes. `layout` means a child's size change won't
-     trigger a layout pass on the rest of the page (e.g. the dashboard
-     surrounding tiles), `paint` means painting outside the widget's box
-     can be skipped when only the widget needs repainting, `style` means
-     style invalidation stays scoped. The drag handle resizing the
-     container is the most frequent invalidator and the change it triggers
-     is purely internal to this widget, so containing it here is a
-     measurable win on busy dashboards with many tiles. */
+
   contain: layout paint style;
 }
 
 .dv-widget-wrap * { box-sizing: border-box; }
 
-
-/* ==============================================================================
-   4. Header (Responsive + Legacy)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   3. HEADER & DEVICE COUNT BADGE
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 3. HEADER (Unraid 7.2+ responsive) ───────────────────────────────── */
 .dv-header { align-items: flex-start; }
 
 .dv-header__left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -248,7 +124,6 @@
 
 .dv-header__controls { display: inline-flex; gap: 4px; align-items: center; }
 
-/* ── 4. HEADER (legacy / pre-7.2) ─────────────────────────────────────── */
 .dv-legacy-header {
   display: flex;
   justify-content: space-between;
@@ -272,21 +147,12 @@
 
 .dv-legacy-controls { display: inline-flex; gap: 4px; }
 
-
-/* ==============================================================================
-   5. Header Badges (Device Count, Settings Cog)
-   ============================================================================== */
-
-/* ── 5. HEADER META (device count badge - mirrors StreamViewer style) ── */
 .dv-header-meta {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-top: -16px;
-  /* Shifted ~11px further right (extra 0.7rem) to nudge the
-     "N Devices" subtitle one position past the title's leading edge.
-     The base 32px + 1rem aligned it under the logo; the extra 0.7rem
-     drops it under the title text instead. */
+
   padding-left: calc(32px + 1.7rem);
   max-width: 100%;
   box-sizing: border-box;
@@ -308,20 +174,8 @@
 
 .dv-badge-label { opacity: .6; }
 
-/* Amber "- N Not installed" suffix shown next to the total device count when
-   one or more configured disks are missing. */
 .dv-badge-missing { color: var(--dv-warn-text); }
 
-
-/* ==============================================================================
-   6. Body & Sections Container
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   4. BODY & SCROLL HINT
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 6. BODY ──────────────────────────────────────────────────────────── */
 .dv-body {
   padding: 4px 0 0;
   min-height: 0;
@@ -334,34 +188,21 @@
   overflow-x: hidden;
   min-height: 0;
   position: relative;
-  /* Hide native scrollbar across browsers. Scroll still works via mouse
-     wheel, keyboard, touch, and the drag handle that resizes the panel.
-     The dv-scroll-hint badge below provides discoverability when content
-     overflows. */
-  scrollbar-width: none;             /* Firefox */
-  -ms-overflow-style: none;          /* legacy Edge */
+
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-.dv-sections::-webkit-scrollbar {    /* Chromium / WebKit */
+.dv-sections::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
-   6. DATA DISPLAY — column header, rows, cells, bars
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 9. ROW LAYOUT ────────────────────────────────────────────────── */
 .dv-rows {
   display: flex;
   flex-direction: column;
 }
-
-
-/* ==============================================================================
-   7. Scroll Hint Tooltip
-   ============================================================================== */
 
 .dv-light .dv-scroll-hint {
   background: rgba(245,245,245,.95);
@@ -370,12 +211,6 @@
   box-shadow: 0 2px 6px rgba(0,0,0,.18);
 }
 
-/* ── Scroll hint badge ────────────────────────────────────────────────────
-   Tiny floating indicator that follows the cursor for 2 seconds when the
-   user enters a scrollable .dv-sections panel. Tells them content can be
-   scrolled (since the scrollbar itself is hidden). The element is created
-   and positioned by JS; CSS only owns appearance and the show/hide
-   transition. */
 .dv-scroll-hint {
   position: fixed;
   display: flex;
@@ -403,16 +238,7 @@
   display: block;
 }
 
-
-/* ==============================================================================
-   8. Section Headers (ARRAY / CACHE / POOL / etc.)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   5. SECTION HEADERS & BULK ACTIONS
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 7. SECTION HEADERS ──────────────────────────────────────────────── */
+/* sections: array / cache / pools / unassigned */
 .dv-section {
   padding: 2px 4px 0;
 }
@@ -432,17 +258,10 @@
 
 .dv-section-lbl { text-transform: uppercase; }
 
-/* Warning triangle in the section header - shown next to the label
-   when one or more disks in the section have a non-zero error count.
-   Uses the same --dv-warn palette as the rest of the warning UI for
-   visual consistency. Hosts an absolutely-positioned dv-row-toast
-   child that appears on hover, replacing the previous browser-native
-   title attribute with the same custom popup styling that the spin
-   buttons use. */
 .dv-section-ind {
   display: inline-flex;
   align-items: center;
-  cursor: help;
+  cursor: default;
   line-height: 0;
   position: relative;
   margin-left: 5px;
@@ -454,18 +273,12 @@
   display: block;
 }
 
-/* Per-axis colours. Errors always amber (matches the warning triangle
-   convention). Temp and health take warn/crit modifiers driven by the
-   worst affected disk in that section. */
 .dv-section-ind--err   { color: var(--dv-warn); }
 .dv-section-ind--warn  { color: var(--dv-warn); }
 .dv-section-ind--crit  { color: var(--dv-crit); }
 
-/* Critical temperature 10%+ over threshold: pulse the indicator every 2s to
-   draw the eye. Respects reduced-motion preferences. */
 @keyframes dv-ind-blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
-/* Pulse only the icon and count badge, not the whole indicator - otherwise the
-   hover tooltip (a child of the indicator) would blink along with it. */
+
 .dv-section-ind--blink > svg,
 .dv-section-ind--blink > .dv-section-ind-badge { animation: dv-ind-blink 2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
@@ -473,12 +286,8 @@
   .dv-section-ind--blink > .dv-section-ind-badge { animation: none; }
 }
 
-/* Health thumb points down (bad health). The base THUMB_SVG is the
-   thumbs-up shape reused from the H column; rotating 180deg flips it. */
 .dv-section-ind--health svg { transform: rotate(180deg); }
 
-/* Count next to the icon's top-right corner. No pill/circle - just the
-   number, coloured to match its icon for the severity. */
 .dv-section-ind-badge {
   position: absolute;
   top: -7px;
@@ -490,7 +299,6 @@
   letter-spacing: 0;
 }
 
-/* Per-severity number colour, matching the icon. */
 .dv-section-ind--err  .dv-section-ind-badge,
 .dv-section-ind--warn .dv-section-ind-badge {
   color: var(--dv-warn);
@@ -502,9 +310,6 @@
   display: block;
 }
 
-/* Toast positioning for section-header indicators. Floats ABOVE the
-   icon, matching the spin-button toast pattern. Padding stays wide so
-   long disk lists get breathing room. */
 .dv-section-ind .dv-row-toast {
   top: calc(100% + 6px);
   bottom: auto;
@@ -513,11 +318,6 @@
   z-index: 10;
 }
 
-/* (dv-section-count removed 2026.05.24: count is now part of the
-   section label text "LABEL · DEVICES N · RAID X", composed in JS.) */
-
-/* Bulk action group on the right side of a section header (POOL only).
-   Mirrors the Aegis-style compact action button look. */
 .dv-section-actions {
   margin-left: auto;
   display: inline-flex;
@@ -526,20 +326,12 @@
   position: relative;
 }
 
-/* Hover toast for the bulk-spin buttons. Reuses the .dv-row-toast color
-   scheme but is repositioned to sit above the buttons inside the section
-   header. z-index 4 keeps it above the sticky column header (z-index 3). */
 .dv-section-actions .dv-row-toast {
   top: -28px;
   left: auto;
   right: 0;
   z-index: 4;
 }
-
-
-/* ==============================================================================
-   9. Bulk Spin Buttons (POOL section header)
-   ============================================================================== */
 
 .dv-bulk-spin {
   display: inline-flex !important;
@@ -598,32 +390,30 @@
   cursor: wait !important;
 }
 
-
-/* ==============================================================================
-   10. Column Header Row (DISK SIZE FREE USED ...)
-   ============================================================================== */
-
-/* Column grid shared by colhd + rows (9 columns).
-   Slot 5 is the composite USED cell: contains the percent line on top
-   (with optional bytes inline when SHOW_USED_COLUMN is on) and the
-   mini progress bar stacked below it. The cell takes the combined
-   width of what used to be two separate slots (% column + mini-bar). */
 .dv-colhd,
 .dv-row {
   display: grid;
   grid-template-columns:
-    26px                      /* bolt        */
-    minmax(110px, 1.4fr)      /* name        */
-    62px                      /* size        */
-    72px                      /* free        */
-    minmax(82px, 1.6fr)       /* used (pct + bytes + bar) */
-    68px                      /* speed       */
-    38px                      /* temp        */
-    19px                      /* thumb       */
-    21px;                     /* gear        */
+    26px
+    minmax(110px, 1.4fr)
+    62px
+    72px
+    minmax(82px, 1.6fr)
+    68px
+    38px
+    19px
+    21px;
   gap: 8px;
   align-items: center;
 }
+
+/* nvme power monitoring on: widen the temp column to fit "9.00 W / 42 C" */
+.dv-show-power .dv-colhd,
+.dv-show-power .dv-row {
+  grid-template-columns:
+    26px minmax(110px, 1.4fr) 62px 72px minmax(82px, 1.6fr) 68px 88px 19px 21px;
+}
+.dv-col-pwr { color: var(--dv-c-text-faint); }
 
 .dv-colhd {
   padding: 4px 6px 3px;
@@ -642,7 +432,7 @@
 
 .dv-colhd > span { white-space: nowrap; }
 
-.dv-colhd-used     { text-align: left; }
+.dv-colhd-used     { text-align: center; }
 
 .dv-colhd-speed    { text-align: right; }
 
@@ -652,16 +442,6 @@
 
 .dv-colhd-settings { text-align: center; opacity: .7; }
 
-/* Severity-driven coloring for the three "stateful" column headers.
-   When any tile under a column is in warning or critical state, the
-   header lights up using the same amber/red tokens the row cells use.
-   On the ok state all three stay neutral grey - a green H affirmation
-   was tried but pulled the eye away from real warnings, and users
-   expect coloured text to mean "look here". `opacity: 1` overrides the
-   .7 dim baked into health (and would also apply to settings if it
-   ever needed this). `font-weight: 600` lifts the lit-up header above
-   the neutral siblings since the small caps colhd font (10px) loses
-   some legibility at lower opacity. */
 .dv-colhd-used--warn,
 .dv-colhd-temp--warn,
 .dv-colhd-health--warn {
@@ -678,11 +458,6 @@
   font-weight: 600 !important;
 }
 
-
-/* ==============================================================================
-   11. Row Layout
-   ============================================================================== */
-
 .dv-row {
   padding: 5px 6px;
   font-size: calc(10.4px * var(--dv-fs, 1.05));
@@ -695,15 +470,13 @@
 
 .dv-row:hover { background: var(--dv-c-bg); }
 
+/* row states */
 .dv-row--summary,
 .dv-row--boot { background: var(--dv-c-bg-summary); }
 
 .dv-row--summary:hover,
 .dv-row--boot:hover { background: var(--dv-c-bg-summary); }
 
-/* Filesystem chip next to summary tile name. Small, muted blue, fits
-   between letters of the table without throwing alignment off. Skipped
-   entirely when the tile has no FS value (renderRow guards on row.fs). */
 .dv-fs-pill {
   display: inline-block;
   font-size: 9px;
@@ -720,10 +493,6 @@
   vertical-align: 1px;
 }
 
-/* Light-theme variant. The default light-blue text (#6bb3ff) is meant
-   to pop on dark surfaces but washes out against white or azure
-   backgrounds. Switch to a deeper blue here, matching the rest of the
-   light palette's accent tone. */
 .dv-light .dv-fs-pill {
   background: rgba(21,101,192,.10);
   color: #1565c0;
@@ -736,27 +505,10 @@
 
 .dv-row--member { background: color-mix(in srgb, var(--dv-member)  10%, transparent); }
 
-/* Multi-disk pool members (and ARRAY members) keep their member-blue
-   colour on hover - the user wanted a stable look for RAID members so
-   they read as a coherent group, not as interactive list items. */
 .dv-row--member:hover {
   background: color-mix(in srgb, var(--dv-member) 10%, transparent);
 }
 
-/* Combined single-disk sections (cache and pool) - rows alternate
-   between two shades for a table-like zebra pattern, locked on hover.
-   The id selectors match the section ids the server emits: 'cache' for
-   the combined single-disk cache pool section, 'pool' for the combined
-   non-cache pool section. Multi-disk pool sections use 'pool_<name>'
-   ids and are NOT included here - those keep the summary + member-blue
-   pattern.
-
-   Colours come from --dv-row-odd / --dv-row-even theme tokens, the
-   same values the settings page zebra uses. Solid surface colours
-   rather than alpha overlays so contrast is consistent regardless of
-   what's behind the widget. Severity colour classes (.dv-row--warn /
-   --crit) override these when the disk crosses warning/critical AND
-   the user has the "Highlight critical pool disks" toggle enabled. */
 .dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(odd),
 .dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(odd) {
   background: var(--dv-row-odd);
@@ -774,14 +526,6 @@
   background: var(--dv-row-even);
 }
 
-/* Pool severity highlight override - when the container carries
-   .dv-pool-highlight (toggled by the JS based on POOL_HIGHLIGHT_USED),
-   rows that crossed warning or critical paint with the severity
-   colour over the zebra. Specificity here is higher than the zebra
-   rule above (extra .dv-pool-highlight ancestor + .dv-row--warn class
-   instead of :nth-child), so the warn/crit fill wins. Without the
-   class on the container, these rules don't match and the zebra
-   stays clean. */
 .dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--warn,
 .dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--warn,
 .dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--warn:hover,
@@ -795,9 +539,6 @@
   background: color-mix(in srgb, var(--dv-crit) 14%, transparent);
 }
 
-/* Kill any ambient outline/button styling from the Unraid dashboard wrapper.
-   Some Unraid versions auto-decorate spans that look like disk names with
-   an orange click-affordance outline, which conflicts with our own layout. */
 .dv-row,
 .dv-row * {
   outline: none !important;
@@ -813,8 +554,6 @@
 
 .dv-row button::-moz-focus-inner { border: 0 !important; }
 
-/* Scale SVG icons inside rows by ~20% (override JS hardcoded width/height
-   without touching the markup). Applies to bolt, gear, thumb. */
 .dv-row .dv-bolt svg,
 .dv-row .dv-col-gear svg,
 .dv-row .dv-thumb svg {
@@ -822,19 +561,12 @@
   height: 13px !important;
 }
 
-
-/* ==============================================================================
-   12. Row Toast (bolt hover label)
-   ============================================================================== */
-
-/* Spin-button hover toast */
+/* hover toast, per-disk issue rows */
 .dv-row-toast {
   display: none;
   position: absolute;
   top: -32px;
-  /* Start at the bolt and extend right (was centred further in at 28px). The
-     9px left padding lands the text on the bolt icon's left edge, matching the
-     Tool page's left-aligned spin tooltip. */
+
   left: 0;
   padding: 5px 9px;
   font-size: 10px;
@@ -852,8 +584,6 @@
   display: block;
   font-weight: 700;
   margin-bottom: 7px;
-  padding-bottom: 5px;
-  border-bottom: 1px solid rgba(255,255,255,.18);
   opacity: .95;
 }
 .dv-row-toast .dv-toast-item {
@@ -879,11 +609,6 @@
   color: var(--dv-warn-text);
 }
 
-
-/* Disk-name identification tooltip ("MODEL_SERIAL - SIZE (sdX)", the same
-   string Unraid's Main page shows). A neutral, fixed-positioned tip appended
-   to <body> so it escapes the section scroll overflow. Monospace to match the
-   disk-name column, mirroring the Tool page's .dvt-tip. */
 .dv-tip {
   position: fixed;
   padding: 5px 9px;
@@ -902,12 +627,9 @@
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
   letter-spacing: .2px;
 }
-/* The name reads as inspectable: a help cursor when an identification exists. */
-.dv-name[data-dv-ident] { cursor: help; }
 
-/* Not-installed disk: a configured array/pool slot with no drive behind it.
-   The name is dimmed and a small "Not installed" label sits beside it, while
-   every metric column collapses to a dash. */
+.dv-name[data-dv-ident] { cursor: default; }
+
 .dv-name--missing { color: var(--dv-c-text-muted); }
 .dv-missing-label {
   margin-left: 14px;
@@ -918,21 +640,7 @@
   white-space: nowrap;
 }
 
-
-/* ==============================================================================
-   13. Bolt Button (per-row spin control)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   7. BOLT BUTTON (per-row spin control)
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* Unified bolt (state + optional action)
-   IMPORTANT: Unraid has a global rule in default-base.css:184 that styles
-   every <button> element with min-width:86px, padding:8px, margin, border,
-   font-family:clear-sans and text-transform:uppercase. That would turn our
-   small icon button into a large UPPERCASE button and push every other
-   column to the right. We override all of those here. */
+/* spin button */
 .dv-bolt {
   display: inline-flex !important;
   align-items: center !important;
@@ -979,11 +687,6 @@
 
 .dv-bolt--busy { opacity: .5 !important; cursor: wait !important; }
 
-
-/* ==============================================================================
-   14. Row Cells (size / free / used / bar / speed / temp / health / gear)
-   ============================================================================== */
-
 .dv-col-bolt {
   display: inline-flex;
   align-items: center;
@@ -1002,9 +705,6 @@
   text-overflow: ellipsis;
 }
 
-/* Not-installed row: let the name cell overflow its track so the
-   "Not installed" label shows in full across the (blank) metric columns,
-   instead of being clipped with an ellipsis. */
 .dv-col-name--missing {
   overflow: visible;
   text-overflow: clip;
@@ -1024,14 +724,6 @@
 
 .dv-col-free { color: var(--dv-c-text); padding-right: 10px; }
 
-/* USED composite cell. Single grid slot holding the percent + optional
-   bytes on the top line, with the mini progress bar stacked beneath.
-   The text line is a flex row with space-between so bytes hug the left
-   and the percent hugs the right - mirrors the visual rhythm of the
-   adjacent SIZE / FREE columns where the value sits at the column edge.
-   When the Show used column toggle is off, only the percent renders on
-   the top line; visually it still sits at the right edge thanks to the
-   space-between, matching the legacy position. */
 .dv-col-used {
   display: flex;
   flex-direction: column;
@@ -1071,8 +763,6 @@
 .dv-col-used-pct--warn { color: var(--dv-warn-text); }
 .dv-col-used-pct--crit { color: var(--dv-crit-text); }
 
-/* Mini progress bar - now nested inside .dv-col-used rather than a
-   standalone grid slot. Visual rules unchanged. */
 .dv-col-bar {
   height: 4px;
   background: var(--dv-c-bg-track);
@@ -1111,12 +801,6 @@
   line-height: 14px;
 }
 
-/* Speed arrows match the rest of the inline icons in the widget at 13px,
-   sized via CSS so any caller using the same ARROW_UP / ARROW_DOWN
-   constants outside the speed column keeps the original 12px from the
-   SVG width attribute. The 13px size is the sweet spot from 12px (too
-   thin to read) and 16px (overflowed the column and bumped row height
-   on every speed tick). */
 .dv-col-speed svg {
   width: 13px;
   height: 13px;
@@ -1129,9 +813,6 @@
 }
 .dv-col-speed-num { line-height: 14px; }
 
-/* Direction-specific arrow colour: green for reads, red for writes.
-   Default rule below acts as a fallback for older markup that lacks
-   the modifier class. */
 .dv-col-speed svg              { color: var(--dv-ok); }
 
 .dv-col-speed--r svg           { color: var(--dv-ok); }
@@ -1143,8 +824,10 @@
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
   font-size: calc(9.6px * var(--dv-fs, 1.05));
   letter-spacing: .02em;
+  white-space: nowrap;
 }
 
+/* temp colours */
 .dv-temp-ok   { color: var(--dv-ok-text); }
 
 .dv-temp-warn { color: var(--dv-warn-text); }
@@ -1153,13 +836,6 @@
 
 .dv-temp-na   { color: var(--dv-c-text-faint); }
 
-/* ──────────────────────────────────────────────────────────────────────
-   Three-tier disk-row font size. The per-cell sizes above are written as
-   calc(base * var(--dv-fs)); the wrapper carries one of the classes below
-   and sets --dv-fs, shifting every data cell by ~5% per step. Default is
-   ~5% larger than the old compact size; Small is ~5% under Default and
-   Large ~5% over. Only the data cells scale - the column headers
-   (.dv-colhd) and section labels (.dv-section-lbl) keep their sizes. */
 .dv-font-small   { --dv-fs: 1.00; }
 .dv-font-default { --dv-fs: 1.05; }
 .dv-font-large   { --dv-fs: 1.10; }
@@ -1186,7 +862,6 @@
 
 .dv-thumb--na   { color: var(--dv-c-text-faint); }
 
-/* Also override default-base styling on the gear link (a.button pattern) */
 .dv-col-gear {
   display: inline-flex !important;
   align-items: center !important;
@@ -1213,38 +888,16 @@
   text-decoration: none !important;
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
-   9. REFRESH BUTTON
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* Refresh button busy state: hourglass swap + suppress hover/click while
-   the request is in flight so users get clear feedback. */
 #dv-manual-refresh.dv-busy {
   pointer-events: none;
   opacity: .6;
 }
 
-
-/* ==============================================================================
-   15. Drag Handle (resize footer)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   8. DRAG HANDLE
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 10. DRAG HANDLE ─────────────────────────────────────────────────── */
 .dv-drag-handle {
   display: flex;
   justify-content: center;
   align-items: center;
-  /* 8px on top gives the grip breathing room from the last data row;
-     1px on bottom keeps the internal handle padding minimal. The
-     widget's tile container (Unraid <td> in legacy layout, <section>
-     in responsive layout) provides whatever footer space Unraid gives
-     every other widget - we don't fight it, matching Logs Viewer and
-     every other dashboard plugin. The total visible footer space is
-     therefore identical to other tiles on the same dashboard. */
+
   padding: 8px 0 1px;
   cursor: ns-resize;
   user-select: none;
@@ -1269,12 +922,7 @@
 
 .dv-drag-handle--active .dv-drag-grip {
   background: var(--dv-c-bg);
-  /* During an active drag we mutate the widget's container max-height
-     ~60 times per second (rAF-throttled). will-change tells the browser
-     to promote the grip to its own composite layer so the per-frame
-     style change here doesn't repaint the surrounding rows. The hint
-     is scoped to the --active state so we don't keep an idle layer
-     pinned in memory when the user isn't dragging. */
+
   will-change: background;
 }
 
@@ -1295,16 +943,6 @@
   background: var(--dv-c-text-mid);
 }
 
-
-/* ==============================================================================
-   16. Empty State
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   10. EMPTY STATE
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 11. EMPTY STATE ─────────────────────────────────────────────────── */
 .dv-empty-state {
   padding: 20px 14px;
   text-align: center;
@@ -1312,30 +950,10 @@
   font-size: 12px;
 }
 
-
-/* ==============================================================================
-   17. Responsive Breakpoints
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   11. RESPONSIVE — media queries
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── 12. RESPONSIVE TWEAKS ─────────────────────────────────────────────────
-   Layered breakpoints for the widget:
-     - 1024px: tablet landscape - widget gets a touch-friendly column drop
-     - 720px:  tablet portrait - drop SPEED column to free space
-     - 560px:  large phones    - drop TEMP and the mini progress bar
-     - 420px:  small phones    - drop FREE/H/gear, keep core columns only
-   The grid template columns are recomputed at each breakpoint to match
-   the surviving columns, otherwise the dropped columns leave gap holes
-   in the layout that misalign the row contents.
-   ──────────────────────────────────────────────────────────────────────── */
+/* responsive */
 @media (max-width: 1024px) {
   .dv-header-meta { flex-wrap: wrap; }
-  /* Slightly larger tap targets even before we hit phone widths, since
-     1024px-and-down is where touch-only devices (iPad, Galaxy Tab) typically
-     land. */
+
   .dv-row { padding: 6px 6px; }
 }
 
@@ -1345,6 +963,11 @@
   .dv-row {
     grid-template-columns:
       22px minmax(80px, 110px) 60px 60px minmax(82px, 1fr) 38px 16px 18px;
+  }
+  .dv-show-power .dv-colhd,
+  .dv-show-power .dv-row {
+    grid-template-columns:
+      22px minmax(80px, 110px) 60px 60px minmax(82px, 1fr) 88px 16px 18px;
   }
   .dv-colhd-speed,
   .dv-col-speed-wrap { display: none; }
@@ -1358,7 +981,7 @@
   }
   .dv-colhd-temp,
   .dv-col-temp { display: none; }
-  /* Smaller font in headers and rows reclaims a few horizontal pixels. */
+
   .dv-colhd { font-size: 9px; }
   .dv-row   { font-size: 12px; }
 }
@@ -1374,23 +997,10 @@
   .dv-col-gear,
   .dv-colhd-free,
   .dv-colhd-health { display: none; }
-  /* Tighten the inner padding of the section header rows so the disk list
-     gets every available pixel on small phones. */
+
   .dv-section-hd { padding: 5px 4px 3px; }
 }
 
-
-/* ==============================================================================
-   18. Touch Input Tuning
-   ============================================================================== */
-
-/* Touch-input devices regardless of screen size. Bumps interactive
-   element hit areas to ~32px-36px (still smaller than the 44px Apple HIG
-   recommends, but the disk widget is intentionally compact and bigger
-   targets would push the row count too far down; this is a compromise
-   that keeps density while reliably tappable on iOS/Android). The selectors
-   match across mouse + touch hybrid devices (Surface, iPad with mouse) so
-   the bigger targets only kick in when the primary input is a finger. */
 @media (hover: none) and (pointer: coarse) {
   .dv-bolt {
     padding: 5px 7px !important;
@@ -1408,8 +1018,7 @@
   .dv-thumb {
     padding: 4px;
   }
-  /* Drag handle: thicker hit area + thicker visual bar so it shows up under
-     a finger without the user having to hunt for it. */
+
   .dv-drag-handle {
     padding: 12px 0 14px;
   }
@@ -1421,16 +1030,13 @@
   .dv-drag-grip {
     padding: 4px 36px;
   }
-  /* Bulk-spin buttons in section headers (POOL bulk control). Bigger tap
-     target without inflating the visible chrome too much. */
+
   .dv-bulk-spin {
     padding: 5px 8px !important;
   }
-  /* Settings cog in the widget header - same touch bump. */
+
   #dv-settings-icon {
     padding: 6px;
     margin: -6px;
   }
 }
-
-

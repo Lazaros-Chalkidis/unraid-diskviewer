@@ -1,6 +1,20 @@
 
 # Disk Viewer
 
+## Version 2026.06.19
+
+### Fixed
+- The settings gear has been removed from the summary rows (Array, Cache, Pool and Boot). Those rows are totals, not a single disk, so the gear only opened a blank settings page. The gear stays on the real disk rows.
+
+### New Features
+- NVMe drives now show their power draw in watts next to the temperature, on both the widget and the Tool page, the same as Unraid's own display. It follows Unraid's "Enable NVME power monitoring" setting under Settings, Disk Settings, and drives that report no draw stay blank.
+- The Boot Device section now also covers a dedicated internal boot pool, whether a single drive or a RAID pool, not just the USB flash drive. The Boot device Display setting still controls whether it appears, separately for the widget and the Tool page.
+
+### Improvements
+- On the widget, the disk columns now match the Tool page: cells that do not apply to a row stay blank instead of showing a dash (for example free and used space on parity and pool member rows), and a disk with no activity reads "idle" or "sleep" in the Speed and Temperature columns instead of a dash.
+- The Used column title on the widget is now centred over its column, like the Tool page.
+- Hovering a disk name, or the temperature, error and health icons, no longer shows a question-mark cursor, and the divider line inside those tooltips has been removed.
+
 ## Version 2026.06.16
 
 ### Fixed

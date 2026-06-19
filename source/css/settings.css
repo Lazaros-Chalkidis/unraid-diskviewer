@@ -1,48 +1,10 @@
 /* ============================================================================
-   DISK VIEWER  -  Settings Page Stylesheet
-   /plugins/diskviewer/css/settings.css
-
+   DISK VIEWER
    Copyright (C) 2026 Lazaros Chalkidis
    License: GPLv3
-
-   Visual language follows the StreamViewer settings page convention so the
-   plugin family reads as a single design system. Section ordering tracks
-   the rendered page top-to-bottom: tokens, panel, sections, fields,
-   actions, footer, modal, then responsive / touch tuning at the end.
    ========================================================================= */
 
-/* ==============================================================================
-   1. CSS Custom Properties
-   ============================================================================== */
-
-/* ==========================================================================
-   DISK VIEWER - Settings Page Styles
-   Copyright (C) 2026 Lazaros Chalkidis
-   License: GPLv3
-   /plugins/diskviewer/css/settings.css
-
-   Structure mirrors StreamViewer settings.css for visual consistency
-   across the plugin family.
-   ========================================================================== */
-
-/* TABLE OF CONTENTS:
-      1. FOUNDATION — variables, themes, FOUC, button baseline
-      2. LAYOUT — wrapper, panel
-      3. COLLAPSIBLE SECTIONS — headers, pill, body
-      4. SETTING ROWS — label, field, description, warning
-      5. FORM CONTROLS — toggle switch, select dropdown
-      6. ACTION BAR — Apply / Reset / Done buttons
-      7. FOOTER ROW — support link, version badge
-      8. CREDITS — top link, modal popup
-      9. RESPONSIVE — media queries
-   ──────────────────────────────────────────────────────────────────────── */
-
-
-/* ════════════════════════════════════════════════════════════════════════════
-   1. FOUNDATION — variables, themes, FOUC, button baseline
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── CSS CUSTOM PROPERTIES ───────────────────────────────────────────────── */
+/* tokens */
 :root {
   --dv-c-text:          rgba(255,255,255,.87);
   --dv-c-text-mid:      rgba(255,255,255,.60);
@@ -111,21 +73,6 @@
   --dv-green:          #2e7d32;
 }
 
-
-/* ==============================================================================
-   2. Per-Theme Tuning
-   ============================================================================== */
-
-/* ── PER-THEME TUNING ─────────────────────────────────────────────────────
-   Mirrors widget.css: the dark :root and light .dv-light blocks cover
-   black and white; .dv-theme-azure tweaks the light base toward azure;
-   .dv-theme-gray overrides for medium-dark surfaces matching Unraid's
-   Gray theme system background. See widget.css for full rationale.
-   ──────────────────────────────────────────────────────────────────────── */
-
-/* Azure: cool tint on the light base. Settings panel and section header
-   pick up a hairline cooler grey, the support link and section pill
-   borders shift toward Unraid's Azure accent. */
 .dv-theme-azure {
   --dv-panel-bg:       #f5f8fb;
   --dv-sec-hd-bg:      #e6eef6;
@@ -135,10 +82,6 @@
   --dv-blue:           #1565c0;
 }
 
-/* Gray: medium-dark surfaces lift the panel a notch above the system
-   background (~#3b3b3b in stock Unraid Gray) so it reads as embedded
-   rather than as a darker tile floating on top. Section header chrome
-   tracks one more notch for visible hierarchy. */
 .dv-theme-gray {
   --dv-c-text:          rgba(255,255,255,.92);
   --dv-c-text-mid:      rgba(255,255,255,.66);
@@ -165,12 +108,10 @@
   --dv-ctrl-hover:     #5a5a5a;
 }
 
-/* Azure variant: cooler off-white box, azure-tinted footer chrome. */
 .dv-theme-azure .dv-credits-modal-box { background: #fbfdff; }
 
 .dv-theme-azure .dv-credits-footer    { background: #e6eef6; }
 
-/* Gray variant: medium-dark surfaces matching the rest of the gray UI. */
 .dv-theme-gray .dv-credits-modal-box {
   background: #2c2c2c; color: rgba(255,255,255,.92);
   border-color: rgba(255,255,255,.13);
@@ -178,20 +119,8 @@
 
 .dv-theme-gray .dv-credits-footer { background: #252525; border-top-color: rgba(255,255,255,.10); }
 
-
-/* ==============================================================================
-   3. FOUC Prevention
-   ============================================================================== */
-
-/* ── FOUC PREVENTION ─────────────────────────────────────────────────────── */
 .diskviewer-settings { visibility: visible !important; }
 
-
-/* ==============================================================================
-   4. Button Baseline (override Unraid global width:100%)
-   ============================================================================== */
-
-/* ── BUTTON BASELINE (override Unraid width:100%) ────────────────────────── */
 .diskviewer-settings button,
 .diskviewer-settings input[type="button"],
 .diskviewer-settings input[type="submit"] {
@@ -200,29 +129,6 @@
   flex-shrink: 0 !important;
 }
 
-
-/* ==============================================================================
-   5. Wrapper & Responsive Width
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   2. LAYOUT — wrapper, panel
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── WRAPPER & RESPONSIVE ──────────────────────────────────────────────────
-   The settings page is a standalone full-page experience, so it gets a
-   different responsive treatment than the widget (which lives in a grid
-   cell on the dashboard). Width tracks viewport down through tablet and
-   phone sizes, with a hard handover to full-width-edge-to-edge below
-   768px so phones get every pixel of horizontal space.
-   ──────────────────────────────────────────────────────────────────────── */
-/* ── WRAPPER & RESPONSIVE ─────────────────────────────────────────────────
-   Width follows the StreamViewer convention: 80% of the viewport on
-   desktop (10% gutter each side) and 95% on tablet/mobile below 768px,
-   capped at 1400px so content stays readable on very wide displays.
-   This replaced the older fixed-band rule (min-width:720px; width:
-   min(54vw,1020px);) which felt cramped on big screens compared to the
-   other Aegis-stack settings pages. */
 .diskviewer-settings {
   width: 80%;
   max-width: 80%;
@@ -232,6 +138,7 @@
   display: block;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+/* responsive */
 @media (max-width: 768px) {
   .diskviewer-settings {
     width: 95%;
@@ -239,50 +146,16 @@
   }
 }
 
-
-/* ==============================================================================
-   6. Settings Panel
-   ============================================================================== */
-
-/* ── SETTINGS PANEL ──────────────────────────────────────────────────────── */
 .diskviewer-settings .dv-settings-panel {
   background: var(--dv-panel-bg);
   border: 1px solid var(--dv-c-border);
-  /* Top-left stays square: the tab bar sits flush against that corner and
-     the active tab merges into the panel there. The top-right has no tab, so
-     it is rounded to match the two bottom corners. */
+
   border-radius: 0 8px 8px 8px;
   overflow: hidden;
   padding: 0;
 }
 
-
-/* ==============================================================================
-   7. Credits Top Bar
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   8. CREDITS — top link, modal popup
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════════════════════════
-   (Top-right CREDITS link removed - Credits now lives in the footer row
-   alongside Support Forum and GitHub Issues; see the footer row styles
-   below for the new layout.)
-   ══════════════════════════════════════════════════════════════════════════ */
-
-
-/* ==============================================================================
-   8. Section Headers (collapsible Behavior / Display / etc.)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   3. COLLAPSIBLE SECTIONS — headers, pill, body
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════════════════════════
-   COLLAPSIBLE SECTIONS
-   ══════════════════════════════════════════════════════════════════════════ */
+/* collapsible sections */
 .dv-sec {
   border-bottom: 1px solid var(--dv-c-border);
 }
@@ -343,18 +216,6 @@
   line-height: 1.6;
 }
 
-
-/* ==============================================================================
-   9. Row Layout (label + field)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   4. SETTING ROWS — label, field, description, warning
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════════════════════════
-   TABLE-CELL ROWS with ZEBRA STRIPING
-   ══════════════════════════════════════════════════════════════════════════ */
 .dv-r {
   display: flex;
   align-items: center;
@@ -368,7 +229,6 @@
 
 .dv-r:nth-child(even) { background: var(--dv-row-even); }
 
-/* Label cell */
 .dv-r-label {
   width: 220px;
   flex-shrink: 0;
@@ -384,7 +244,6 @@
   line-height: 1.35;
 }
 
-/* Field cell */
 .dv-r-field {
   flex: 1;
   padding: 5px 16px;
@@ -401,10 +260,6 @@
   line-height: 1.3;
 }
 
-/* Amber variant of dv-r-desc - draw extra attention to notes that flag
-   a hard dependency (e.g. "Requires Unassigned Devices plugin"). Same
-   layout as the base; the colour change alone is enough to make it
-   pop in the otherwise-grey description column. */
 .dv-r-desc--warn {
   color: #ffb300;
 }
@@ -415,18 +270,7 @@
   font-weight: 500;
 }
 
-
-/* ==============================================================================
-   10. Toggle Switch
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   5. FORM CONTROLS — toggle switch, select dropdown
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════════════════════════
-   TOGGLE SWITCH (23x13px - matches StreamViewer)
-   ══════════════════════════════════════════════════════════════════════════ */
+/* on/off switches */
 .dv-toggle {
   position: relative;
   display: inline-flex;
@@ -485,11 +329,6 @@
 
 .dv-toggle-txt.off { color: var(--dv-c-text-faint); }
 
-
-/* ==============================================================================
-   11. Select / Dropdown
-   ============================================================================== */
-
 .dv-light .dv-select {
   background-color: #fff;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='rgba(0,0,0,0.35)'/%3E%3C/svg%3E");
@@ -497,9 +336,6 @@
 
 .dv-light .dv-select option { background: #fff; color: rgba(0,0,0,.85); }
 
-/* ══════════════════════════════════════════════════════════════════════════
-   STYLED SELECT (compact)
-   ══════════════════════════════════════════════════════════════════════════ */
 .dv-select {
   appearance: none;
   -webkit-appearance: none;
@@ -530,18 +366,6 @@
   color: rgba(255,255,255,.85);
 }
 
-/* Number / text input styled to match .dv-select so the custom severity
-   warning/critical fields sit visually alongside the dropdown without
-   looking like a foreign control. Same border/background tokens as the
-   select, same hover/focus accents, same border-radius. The --num
-   variant pins a fixed narrow width because percent inputs only need 3
-   characters max and a full-width input would look enormous next to its
-   label. The selector is scoped to .diskviewer-settings for specificity
-   and uses !important on the box-defining properties (background,
-   border, width, box-sizing, padding) because Unraid's global input
-   stylesheet ships `input[type="number"] { width: 100%; border: 0;
-   border-bottom: 1px solid ...; }` rules that would otherwise reduce
-   the field to an underline-only ghost stretched across the row. */
 .diskviewer-settings .dv-input {
   appearance: none !important;
   -webkit-appearance: none !important;
@@ -581,18 +405,7 @@
   color: var(--dv-c-text) !important;
 }
 
-
-/* ==============================================================================
-   12. Action Bar (Apply / Reset / Done)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   6. ACTION BAR — Apply / Reset / Done buttons
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════════════════════════
-   ACTION BAR (Apply / Reset / Done)
-   ══════════════════════════════════════════════════════════════════════════ */
+/* apply / reset / done bar */
 .dv-actions-bar {
   display: flex;
   gap: 6px;
@@ -667,43 +480,24 @@
   border-color: var(--dv-c-text-faint) !important;
 }
 
-
-/* ==============================================================================
-   13. Footer Row (support link + version badge)
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   7. FOOTER ROW — support link, version badge
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════════════════════════
-   FOOTER ROW (support / github / credits links cluster + version badge)
-   ══════════════════════════════════════════════════════════════════════════ */
+/* footer (support link + version) */
 .dv-footer-row {
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* Vertical gap between the links row and the version badge below.
-     8px keeps them clearly related but visually distinct, matching the
-     screenshot pattern the user prefers. */
+
   gap: 8px;
   padding: 10px 0 6px;
   font-size: 11px;
 }
 
-/* Links cluster: inline-flex so the separators sit inline with the links
-   and gap controls the spacing on either side of each separator. */
 .dv-footer-links {
   display: inline-flex;
   align-items: center;
-  /* gap is the breathing room on EACH side of the separator. 0.7ch lands
-     visually as roughly one character of space, matching the requested
-     "space on the left and right of the |". */
+
   gap: 0.7ch;
 }
 
-/* Shared link style. No hover underline anywhere - text colour shifts
-   slightly on hover for affordance, nothing more. */
 .dv-footer-link,
 .dv-footer-link:link,
 .dv-footer-link:visited {
@@ -723,9 +517,6 @@
   outline: none;
 }
 
-/* Thin CSS divider between links - option C from the user's reference
-   sheet. 1px wide, 10px tall, vertically centred. Subtle muted colour
-   so it doesn't fight with the link text. */
 .dv-footer-sep {
   display: inline-block;
   width: 1px;
@@ -746,20 +537,6 @@
   line-height: 1.6;
 }
 
-
-/* ==============================================================================
-   14. Credits Modal
-   ============================================================================== */
-
-/* ══════════════════════════════════════════════════════════════════════════
-   CREDITS MODAL (harmonized neutral greys)
-   ══════════════════════════════════════════════════════════════════════════ */
-/* ══════════════════════════════════════════════════════════════════════════
-   CREDITS MODAL (2-column grid: avatar + name on the left, info + links
-   on the right). Styled after StreamViewer's credits modal so the two
-   plugins feel consistent. Uses dv- prefixed classes throughout.
-   ══════════════════════════════════════════════════════════════════════════ */
-
 .dv-credits-modal-box {
   width: 460px;
   max-width: 94vw;
@@ -779,7 +556,6 @@
   gap: 0;
 }
 
-/* Left column: avatar + identity */
 .dv-credits-left {
   position: relative;
   padding: 26px 16px 22px;
@@ -829,7 +605,6 @@
   opacity: 0.85;
 }
 
-/* Right column: info + links */
 .dv-credits-right {
   padding: 20px 22px;
 }
@@ -901,7 +676,6 @@
   opacity: 0.5;
 }
 
-/* Footer */
 .dv-credits-footer {
   padding: 12px 22px;
   background: #181818;
@@ -934,7 +708,6 @@
   border-color: #d56a35 !important;
 }
 
-/* Light theme overrides */
 .dv-light .dv-credits-modal-box {
   background: #fff;
   color: rgba(0,0,0,.85);
@@ -961,14 +734,6 @@
 }
 .dv-light .dv-credits-copy { color: rgba(0,0,0,.55); }
 
-
-/* ==============================================================================
-   15. Responsive Breakpoints
-   ============================================================================== */
-
-/* ════════════════════════════════════════════════════════════════════════════
-   9. RESPONSIVE — media queries
-   ════════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 1400px) { .diskviewer-settings { width: 78%; } }
 
 @media (max-width: 1200px) { .diskviewer-settings { width: 86%; } }
@@ -979,10 +744,6 @@
 
 @media (max-width: 768px)  { .diskviewer-settings { width: 100%; min-width: 0; } }
 
-/* Tablet portrait + phones: stack label above field. Below 768px the
-   settings page also drops the panel border-radius (full-bleed feel),
-   tightens row padding, and flips the action bar to grid layout so
-   buttons stack predictably instead of wrapping at unpredictable points. */
 @media (max-width: 768px) {
   .diskviewer-settings .dv-settings-panel {
     border-radius: 0;
@@ -1003,13 +764,11 @@
     padding: 10px 14px;
     min-width: 0;
   }
-  /* Section headers: more vertical padding makes the collapse hit area
-     finger-friendly without bloating desktop. */
+
   .dv-sec-hd {
     padding: 12px 14px;
   }
-  /* Action bar: full-width grid so each button is a satisfying tap target
-     and the row composes deterministically (no flex-wrap surprises). */
+
   .dv-actions-bar {
     display: grid;
     grid-template-columns: 1fr;
@@ -1023,9 +782,7 @@
     width: 100% !important;
     max-width: none !important;
   }
-  /* Credits modal: inset margins so the box doesn't run edge-to-edge on
-     phones, and a slight shrink so the OK button stays comfortably above
-     the home indicator on iPhones. */
+
   .dv-credits-modal-box {
     width: calc(100vw - 32px) !important;
     height: auto !important;
@@ -1034,9 +791,6 @@
   }
 }
 
-/* Small phones: tighter padding, smaller font on labels, stack the credits
-   link to the centre, and shrink the credits modal further so it fits on a
-   320px-wide viewport (the lower end of phones still in use today). */
 @media (max-width: 480px) {
   .dv-r-label {
     padding: 7px 12px;
@@ -1054,22 +808,8 @@
   }
 }
 
-
-/* ==============================================================================
-   16. Touch Input Tuning
-   ============================================================================== */
-
-/* Touch-input devices regardless of width: bigger toggles, bigger select
-   touch targets, larger row padding so the field stays comfortable to
-   tap. Same `(hover: none) and (pointer: coarse)` selector the widget
-   uses; matches across phones, tablets, and touch-only laptops without
-   firing on hybrid devices when a mouse is in use. */
 @media (hover: none) and (pointer: coarse) {
-  /* Toggles: bumped from 23x13 to 30x17 for finger comfort. The thumb is
-     a ::after pseudo-element (not a child), so the size and translate
-     overrides target the pseudo. The translateX value is recomputed for
-     the new track width: 30px wide - 13px thumb - 2x2px inset = 13px
-     travel distance. */
+
   .dv-toggle-track {
     width: 30px;
     height: 17px;
@@ -1084,29 +824,24 @@
   .dv-toggle input:checked + .dv-toggle-track::after {
     transform: translateX(13px);
   }
-  /* Selects: bigger font and padding for finger-tap precision. */
+
   .dv-select {
     font-size: 14px;
     padding: 7px 26px 7px 10px;
     min-height: 36px;
   }
-  /* Action buttons: even bigger on touch so the Apply press is unmissable. */
+
   .dv-action-btn {
     padding: 9px 14px !important;
     font-size: 13px !important;
     min-height: 38px !important;
   }
-  /* Section header: bigger tap area for collapse. */
+
   .dv-sec-hd {
     min-height: 42px;
   }
 }
 
-
-
-/* ──────────────────────────────────────────────────────────────────────
-   Settings tabs (Widget / Tool). Same rounded-top tab language as the
-   tool page, orange active accent for cross-surface consistency. */
 .dv-tabs {
   display: flex;
   align-items: flex-end;
@@ -1143,11 +878,6 @@
   z-index: 1;
 }
 
-/* ──────────────────────────────────────────────────────────────────────
-   Dimmed settings block (Tool tab header-indicator options). Faded and
-   non-interactive by default; a JS heartbeat check (Phase 3) removes the
-   .dv-dimmed-block state when no dashboard widget is active, unlocking
-   these as the fallback owner of the header indicator. */
 .dv-dimmed-block {
   position: relative;
   opacity: .6;
@@ -1173,10 +903,6 @@
 }
 .dv-dimmed-note .fa { font-size: .95em; }
 
-/* Hide the number-input spinner arrows. Firefox renders up/down spin
-   buttons on type=number inputs by default (Chrome only shows them on
-   hover/focus), which looks out of place next to the percentage fields.
-   Suppress them in both engines so the field reads as a plain box. */
 .diskviewer-settings .dv-input--num {
   -moz-appearance: textfield;
   appearance: textfield;

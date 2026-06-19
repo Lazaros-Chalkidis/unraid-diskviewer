@@ -1,12 +1,12 @@
 #!/bin/bash
-# DiskViewer - Copyright (C) 2026 Lazaros Chalkidis - License: GPLv3
-#
-# Merge existing user config (backup) into the current default config:
-#   - Start from the current CFG (which has all defaults including new keys)
-#   - For every KEY=VALUE line in the backup, if KEY exists in CFG, replace it
-#   - New keys added in this release stay at their defaults
-#
-# Usage: merge_cfg.sh <current_cfg> <backup_cfg>
+# ============================================================================
+# DISK VIEWER
+# Copyright (C) 2026 Lazaros Chalkidis
+# License: GPLv3
+# =========================================================================
+
+# keep the user's existing values, let any new keys in this release stay at default
+# usage: merge_cfg.sh <current_cfg> <backup_cfg>
 
 set -e
 
@@ -36,6 +36,7 @@ awk '
         }
         next
     }
+    # second pass over the default cfg: swap in the saved value where the key exists
     {
         eq = index($0, "=")
         if (eq > 0) {

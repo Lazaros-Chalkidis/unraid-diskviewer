@@ -3,6 +3,12 @@ Title="Disk Viewer"
 Icon="hdd.svg"
 ---
 <?php
+/* ============================================================================
+   DISK VIEWER
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+   ========================================================================= */
+
 $dvb_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
 $dvb_theme = $dvb_cfg['display']['theme'] ?? '';
 if (!in_array($dvb_theme, ['black','white','azure','gray'], true)) $dvb_theme = 'black';

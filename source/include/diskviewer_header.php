@@ -1,20 +1,21 @@
 <?php
-// DiskViewer for Unraid - Copyright (C) 2026 Lazaros Chalkidis - License: GPLv3
+/* ============================================================================
+   DISK VIEWER
+   Copyright (C) 2026 Lazaros Chalkidis
+   License: GPLv3
+   ========================================================================= */
+
 header('Content-Type: application/json');
 header('Cache-Control: no-cache');
 
 $cfg = @parse_ini_file('/boot/config/plugins/diskviewer/diskviewer.cfg') ?: [];
 
-// Header click action - one of main / widget / settings. Read on every
-// poll so toggling it in settings takes effect on the next 30s tick
-// without a browser refresh. Whitelisted to avoid leaking arbitrary
-// values into window.diskviewerHeaderAction (the JS uses it to build
-// a location.href, so an unchecked value here would be an open
-// redirect inside Unraid's UI).
+// whitelist: this value becomes a location.href in the js, don't let it be anything else
 $clickAllowed = ['main', 'widget', 'tool', 'settings'];
 $clickAction  = (string)($cfg['HEADER_CLICK_ACTION'] ?? 'main');
 if (!in_array($clickAction, $clickAllowed, true)) $clickAction = 'main';
 
+// badge turned off, hand back an all-off payload and bail
 if (((string)($cfg['HEADER_SHOW_BADGE'] ?? '1')) === '0') {
     echo '{"count":0,"names":[],"temp_severity":"off","temp_blink":false,"health_severity":"off","util_severity":"off","errors_severity":"off","disk_issues":[],"click_action":"' . $clickAction . '"}';
     exit;
@@ -59,7 +60,7 @@ $util   = $readSev($utilFile);
 $errors = $readSev($errorsFile);
 $issues = $readIssues($issuesFile);
 
-// If cache is stale (> 2 min) or missing, regenerate inline
+// cache older than 2 min (or missing), rebuild it inline rather than serve stale markers
 $age = is_file($countFile) ? (time() - (int)filemtime($countFile)) : 9999;
 if ($age > 120) {
     require_once __DIR__ . '/diskviewer_api.php';

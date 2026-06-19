@@ -1,6 +1,11 @@
 #!/bin/bash
-# DiskViewer - Copyright (C) 2026 Lazaros Chalkidis - License: GPLv3
-# Warm the cache on array start so the header badge populates quickly.
+# ============================================================================
+# DISK VIEWER
+# Copyright (C) 2026 Lazaros Chalkidis
+# License: GPLv3
+# =========================================================================
+
+# warm the cache on array start so the header badge populates quickly
 (
     while ! mountpoint -q /mnt/user 2>/dev/null; do
         sleep 5
