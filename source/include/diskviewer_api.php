@@ -59,7 +59,7 @@ final class DiskViewerEndpoint
         return self::$iniCache[$key] = (is_array($data) ? $data : []);
     }
 
-    // gate for spin + settings POST. token comes from unraid's var.ini
+    // csrf gate for spin, token comes from unraid's var.ini
     public static function validateCsrf(): bool
     {
 
@@ -142,15 +142,16 @@ final class DiskViewerEndpoint
         }
     }
 
-    public static function poolRaidProfile(string $pool, string $fs): string
+    public static function poolRaidProfile(string $pool, string $fs, string $mountpoint = ''): string
     {
         static $cache = [];
-        $key = strtolower($pool) . '|' . strtolower($fs);
+        $key = strtolower($pool) . '|' . strtolower($fs) . '|' . $mountpoint;
         if (isset($cache[$key])) return $cache[$key];
 
         $result = '';
         $fs     = strtolower(trim($fs));
-        $mount  = '/mnt/' . $pool;
+        // the internal boot pool is mounted at /boot, not /mnt/<pool>, so honour an explicit mountpoint when given
+        $mount  = ($mountpoint !== '') ? $mountpoint : '/mnt/' . $pool;
         if (!is_dir($mount)) return $cache[$key] = '';
 
         if ($fs === 'btrfs') {
@@ -169,7 +170,21 @@ final class DiskViewerEndpoint
             }
         } elseif ($fs === 'zfs') {
 
-            $out = @shell_exec('zpool status ' . escapeshellarg($pool) . ' 2>/dev/null');
+            // the disks.ini name prefix is not necessarily the zpool name, so for a known mountpoint resolve the real pool from the dataset mounted there
+            $zpool = $pool;
+            if ($mountpoint !== '') {
+                $list = @shell_exec('zfs list -H -o name,mountpoint 2>/dev/null');
+                if (is_string($list)) {
+                    foreach (preg_split('/\r?\n/', trim($list)) as $line) {
+                        $parts = preg_split('/\t+/', $line);
+                        if (count($parts) >= 2 && $parts[1] === $mountpoint) {
+                            $zpool = explode('/', $parts[0])[0];
+                            break;
+                        }
+                    }
+                }
+            }
+            $out = @shell_exec('zpool status ' . escapeshellarg($zpool) . ' 2>/dev/null');
             if ($out && preg_match('/^\s+(mirror|raidz[0-9]?)/mi', $out, $m)) {
                 $vdev = strtolower($m[1]);
                 if ($vdev === 'mirror') {
@@ -417,7 +432,7 @@ final class DiskViewerEndpoint
                 'REFRESH_ENABLED'     => '1',
                 'REFRESH_INTERVAL'    => '10',
                 'ENABLE_SPIN_BUTTON'  => '1',
-                'SHOW_UNASSIGNED'     => '1',
+                'SHOW_UNASSIGNED'     => '0',
                 'SHOW_ARRAY'          => '1',
                 'SHOW_CACHE'          => '1',
                 'SHOW_POOLS'          => '1',
@@ -432,6 +447,7 @@ final class DiskViewerEndpoint
                 'SPACE_SEVERITY_MODE' => 'inherit',
                 'SPACE_WARNING_PCT'   => '70',
                 'SPACE_CRITICAL_PCT'  => '90',
+                'HIDDEN_DEVICES'      => '',
             ];
             foreach ($toolDefaults as $base => $tdef) {
                 $tk = 'TOOL_' . $base;
@@ -472,7 +488,7 @@ final class DiskViewerEndpoint
             'refresh_enabled'     => ($cfg['REFRESH_ENABLED']  ?? '1') === '1',
             'refresh_interval'    => max(5, (int)($cfg['REFRESH_INTERVAL'] ?? 20)),
             'drag_step_rows'      => max(1, min(5, (int)($cfg['DRAG_STEP_ROWS'] ?? 1))),
-            'show_unassigned'     => ($cfg['SHOW_UNASSIGNED'] ?? '1') === '1',
+            'show_unassigned'     => ($cfg['SHOW_UNASSIGNED'] ?? '0') === '1',
             'show_array'          => ($cfg['SHOW_ARRAY']      ?? '1') === '1',
             'show_cache'          => ($cfg['SHOW_CACHE']      ?? '1') === '1',
             'show_pools'          => ($cfg['SHOW_POOLS']      ?? '1') === '1',
@@ -506,6 +522,7 @@ final class DiskViewerEndpoint
 
             'header_click_action' => self::clampHeaderClickAction((string)($cfg['HEADER_CLICK_ACTION'] ?? 'main')),
             'enable_spin_button'  => ($cfg['ENABLE_SPIN_BUTTON'] ?? '1') === '1',
+            'hidden_devices'      => array_values(array_filter(preg_split('/\s+/', trim((string)($cfg['HIDDEN_DEVICES'] ?? ''))), 'strlen')),
         ];
     }
 
@@ -542,6 +559,24 @@ final class DiskViewerEndpoint
             if ($name !== '') $names[$name] = true;
         }
         return array_keys($names);
+    }
+
+    // total/used/free bytes of a mounted filesystem, read with df. used for zfs pools that report no fs sizes in disks.ini
+    private static function mountUsage(string $mp): ?array
+    {
+        if ($mp === '' || $mp[0] !== '/') return null;
+        $out = @shell_exec('df -kP ' . escapeshellarg($mp) . ' 2>/dev/null');
+        if (!is_string($out) || $out === '') return null;
+        $lines = preg_split('/\r?\n/', trim($out));
+        $last  = is_array($lines) ? end($lines) : '';
+        if (!is_string($last) || $last === '') return null;
+        // df -kP data line: filesystem  1k-blocks  used  available  capacity%  mounted-on
+        if (!preg_match('/(\d+)\s+(\d+)\s+(\d+)\s+\d+%\s+\S+$/', $last, $m)) return null;
+        return [
+            'size' => (int)$m[1] * 1024,
+            'used' => (int)$m[2] * 1024,
+            'free' => (int)$m[3] * 1024,
+        ];
     }
 
     private static function parseUnassigned(): array
@@ -667,6 +702,7 @@ final class DiskViewerEndpoint
 
             $tt = self::diskTempThresholds(['id' => $p['id']]);
             $ut = self::diskUtilThresholds([], $globalUtil);
+            $isNvmeU = (strpos(preg_replace('@^/dev/@', '', (string)$p['path']), 'nvme') === 0);
 
             $out[] = [
                 'name'   => $p['name'],
@@ -697,7 +733,9 @@ final class DiskViewerEndpoint
                 'errors'       => 0,
                 'is_summary'   => false,
                 'is_parity'    => false,
-                'spin_disabled'=> false,
+                'spin_disabled'=> $isNvmeU,
+                'is_nvme'      => $isNvmeU,
+                'byid'         => self::byId((string)$p['path']),
             ];
         }
 
@@ -709,6 +747,48 @@ final class DiskViewerEndpoint
         return $out;
     }
 
+    private static ?array $byIdCache = null;
+    // stable per-device identity from /dev/disk/by-id. multi-slot readers share a raw serial but get distinct usb-...-0:N links, so the lun keeps them apart
+    private static function byIdMap(): array
+    {
+        if (self::$byIdCache !== null) return self::$byIdCache;
+        $map  = [];
+        $best = [];
+        $dir  = '/dev/disk/by-id';
+        $prio = ['wwn-' => 1, 'nvme-eui' => 2, 'nvme-' => 3, 'ata-' => 4, 'scsi-' => 5, 'usb-' => 6];
+        $entries = @scandir($dir);
+        if (is_array($entries)) {
+            foreach ($entries as $name) {
+                if ($name === '.' || $name === '..' || preg_match('/-part\d+$/', $name)) continue;
+                $tgt = @readlink($dir . '/' . $name);
+                if ($tgt === false) continue;
+                $path = '/dev/' . basename($tgt);
+                $rank = 50;
+                foreach ($prio as $pre => $r) { if (strpos($name, $pre) === 0) { $rank = $r; break; } }
+                if (!isset($best[$path]) || $rank < $best[$path][0]) $best[$path] = [$rank, $name];
+            }
+        }
+        foreach ($best as $path => $pn) $map[$path] = $pn[1];
+        return self::$byIdCache = $map;
+    }
+    private static function byId(string $devPath): string
+    {
+        if ($devPath === '') return '';
+        $p = (strpos($devPath, '/dev/') === 0) ? $devPath : '/dev/' . ltrim($devPath, '/');
+        return self::byIdMap()[$p] ?? '';
+    }
+    private static function humanBytes(int $b): string
+    {
+        if ($b <= 0) return '0 B';
+        $u = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        $i = 0; $v = (float)$b;
+        while ($v >= 1000 && $i < 5) { $v /= 1000; $i++; }
+        if ($i === 0) return $b . ' B';
+        $dec = $v >= 100 ? 0 : ($v >= 10 ? 1 : 2);
+        $s = number_format($v, $dec, '.', '');
+        if (strpos($s, '.') !== false) $s = rtrim(rtrim($s, '0'), '.');
+        return $s . ' ' . $u[$i];
+    }
     private static function lsblkRows(): array
     {
         static $cached = null;
@@ -848,7 +928,7 @@ final class DiskViewerEndpoint
         return $out;
     }
 
-    private static function classify(array $d, array $poolNames, array $bootPools = []): array
+    private static function classify(array $d, array $poolNames, array $bootPools = [], array $bootDevices = []): array
     {
         $name = (string)($d['name'] ?? '');
         $type = strtolower((string)($d['type'] ?? ''));
@@ -882,10 +962,22 @@ final class DiskViewerEndpoint
             return ['kind' => 'boot', 'group' => 'boot', 'is_parity' => false, 'boot_pool' => ''];
         }
 
-        // dedicated boot pool: bootPool=dedicated flag, members matched by exact name prefix
+        // internal boot pool (unraid 7.3): members carry type=Boot, grouped by name prefix, the same way unraid does in boot_filter
+        if ($type === 'boot') {
+            $bp = preg_replace('/\d+$/', '', $name);
+            return ['kind' => 'boot', 'group' => 'boot', 'is_parity' => false, 'boot_pool' => $bp];
+        }
+
+        // a second entry for a physical disk that is already a boot member (the small bootable partition): hide it so the boot pool is not listed twice
+        $dev = trim((string)($d['device'] ?? ''));
+        if ($dev !== '' && in_array($dev, $bootDevices, true)) {
+            return ['kind' => 'skip', 'group' => '', 'is_parity' => false];
+        }
+
+        // a cache pool flagged bootPool=dedicated is the boot pool shown elsewhere, so hide its cache view (unraid hides it too)
         $bp = preg_replace('/\d+$/', '', $name);
         if ($bp !== '' && in_array($bp, $bootPools, true)) {
-            return ['kind' => 'boot', 'group' => 'boot', 'is_parity' => false, 'boot_pool' => $bp];
+            return ['kind' => 'skip', 'group' => '', 'is_parity' => false];
         }
 
         foreach ($poolNames as $pname) {
@@ -906,13 +998,23 @@ final class DiskViewerEndpoint
         $disks = self::parseDisksIni();
         $poolNames = self::listPools();
         $bootPools = self::dedicatedBootPools($disks);
+
+        // physical devices that belong to the internal boot pool (type=Boot), used to hide duplicate partition entries on the same disks
+        $bootDevices = [];
+        foreach ($disks as $bd) {
+            if (is_array($bd) && strtolower((string)($bd['type'] ?? '')) === 'boot') {
+                $bdev = trim((string)($bd['device'] ?? ''));
+                if ($bdev !== '') $bootDevices[] = $bdev;
+            }
+        }
+
         $devices = [];
 
         $classMap    = [];
         $memberCount = [];
         foreach ($disks as $key => $d) {
             if (!is_array($d)) continue;
-            $c = self::classify($d, $poolNames, $bootPools);
+            $c = self::classify($d, $poolNames, $bootPools, $bootDevices);
             $classMap[$key] = $c;
             if ($c['kind'] === 'skip') continue;
             $memberCount[$c['group']] = ($memberCount[$c['group']] ?? 0) + 1;
@@ -949,6 +1051,18 @@ final class DiskViewerEndpoint
             $fsFree  = (int)($d['fsFree'] ?? 0) * 1024;
             $fsUsed  = (int)($d['fsUsed'] ?? 0) * 1024;
 
+            // internal boot zfs pool: disks.ini carries no fs sizes for it, so read the mounted pool directly, like the native boot pool figure
+            if ($cls['kind'] === 'boot' && $fsUsed === 0 && $fsFree === 0
+                && strtolower((string)($d['fsStatus'] ?? '')) === 'mounted') {
+                $mp = trim((string)($d['fsMountpoint'] ?? ''));
+                $mu = ($mp !== '') ? self::mountUsage($mp) : null;
+                if ($mu !== null) {
+                    $fsSize = $mu['size'];
+                    $fsUsed = $mu['used'];
+                    $fsFree = $mu['free'];
+                }
+            }
+
             $rawSize = (int)($d['size'] ?? 0) * 1024;
             if ($fsSize === 0) {
 
@@ -965,11 +1079,12 @@ final class DiskViewerEndpoint
             $isArrayMember     = ($cls['kind'] === 'array');
             $isMultiPoolMember = ($cls['kind'] === 'pool' && (($memberCount[$cls['group']] ?? 0) >= 2));
             $isBoot            = ($cls['kind'] === 'boot');
+            $isNvmeDisk        = (strpos(preg_replace('@^/dev/@', '', $devPath), 'nvme') === 0);
 
             $notInstalled      = ($devPath === '' && $rawSize <= 0);
 
             if ($notInstalled && !$showMissing) continue;
-            $spinDisabled      = ($isArrayMember || $isMultiPoolMember || $notInstalled || $isBoot);
+            $spinDisabled      = ($isArrayMember || $isMultiPoolMember || $notInstalled || $isBoot || $isNvmeDisk);
 
             $tt = self::diskTempThresholds($d);
 
@@ -1020,7 +1135,7 @@ final class DiskViewerEndpoint
                 'free'          => $fsFree,
                 'pct'           => $pct,
 
-                'fs'            => ($cls['kind'] === 'boot')
+                'fs'            => (strtolower(trim((string)($d['type'] ?? ''))) === 'flash')
                                      ? (strtolower(trim((string)($d['fsType'] ?? ''))) ?: 'vfat')
                                      : strtolower(trim((string)($d['fsType'] ?? ''))),
                 'speed_bps'     => $speed['bps'],
@@ -1029,6 +1144,8 @@ final class DiskViewerEndpoint
                 'is_summary'    => false,
                 'is_parity'     => $cls['is_parity'],
                 'spin_disabled' => $spinDisabled,
+                'is_nvme'       => $isNvmeDisk,
+                'byid'          => self::byId($devPath),
                 'not_installed' => $notInstalled,
             ];
         }
@@ -1063,6 +1180,7 @@ final class DiskViewerEndpoint
     {
         $cfg      = self::config();
         $devices  = self::devices();
+        $hideList = $cfg['hidden_devices'];
 
         if (empty($cfg['space_severity_enabled'])) {
             $warn = 101;
@@ -1216,6 +1334,8 @@ final class DiskViewerEndpoint
                 if ($isCache) $multiCache[$group] = $tiles;
                 else          $multiPool[$group]  = $tiles;
             } else {
+                $bid = (string)($tiles[0]['byid'] ?? '');
+                if ($bid !== '' && in_array($bid, $hideList, true)) continue;
                 $singleAll[$group] = $tiles[0];
             }
         }
@@ -1306,18 +1426,25 @@ final class DiskViewerEndpoint
         }
 
         if (!empty($byGroup['unassigned']) && $cfg['show_unassigned']) {
-            $tiles = array_map($classify, $byGroup['unassigned']);
+            $tiles = [];
+            foreach (array_map($classify, $byGroup['unassigned']) as $t) {
+                $bid = (string)($t['byid'] ?? '');
+                if ($bid !== '' && in_array($bid, $hideList, true)) continue;
+                $tiles[] = $t;
+            }
             foreach ($tiles as $t) {
                 $totalDevices++;
                 if ($t['severity'] === 'critical') $critNames[] = $t['name'];
                 elseif ($t['severity'] === 'warning') $warnNames[] = $t['name'];
             }
-            $sections[] = [
-                'id'    => 'unassigned',
-                'label' => 'UNASSIGNED',
-                'count' => count($tiles),
-                'tiles' => $tiles,
-            ];
+            if (!empty($tiles)) {
+                $sections[] = [
+                    'id'    => 'unassigned',
+                    'label' => 'UNASSIGNED',
+                    'count' => count($tiles),
+                    'tiles' => $tiles,
+                ];
+            }
         }
 
         if (!empty($byGroup['boot']) && $cfg['show_boot_device']) {
@@ -1331,11 +1458,22 @@ final class DiskViewerEndpoint
                 }
 
                 $capOverride = null;
+                // prefer the mounted pool member that reports real usage (the boot fs), so the summary shows the pool's used/free like the native figure
                 foreach ($tiles as $ct) {
                     $cfs = strtolower(trim((string)($ct['fs'] ?? '')));
-                    if ($cfs !== '' && $cfs !== '-' && (int)($ct['size'] ?? 0) > 0) {
-                        if ($capOverride === null || (int)$ct['size'] > (int)$capOverride['size']) {
-                            $capOverride = ['size' => (int)$ct['size'], 'used' => (int)$ct['used'], 'free' => (int)$ct['free']];
+                    if ($cfs !== '' && $cfs !== '-' && ((int)($ct['used'] ?? 0) > 0 || (int)($ct['free'] ?? 0) > 0)) {
+                        $capOverride = ['size' => (int)$ct['size'], 'used' => (int)$ct['used'], 'free' => (int)$ct['free']];
+                        break;
+                    }
+                }
+                // fallback: the largest member with a valid filesystem
+                if ($capOverride === null) {
+                    foreach ($tiles as $ct) {
+                        $cfs = strtolower(trim((string)($ct['fs'] ?? '')));
+                        if ($cfs !== '' && $cfs !== '-' && (int)($ct['size'] ?? 0) > 0) {
+                            if ($capOverride === null || (int)$ct['size'] > (int)$capOverride['size']) {
+                                $capOverride = ['size' => (int)$ct['size'], 'used' => (int)$ct['used'], 'free' => (int)$ct['free']];
+                            }
                         }
                     }
                 }
@@ -1356,13 +1494,15 @@ final class DiskViewerEndpoint
                     $fs = strtolower(trim((string)($t['fs'] ?? '')));
                     if ($fs !== '' && $fs !== '-') $fsSet[$fs] = true;
                 }
+                // a boot pool's real filesystem is the non-vfat one; vfat shows up only as a per-member fallback on members without their own fsType
+                if (count($fsSet) > 1 && isset($fsSet['vfat'])) unset($fsSet['vfat']);
                 if (count($fsSet) === 1)   $summary['fs'] = array_key_first($fsSet);
                 elseif (count($fsSet) > 1) $summary['fs'] = 'mixed';
                 else                       $summary['fs'] = '';
 
                 $poolFs    = $summary['fs'];
                 $raidLabel = ($bootName !== '' && $poolFs !== '' && $poolFs !== 'mixed')
-                    ? self::poolRaidProfile($bootName, $poolFs)
+                    ? self::poolRaidProfile($bootName, $poolFs, '/boot')
                     : '';
 
                 foreach ($tiles as $t) {
@@ -2014,6 +2154,40 @@ final class DiskViewerEndpoint
         return $ok;
     }
 
+    // devices the user may hide from the widget and tool: unassigned and single-disk pools, keyed by stable id
+    public static function hideableDevices(): array
+    {
+        $devices = self::devices();
+        $count   = [];
+        foreach ($devices as $d) { $g = (string)($d['group'] ?? ''); $count[$g] = ($count[$g] ?? 0) + 1; }
+        $out = [];
+        foreach ($devices as $d) {
+            $byid = (string)($d['byid'] ?? '');
+            if ($byid === '') continue;
+            $kind  = (string)($d['kind'] ?? '');
+            $group = (string)($d['group'] ?? '');
+            if ($kind === 'unassigned') {
+                $cat = 'unassigned';
+            } elseif ($kind === 'pool' && ($count[$group] ?? 0) < 2) {
+                $cat = 'pool';
+            } else {
+                continue;
+            }
+            $size = (int)($d['size'] ?? 0);
+            $out[] = [
+                'byid'   => $byid,
+                'name'   => (string)($d['name'] ?? ''),
+                'size_h' => self::humanBytes($size),
+                'cat'    => $cat,
+            ];
+        }
+        usort($out, function($a, $b) {
+            if ($a['cat'] !== $b['cat']) return $a['cat'] === 'unassigned' ? -1 : 1;
+            return strnatcasecmp($a['name'], $b['name']);
+        });
+        return $out;
+    }
+
     public function run(): void
     {
         header('Content-Type: application/json; charset=utf-8');
@@ -2184,6 +2358,11 @@ final class DiskViewerEndpoint
 
                 case 'spin':
 
+                    if (!self::validateCsrf()) {
+                        http_response_code(403);
+                        echo json_encode(['ok' => false, 'error' => 'bad csrf token']);
+                        return;
+                    }
                     $cfgAll = self::config();
                     if (empty($cfgAll['enable_spin_button'])) {
                         echo json_encode(['ok' => false, 'error' => 'spin button disabled in settings']);
@@ -2197,6 +2376,10 @@ final class DiskViewerEndpoint
                     }
                     $ok = self::spinDisk($name, $dir);
                     echo json_encode(['ok' => (bool)$ok]);
+                    return;
+
+                case 'hideable':
+                    echo json_encode(self::hideableDevices(), JSON_UNESCAPED_SLASHES);
                     return;
 
                 default:

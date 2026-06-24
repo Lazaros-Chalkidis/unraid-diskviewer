@@ -28,9 +28,7 @@ LETTER_SUFFIX="${1}"
 STAGE_INPUT="${2}"
 LOCAL_INSTALL="${3:-}"
 
-# Accept "local" as either the 2nd or 3rd positional so both documented forms
-# work: ./build.sh "" local  and  ./build.sh a dev local. Without this the
-# 2nd-arg form fell through to a release build with a bogus "-local" version.
+# accept "local" as 2nd or 3rd positional, so ./build.sh "" local and ./build.sh a dev local both work
 if [[ "$STAGE_INPUT" == "local" ]]; then
     LOCAL_INSTALL="local"
     STAGE_INPUT=""
@@ -80,12 +78,7 @@ PLUGIN_DEST="${PACKAGE_DIR_TEMP}/usr/local/emhttp/plugins/${PLUGIN_NAME}"
 mkdir -p "${PLUGIN_DEST}"
 cp -R source/* "${PLUGIN_DEST}/"
 
-# Stamp the live build version into a VERSION file at the canonical
-# installed location. The Settings page reads this first when deciding
-# which version string to show in the footer badge and the credits modal
-# pill, so the displayed version always matches the running build even
-# when the .plg metadata went stale (manual installs, repackaging during
-# testing). Mirrors how StreamViewer ships its VERSION file.
+# write the build version to a VERSION file. settings reads this first for the footer/credits, so it matches the running build even if the .plg metadata is stale
 echo "${VERSION}" > "${PLUGIN_DEST}/VERSION"
 
 # Branch metadata (readable by PHP for self-identification)
@@ -157,25 +150,11 @@ find /usr/local/emhttp/plugins/&name; -type f -exec chmod 644 {} \;
 find /usr/local/emhttp/plugins/&name; -name "*.sh"   -exec chmod 755 {} \;
 find /usr/local/emhttp/plugins/&name;/event -type f -exec chmod 755 {} \; 2>/dev/null
 
-# Init cache dir. The web API runs as root under emhttpd, so 755 (root
-# write, world read) is enough - this lets diagnostic tools tail the
-# spin.log without root, while keeping unrelated processes from writing
-# to it. Was 1777 (world-writable with sticky bit) which violated the
-# least-privilege principle: any other plugin or user-script could have
-# clobbered our cache files.
+# cache dir 755: api runs as root, world-read lets tools tail spin.log without root. not 1777 (world-writable) so nothing else can clobber it
 mkdir -p /tmp/diskviewer_cache
 chmod 755 /tmp/diskviewer_cache
 
-# diskviewer.cfg lives at /boot/config/plugins/&name;/&name;.cfg. The file
-# holds user-facing preferences only (no credentials), so 0644 is the
-# correct mode per the plugin-docs guidance for non-sensitive config. An
-# earlier 0600 attempt caused the settings page to display defaults after
-# every Apply on systems where the PHP request handler ran with an
-# effective uid that was not root: the read-back of the freshly written
-# cfg returned an empty array because a user-mode process cannot open a
-# root-only-readable file. Network-edge defence is the CSRF token;
-# OS-edge defence is that /boot/config is only writable by root. So
-# world-readable here is acceptable.
+# cfg holds preferences only (no credentials), 0644. /boot/config is root-only writable, so world-read is fine. 0600 broke the settings read-back when php ran non-root
 if [[ -f /boot/config/plugins/&name;/&name;.cfg ]]; then
     chmod 644 /boot/config/plugins/&name;/&name;.cfg
 fi

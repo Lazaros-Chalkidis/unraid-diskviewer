@@ -51,7 +51,14 @@
 
     function loadExpand(){
         try {
-            var v = sessionStorage.getItem(STORAGE_KEY);
+            var v = window.localStorage.getItem(STORAGE_KEY);
+            if (v === null || v === '') {
+                // pick up a height saved by older versions in sessionStorage, so it survives the upgrade
+                try {
+                    var old = sessionStorage.getItem(STORAGE_KEY);
+                    if (old !== null && old !== '') { window.localStorage.setItem(STORAGE_KEY, old); v = old; }
+                } catch(e2){}
+            }
             if (v === null || v === '') return 0;
             var n = parseInt(v, 10);
             if (isNaN(n)) return 0;
@@ -61,7 +68,7 @@
     }
 
     function saveExpand(n){
-        try { sessionStorage.setItem(STORAGE_KEY, String(n)); } catch(e){}
+        try { window.localStorage.setItem(STORAGE_KEY, String(n)); } catch(e){}
     }
 
     // decimal units (1000) to match unraid's main page and the size printed on the drive
@@ -107,6 +114,7 @@
     var BOLT_SVG   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
 
     var STACK_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l-9 4.5l9 4.5l9 -4.5l-9 -4.5"/><path d="M3 13.5l9 4.5l9 -4.5"/></svg>';
+    var NVME_SVG   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>';
     var THUMB_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V10z"/></svg>';
 
     var ARROW_UP   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
@@ -274,6 +282,8 @@
         if (isSummary || row.group === 'boot') {
 
             boltEl = '<span class="dv-bolt dv-bolt--static" aria-hidden="true">' + STACK_SVG + '</span>';
+        } else if (row.is_nvme) {
+            boltEl = '<span class="dv-bolt dv-bolt--static" aria-hidden="true">' + NVME_SVG + '</span>';
         } else if (canBeButton) {
             boltEl = '<button type="button" class="' + boltCls + '" aria-label="' + boltLabel + '" data-dv-spin="' + (spun ? 'down' : 'up') + '" data-dv-name="' + escapeHtml(row.name || '') + '">' + BOLT_SVG + '</button>';
         } else {

@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.06.19">
+ <!ENTITY version   "2026.06.24">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "0aaa8e75ac3655a5228bb852f98aba97">
+ <!ENTITY md5       "ed607586b8846d8a34cbd622e5cc3b6a">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,21 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.06.24
+
+### Fixed
+- The internal boot pool is now detected correctly on Unraid 7.3. On a server that boots from an internal pool instead of a USB stick, the pool now appears once under Boot Device with its real size, usage and member drives, and the tiny bootable partition Unraid keeps on those same drives is no longer shown as a separate 1 MB pool or listed twice.
+- The widget now keeps the height you set after a reboot or a fresh login, not only for the current browser session.
+
+### New Features
+- You can now hide individual unassigned devices and single-disk pools from the disk list, with a separate list for the widget and for the Tool page, so you can hide something on one without touching the other. Handy for clutter like built-in card readers that always read 0 B. Devices are matched by their stable id, so they stay hidden across reboots and reconnects, and your array, parity, pool members and boot device are never on the list. A Rescan button picks up anything you just plugged in.
+
+### Improvements
+- NVMe drives now show a chip icon and no longer have a spin control, since they don't spin down. SATA SSDs and hard drives keep the bolt.
+- The Tool page section headings now match the widget, showing the disk count and RAID profile next to the name.
+- On the Tool page, the Realloc, Pending and CRC headings turn amber or red when a disk in that column needs attention, the same as the Temp heading.
+- Unassigned devices now start hidden on a fresh install and after Reset to Defaults, like the Boot Device section. Settings you have already saved are not touched.
 
 ## Version 2026.06.19
 
@@ -205,25 +220,11 @@ find /usr/local/emhttp/plugins/&name; -type f -exec chmod 644 {} \;
 find /usr/local/emhttp/plugins/&name; -name "*.sh"   -exec chmod 755 {} \;
 find /usr/local/emhttp/plugins/&name;/event -type f -exec chmod 755 {} \; 2>/dev/null
 
-# Init cache dir. The web API runs as root under emhttpd, so 755 (root
-# write, world read) is enough - this lets diagnostic tools tail the
-# spin.log without root, while keeping unrelated processes from writing
-# to it. Was 1777 (world-writable with sticky bit) which violated the
-# least-privilege principle: any other plugin or user-script could have
-# clobbered our cache files.
+# cache dir 755: api runs as root, world-read lets tools tail spin.log without root. not 1777 (world-writable) so nothing else can clobber it
 mkdir -p /tmp/diskviewer_cache
 chmod 755 /tmp/diskviewer_cache
 
-# diskviewer.cfg lives at /boot/config/plugins/&name;/&name;.cfg. The file
-# holds user-facing preferences only (no credentials), so 0644 is the
-# correct mode per the plugin-docs guidance for non-sensitive config. An
-# earlier 0600 attempt caused the settings page to display defaults after
-# every Apply on systems where the PHP request handler ran with an
-# effective uid that was not root: the read-back of the freshly written
-# cfg returned an empty array because a user-mode process cannot open a
-# root-only-readable file. Network-edge defence is the CSRF token;
-# OS-edge defence is that /boot/config is only writable by root. So
-# world-readable here is acceptable.
+# cfg holds preferences only (no credentials), 0644. /boot/config is root-only writable, so world-read is fine. 0600 broke the settings read-back when php ran non-root
 if [[ -f /boot/config/plugins/&name;/&name;.cfg ]]; then
     chmod 644 /boot/config/plugins/&name;/&name;.cfg
 fi

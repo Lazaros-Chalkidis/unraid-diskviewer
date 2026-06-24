@@ -1,6 +1,21 @@
 
 # Disk Viewer
 
+## Version 2026.06.24
+
+### Fixed
+- The internal boot pool is now detected correctly on Unraid 7.3. On a server that boots from an internal pool instead of a USB stick, the pool now appears once under Boot Device with its real size, usage and member drives, and the tiny bootable partition Unraid keeps on those same drives is no longer shown as a separate 1 MB pool or listed twice.
+- The widget now keeps the height you set after a reboot or a fresh login, not only for the current browser session.
+
+### New Features
+- You can now hide individual unassigned devices and single-disk pools from the disk list, with a separate list for the widget and for the Tool page, so you can hide something on one without touching the other. Handy for clutter like built-in card readers that always read 0 B. Devices are matched by their stable id, so they stay hidden across reboots and reconnects, and your array, parity, pool members and boot device are never on the list. A Rescan button picks up anything you just plugged in.
+
+### Improvements
+- NVMe drives now show a chip icon and no longer have a spin control, since they don't spin down. SATA SSDs and hard drives keep the bolt.
+- The Tool page section headings now match the widget, showing the disk count and RAID profile next to the name.
+- On the Tool page, the Realloc, Pending and CRC headings turn amber or red when a disk in that column needs attention, the same as the Temp heading.
+- Unassigned devices now start hidden on a fresh install and after Reset to Defaults, like the Boot Device section. Settings you have already saved are not touched.
+
 ## Version 2026.06.19
 
 ### Fixed

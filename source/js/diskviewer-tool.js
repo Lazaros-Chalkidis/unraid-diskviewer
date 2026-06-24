@@ -50,6 +50,7 @@
 
     var BOLT_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
     var STACK_SVG  = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l-9 4.5l9 4.5l9 -4.5l-9 -4.5"/><path d="M3 13.5l9 4.5l9 -4.5"/></svg>';
+    var NVME_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>';
     var ARROW_UP   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
     var ARROW_DOWN = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>';
 
@@ -304,8 +305,15 @@
                     + '<button type="button" class="dvt-bulk-spin" data-dvt-bulk="down" data-dvt-secid="' + esc(secId) + '" aria-label="Spin down all pool disks">' + BOLT_SVG + '<span class="dvt-bulk-arrow">' + ARROW_DOWN + '</span></button>'
                     + '</span>';
             }
+            var secHdrPieces = [];
+            var secHdrLabel  = sec.label || sec.id || '';
+            var secHdrCount  = +sec.count || 0;
+            if (secHdrLabel) secHdrPieces.push(secHdrLabel);
+            if (secId !== 'boot' || secHdrCount > 1) secHdrPieces.push((secHdrCount === 1 ? 'DEVICE' : 'DEVICES') + ' ' + secHdrCount);
+            if (sec.raid) secHdrPieces.push(sec.raid);
+            var secHdr = esc(secHdrPieces.join(' · '));
             html += '<tr class="dvt-sec-row"><td colspan="' + nCols + '">'
-                  + '<div class="dvt-sec-row__inner"><span class="dvt-sec-lbl">' + esc(sec.label || sec.id || '') + '</span>' + actions + '</div></td></tr>';
+                  + '<div class="dvt-sec-row__inner"><span class="dvt-sec-lbl">' + secHdr + '</span>' + actions + '</div></td></tr>';
 
             var secHasSummary = false;
             for (var hs = 0; hs < tiles.length; hs++) {
@@ -328,8 +336,14 @@
 
     function worstColSeverity(sections) {
         var rank = { ok: 0, warn: 1, crit: 2 };
-        var w = { temp: 'ok', health: 'ok', errors: 'ok' };
+        var w = { temp: 'ok', health: 'ok', errors: 'ok', realloc: 'ok', pending: 'ok', crc: 'ok' };
         function bump(col, sev) { if (rank[sev] > rank[w[col]]) w[col] = sev; }
+        function smartSev(v, warnGt, critGt) {
+            if (v === null || v === undefined) return 'ok';
+            if (critGt !== undefined && v > critGt) return 'crit';
+            if (warnGt !== undefined && v > warnGt) return 'warn';
+            return 'ok';
+        }
         for (var s = 0; s < sections.length; s++) {
             var tiles = sections[s].tiles || [];
             for (var t = 0; t < tiles.length; t++) {
@@ -347,6 +361,12 @@
                 if (sm === 'critical') bump('health', 'crit');
                 else if (sm === 'warning') bump('health', 'warn');
                 if ((+d.errors || 0) > 0) bump('errors', 'crit');
+                var saw = d.smart_attrs || null;
+                if (saw) {
+                    bump('realloc', smartSev(saw.realloc, 0, 10));
+                    bump('pending', smartSev(saw.pending, 0, 5));
+                    bump('crc',     smartSev(saw.crc, 100, undefined));
+                }
             }
         }
         return w;
@@ -555,6 +575,9 @@
 
         if (isSummary || tile.group === 'boot') {
             return '<span class="dvt-bolt dvt-bolt--static" aria-hidden="true">' + STACK_SVG + '</span>';
+        }
+        if (tile.is_nvme) {
+            return '<span class="dvt-bolt dvt-bolt--static" aria-hidden="true">' + NVME_SVG + '</span>';
         }
         var canButton = !isParity && !spinDisabled && _enableSpin;
         if (canButton) {

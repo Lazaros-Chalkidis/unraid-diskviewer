@@ -30,6 +30,14 @@ $clamp_interval = static function($v): string {
     return in_array((string)$v, $allowed, true) ? (string)$v : '20';
 };
 
+$clean_ids = static function($v): string {
+    $ids = [];
+    foreach (preg_split('/\s+/', trim((string)$v)) as $tok) {
+        if ($tok !== '' && preg_match('~^[A-Za-z0-9._:\-]+$~', $tok)) $ids[$tok] = true;
+    }
+    return implode(' ', array_keys($ids));
+};
+
 // settings apply: rebuild the cfg from the posted fields, then write it back
 if (isset($_POST['#apply'])) {
 
@@ -47,7 +55,7 @@ if (isset($_POST['#apply'])) {
 
     $new_cfg['ENABLE_SPIN_BUTTON']   = $yn($_POST['ENABLE_SPIN_BUTTON'] ?? '1', '1');
 
-    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '1', '1');
+    $new_cfg['SHOW_UNASSIGNED']      = $yn($_POST['SHOW_UNASSIGNED']      ?? '0', '0');
     $new_cfg['SHOW_ARRAY']           = $yn($_POST['SHOW_ARRAY']           ?? '1', '1');
     $new_cfg['SHOW_CACHE']           = $yn($_POST['SHOW_CACHE']           ?? '1', '1');
     $new_cfg['SHOW_POOLS']           = $yn($_POST['SHOW_POOLS']           ?? '1', '1');
@@ -83,13 +91,14 @@ if (isset($_POST['#apply'])) {
         ? $mode_in : 'inherit';
     $new_cfg['SPACE_WARNING_PCT']   = $clamp_int($_POST['SPACE_WARNING_PCT']  ?? 70,  1,  99,  70);
     $new_cfg['SPACE_CRITICAL_PCT']  = $clamp_int($_POST['SPACE_CRITICAL_PCT'] ?? 90,  2, 100,  90);
+    $new_cfg['HIDDEN_DEVICES']      = $clean_ids($_POST['HIDDEN_DEVICES'] ?? '');
 
     } else {
 
     $new_cfg['TOOL_REFRESH_ENABLED']     = $yn($_POST['TOOL_REFRESH_ENABLED'] ?? '1', '1');
     $new_cfg['TOOL_REFRESH_INTERVAL']    = $clamp_interval($_POST['TOOL_REFRESH_INTERVAL'] ?? 10);
     $new_cfg['TOOL_ENABLE_SPIN_BUTTON']  = $yn($_POST['TOOL_ENABLE_SPIN_BUTTON'] ?? '1', '1');
-    $new_cfg['TOOL_SHOW_UNASSIGNED']     = $yn($_POST['TOOL_SHOW_UNASSIGNED'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_UNASSIGNED']     = $yn($_POST['TOOL_SHOW_UNASSIGNED'] ?? '0', '0');
     $new_cfg['TOOL_SHOW_ARRAY']          = $yn($_POST['TOOL_SHOW_ARRAY'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_CACHE']          = $yn($_POST['TOOL_SHOW_CACHE'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_POOLS']          = $yn($_POST['TOOL_SHOW_POOLS'] ?? '1', '1');
@@ -107,6 +116,7 @@ if (isset($_POST['#apply'])) {
     $new_cfg['TOOL_SPACE_SEVERITY_MODE'] = in_array($toolModeIn, ['inherit','custom','disabled'], true) ? $toolModeIn : 'inherit';
     $new_cfg['TOOL_SPACE_WARNING_PCT']   = $clamp_int($_POST['TOOL_SPACE_WARNING_PCT']  ?? 70, 1,  99,  70);
     $new_cfg['TOOL_SPACE_CRITICAL_PCT']  = $clamp_int($_POST['TOOL_SPACE_CRITICAL_PCT'] ?? 90, 2, 100,  90);
+    $new_cfg['TOOL_HIDDEN_DEVICES']      = $clean_ids($_POST['TOOL_HIDDEN_DEVICES'] ?? '');
     }
 
     $ini = '';
@@ -129,7 +139,7 @@ $def = [
     'REFRESH_INTERVAL'     => '20',
     'DRAG_STEP_ROWS'       => '1',
     'ENABLE_SPIN_BUTTON'   => '1',
-    'SHOW_UNASSIGNED'      => '1',
+    'SHOW_UNASSIGNED'      => '0',
     'SHOW_ARRAY'           => '1',
     'SHOW_CACHE'           => '1',
     'SHOW_POOLS'           => '1',
@@ -152,7 +162,7 @@ $def = [
     'TOOL_REFRESH_ENABLED'      => '1',
     'TOOL_REFRESH_INTERVAL'     => '10',
     'TOOL_ENABLE_SPIN_BUTTON'   => '1',
-    'TOOL_SHOW_UNASSIGNED'      => '1',
+    'TOOL_SHOW_UNASSIGNED'      => '0',
     'TOOL_SHOW_ARRAY'           => '1',
     'TOOL_SHOW_CACHE'           => '1',
     'TOOL_SHOW_POOLS'           => '1',
@@ -220,6 +230,55 @@ $toggle = function($name, $val, $default = '1', $onLabel = 'Enabled', $offLabel 
 };
 $toggleShow = function($name, $val, $default = '1') use ($toggle) {
     return $toggle($name, $val, $default, 'Show', 'Hide');
+};
+
+$dvHideable = DiskViewerEndpoint::hideableDevices();
+$dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
+    $hiddenSet = [];
+    foreach (preg_split('/\s+/', trim((string)$hiddenRaw)) as $id) { if ($id !== '') $hiddenSet[$id] = true; }
+    $present = 0;
+    $groups = ['unassigned' => [], 'pool' => []];
+    foreach ($dvHideable as $d) {
+        if (isset($hiddenSet[$d['byid']])) $present++;
+        $groups[$d['cat']][] = $d;
+    }
+    $cell = function($d) use ($hiddenSet) {
+        $isHidden = isset($hiddenSet[$d['byid']]);
+        $h  = '<label class="dv-vis-cell' . ($isHidden ? ' is-hidden' : '') . '">';
+        $h .= '<span class="dv-vis-cell-main">';
+        $h .= '<span class="dv-vis-nameline"><span class="dv-vis-name">' . htmlspecialchars($d['name']) . '</span><span class="dv-vis-size">' . htmlspecialchars($d['size_h']) . '</span></span>';
+        $h .= '<span class="dv-vis-id">' . htmlspecialchars($d['byid']) . '</span>';
+        $h .= '</span>';
+        $h .= '<input type="checkbox" class="dv-vis-tg" data-byid="' . htmlspecialchars($d['byid'], ENT_QUOTES) . '"' . ($isHidden ? '' : ' checked') . '>';
+        $h .= '<span class="dv-vis-track"></span></label>';
+        return $h;
+    };
+    ob_start();
+    ?>
+      <div class="dv-vis-block" data-field="<?= htmlspecialchars($field, ENT_QUOTES) ?>">
+        <div class="dv-vis-bar">
+          <span class="dv-vis-count"><i class="fa fa-eye-slash" aria-hidden="true"></i> <span class="dv-vis-count-n"><?= $present ?></span> hidden</span>
+          <button type="button" class="dv-vis-rescan dv-action-btn dv-action-btn--reset"><i class="fa fa-refresh" aria-hidden="true"></i> Rescan</button>
+        </div>
+        <div class="dv-vis-list">
+          <?php if (empty($dvHideable)): ?>
+            <div class="dv-vis-empty">No unassigned devices or single-disk pools were found.</div>
+          <?php else: foreach ($groups as $cat => $list): if (empty($list)) continue; ?>
+            <div class="dv-vis-group"><?= $cat === 'unassigned' ? 'Unassigned' : 'Single-disk pools' ?></div>
+            <div class="dv-vis-rows">
+              <?php foreach (array_chunk($list, 3) as $rowCells): ?>
+                <div class="dv-vis-grid-row">
+                  <?php foreach ($rowCells as $d) echo $cell($d); ?>
+                  <?php for ($k = count($rowCells); $k < 3; $k++): ?><span class="dv-vis-cell dv-vis-cell--empty" aria-hidden="true"></span><?php endfor; ?>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php endforeach; endif; ?>
+        </div>
+        <input type="hidden" name="<?= htmlspecialchars($field, ENT_QUOTES) ?>" class="dv-vis-input" value="<?= htmlspecialchars(implode(' ', array_keys($hiddenSet)), ENT_QUOTES) ?>">
+      </div>
+    <?php
+    return ob_get_clean();
 };
 ?>
 
@@ -332,7 +391,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
       <div class="dv-r">
         <div class="dv-r-label">Show unassigned section</div>
         <div class="dv-r-field">
-          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'], '1') ?>
+          <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'] ?? '0', '0') ?>
           <span class="dv-r-desc">Show devices that are not part of the array or a pool</span>
         </div>
       </div>
@@ -456,6 +515,17 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
       </div>
     </div>
   </div>
+  <div class="dv-sec closed" id="dvSecVisibility">
+    <div class="dv-sec-hd">
+      <span>Device visibility</span>
+      <span class="dv-pill">Hide devices from the widget</span>
+      <span class="dv-sec-arrow">&#9650;</span>
+    </div>
+    <div class="dv-sec-bd">
+      <div class="dv-vis-intro">Choose which unassigned devices and single-disk pools appear on the widget. This list is separate from the Tool page, so you can hide a device here without hiding it on the Tool page. Each device is matched by its stable id, so it stays hidden after a reboot or a reconnect. Array disks, parity, multi-disk pool members and the boot device are never listed here, so a disk that matters for your array or pool cannot be hidden by mistake.</div>
+      <?= $dvRenderVis('HIDDEN_DEVICES', $cfg['HIDDEN_DEVICES'] ?? '') ?>
+    </div>
+  </div>
   </div>
 
   <div id="dvToolTabPanel" style="<?= $active_tab !== 'tool' ? 'display:none;' : '' ?>">
@@ -541,7 +611,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         <div class="dv-r">
           <div class="dv-r-label">Show unassigned section</div>
           <div class="dv-r-field">
-            <?= $toggleShow('TOOL_SHOW_UNASSIGNED', $cfg['TOOL_SHOW_UNASSIGNED'], '1') ?>
+            <?= $toggleShow('TOOL_SHOW_UNASSIGNED', $cfg['TOOL_SHOW_UNASSIGNED'] ?? '0', '0') ?>
             <span class="dv-r-desc">Show devices that are not part of the array or a pool</span>
           </div>
         </div>
@@ -642,6 +712,18 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
             <span class="dv-r-desc">Percentage used at which a disk's % column turns red. Must be higher than the warning value.</span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="dv-sec closed" id="dvtSecVisibility">
+      <div class="dv-sec-hd">
+        <span>Device visibility</span>
+        <span class="dv-pill">Hide devices from the Tool page</span>
+        <span class="dv-sec-arrow">&#9650;</span>
+      </div>
+      <div class="dv-sec-bd">
+        <div class="dv-vis-intro">Choose which unassigned devices and single-disk pools appear on the Tool page. This list is separate from the widget, so you can hide a device here without hiding it on the widget. Each device is matched by its stable id, so it stays hidden after a reboot or a reconnect. Array disks, parity, multi-disk pool members and the boot device are never listed here, so a disk that matters for your array or pool cannot be hidden by mistake.</div>
+        <?= $dvRenderVis('TOOL_HIDDEN_DEVICES', $cfg['TOOL_HIDDEN_DEVICES'] ?? '') ?>
       </div>
     </div>
   </div>
@@ -827,7 +909,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         SHOW_ARRAY:           '1',
         SHOW_CACHE:           '1',
         SHOW_POOLS:           '1',
-        SHOW_UNASSIGNED:      '1',
+        SHOW_UNASSIGNED:      '0',
         HEADER_SHOW_BADGE:    '1',
         HEADER_CLICK_ACTION:  'main',
         POOL_HIGHLIGHT_USED:  '0',
@@ -849,7 +931,7 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
         TOOL_SHOW_ARRAY:           '1',
         TOOL_SHOW_CACHE:           '1',
         TOOL_SHOW_POOLS:           '1',
-        TOOL_SHOW_UNASSIGNED:      '1',
+        TOOL_SHOW_UNASSIGNED:      '0',
         TOOL_HEADER_SHOW_BADGE:    '1',
         TOOL_HEADER_CLICK_ACTION:  'main',
         TOOL_SHOW_DECIMAL_PCT:     '1',
@@ -891,6 +973,20 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
                 txt.textContent = cb.checked ? (isShow ? 'Show' : 'Enabled') : (isShow ? 'Hide' : 'Disabled');
                 txt.className = 'dv-toggle-txt ' + (cb.checked ? 'on' : 'off');
             }
+        });
+
+        document.querySelectorAll('.dv-vis-block').forEach(function(block){
+            var field = block.getAttribute('data-field') || '';
+            if (!inActiveTab(field)) return;
+            block.querySelectorAll('.dv-vis-tg').forEach(function(cb){
+                cb.checked = true;
+                var row = cb.closest('.dv-vis-cell');
+                if (row) row.classList.remove('is-hidden');
+            });
+            var visInput = block.querySelector('.dv-vis-input');
+            if (visInput) visInput.value = '';
+            var visCount = block.querySelector('.dv-vis-count-n');
+            if (visCount) visCount.textContent = '0';
         });
 
         if (typeof dvUpdateSpaceSeverityRows === 'function') {
@@ -999,5 +1095,104 @@ $toggleShow = function($name, $val, $default = '1') use ($toggle) {
             if (e.key === 'Escape') modal.style.display = 'none';
         });
     }
+
+    // device visibility: each tab has its own list, kept in step with its toggles, with a rescan that does not reload the page
+    (function(){
+        var blocks = document.querySelectorAll('.dv-vis-block');
+        if (!blocks.length) return;
+
+        function esc(s){
+            return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+                return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;';
+            });
+        }
+
+        function setup(block){
+            var input     = block.querySelector('.dv-vis-input');
+            var listEl    = block.querySelector('.dv-vis-list');
+            var countEl   = block.querySelector('.dv-vis-count-n');
+            var rescanBtn = block.querySelector('.dv-vis-rescan');
+            if (!input || !listEl) return;
+
+            function sync(){
+                var shown = {}, hidden = [], offCount = 0;
+                listEl.querySelectorAll('.dv-vis-tg').forEach(function(cb){
+                    var id = cb.getAttribute('data-byid'); shown[id] = true;
+                    var row = cb.closest('.dv-vis-cell');
+                    if (!cb.checked) { hidden.push(id); offCount++; if (row) row.classList.add('is-hidden'); }
+                    else if (row) { row.classList.remove('is-hidden'); }
+                });
+                // keep previously-hidden ids whose device is not currently present, so a disconnected device stays hidden
+                (input.value || '').split(/\s+/).forEach(function(id){ if (id && !shown[id]) hidden.push(id); });
+                input.value = hidden.join(' ');
+                if (countEl) countEl.textContent = String(offCount);
+            }
+
+            function wire(){
+                listEl.querySelectorAll('.dv-vis-tg').forEach(function(cb){
+                    cb.addEventListener('change', sync);
+                });
+            }
+
+            function render(devices){
+                var hiddenSet = {};
+                (input.value || '').split(/\s+/).forEach(function(id){ if (id) hiddenSet[id] = true; });
+                if (!devices.length) {
+                    listEl.innerHTML = '<div class="dv-vis-empty">No unassigned devices or single-disk pools were found.</div>';
+                    return;
+                }
+                function cellHtml(d){
+                    var isHidden = !!hiddenSet[d.byid];
+                    return '<label class="dv-vis-cell' + (isHidden ? ' is-hidden' : '') + '">'
+                         + '<span class="dv-vis-cell-main">'
+                         + '<span class="dv-vis-nameline"><span class="dv-vis-name">' + esc(d.name) + '</span><span class="dv-vis-size">' + esc(d.size_h) + '</span></span>'
+                         + '<span class="dv-vis-id">' + esc(d.byid) + '</span>'
+                         + '</span>'
+                         + '<input type="checkbox" class="dv-vis-tg" data-byid="' + esc(d.byid) + '"' + (isHidden ? '' : ' checked') + '>'
+                         + '<span class="dv-vis-track"></span></label>';
+                }
+                var groups = { unassigned: [], pool: [] };
+                devices.forEach(function(d){ if (groups[d.cat]) groups[d.cat].push(d); });
+                var html = '';
+                ['unassigned', 'pool'].forEach(function(cat){
+                    var list = groups[cat];
+                    if (!list.length) return;
+                    html += '<div class="dv-vis-group">' + (cat === 'unassigned' ? 'Unassigned' : 'Single-disk pools') + '</div><div class="dv-vis-rows">';
+                    for (var i = 0; i < list.length; i += 3) {
+                        html += '<div class="dv-vis-grid-row">';
+                        var n = 0;
+                        for (var j = i; j < i + 3 && j < list.length; j++) { html += cellHtml(list[j]); n++; }
+                        for (; n < 3; n++) html += '<span class="dv-vis-cell dv-vis-cell--empty" aria-hidden="true"></span>';
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                });
+                listEl.innerHTML = html;
+                wire();
+                sync();
+            }
+
+            function rescan(){
+                if (rescanBtn) { rescanBtn.disabled = true; rescanBtn.classList.add('is-busy'); }
+                var x = new XMLHttpRequest();
+                x.open('GET', '/plugins/diskviewer/include/diskviewer_api.php?action=hideable&t=' + Date.now());
+                x.onreadystatechange = function(){
+                    if (x.readyState !== 4) return;
+                    if (rescanBtn) { rescanBtn.disabled = false; rescanBtn.classList.remove('is-busy'); }
+                    if (x.status !== 200) return;
+                    try {
+                        var devices = JSON.parse(x.responseText);
+                        if (Array.isArray(devices)) render(devices);
+                    } catch (e) {}
+                };
+                x.send();
+            }
+
+            wire();
+            if (rescanBtn) rescanBtn.addEventListener('click', rescan);
+        }
+
+        blocks.forEach(function(b){ setup(b); });
+    })();
 })();
 </script>
