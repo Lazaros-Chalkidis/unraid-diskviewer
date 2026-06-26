@@ -9,8 +9,12 @@ Icon="hdd.svg"
    License: GPLv3
    ========================================================================= */
 
-$dvb_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
-$dvb_theme = $dvb_cfg['display']['theme'] ?? '';
+// unraid's resolved theme first, cfg fallback (cfg can be empty when theme was never explicitly set)
+$dvb_theme = (string)($GLOBALS['display']['theme'] ?? '');
+if ($dvb_theme === '') {
+    $dvb_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+    $dvb_theme = (string)($dvb_cfg['display']['theme'] ?? '');
+}
 if (!in_array($dvb_theme, ['black','white','azure','gray'], true)) $dvb_theme = 'black';
 ?>
 <script>window.diskviewerTheme=<?= json_encode($dvb_theme) ?>;</script>

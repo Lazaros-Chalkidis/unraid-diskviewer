@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.06.24">
+ <!ENTITY version   "2026.06.26">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "ed607586b8846d8a34cbd622e5cc3b6a">
+ <!ENTITY md5       "4a9c1b1d15a9191fc9cc0b9f2e68d300">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,16 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.06.26
+
+### Fixed
+- Disk name labels could appear invisible on the white and azure themes, and on systems where the dashboard theme had never been explicitly chosen. The plugin now follows Unraid's active theme reliably and also confirms light or dark from the page itself, so the disk names always show.
+- On the gray theme the widget and Tool page now use Unraid's slate-blue surface colours for the sticky column header and the cache and pool row striping, instead of a flat neutral grey that clashed with the dashboard.
+- On the Tool settings page the header indicator options no longer unlock by mistake on a fresh install or right after a reboot, before the dashboard has been opened. The dashboard widget is treated as present until it is genuinely removed, so the options stay managed by the widget as intended.
+
+### New Features
+- The Tool page now shows how busy each disk is, not just how fast. The Speed column, renamed Speed r/w - i/o, shows each active disk's i/o as a percentage next to its read/write speed, with a bar. SSD and NVMe drives show it in blue, spinning drives go from green to amber to red as they get busier, at thresholds you can set. It reads the kernel's activity counters, so it never wakes a sleeping disk, and updates live with the speed. Idle and sleeping disks read idle or sleep. On by default; switch it off under the Tool tab.
 
 ## Version 2026.06.24
 

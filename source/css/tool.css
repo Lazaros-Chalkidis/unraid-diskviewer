@@ -433,6 +433,27 @@
 .dvt-bar-fill--warn { background: var(--dvt-warn); }
 .dvt-bar-fill--crit { background: var(--dvt-crit); }
 
+/* disk-activity in the speed column - fixed-width block centred in the column (aligns with the centred header); idle is centred text */
+.dvt-col-act { display: flex; flex-direction: column; align-items: center; line-height: 1.1; overflow: hidden; }
+.dvt-act-inner { display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 100px; max-width: 100%; }
+.dvt-col-act--idle .dvt-act-inner { width: auto; }
+.dvt-speed-cell { display: inline-flex; align-items: center; min-width: 0; }
+.dvt-col-act .dvt-speed { display: inline-block; vertical-align: baseline; font-size: .9em; line-height: 1.1; }
+.dvt-col-act .dvt-speed-num { line-height: 1.1; }
+.dvt-col-act .dvt-speed svg { width: .9em; height: .9em; vertical-align: middle; }
+.dvt-act-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.dvt-act-pct { font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas; font-size: .9em; font-weight: 500; color: var(--dvt-text-mid); line-height: 1; flex-shrink: 0; }
+.dvt-act-bar { height: 4px; background: rgba(255,255,255,.08); border-radius: 2px; overflow: hidden; }
+.dvt-light .dvt-act-bar { background: rgba(0,0,0,.10); }
+.dvt-act-fill { display: block; height: 100%; transition: width .3s ease; border-radius: 2px; }
+.dvt-act-fill--blue { background: var(--dvt-member); }
+.dvt-act-fill--ok   { background: var(--dvt-ok);   }
+.dvt-act-fill--warn { background: var(--dvt-warn); }
+.dvt-act-fill--crit { background: var(--dvt-crit); }
+/* idle/sleep: just the text, no bar */
+.dvt-col-act--idle .dvt-act-pct,
+.dvt-col-act--idle .dvt-act-bar { display: none; }
+
 .dvt-sec-row__inner {
   display: flex;
   align-items: center;
@@ -583,9 +604,9 @@
 }
 
 .dvt-theme-gray {
-  --dvt-bg:            #262626;
-  --dvt-surface:       #2e2e2e;
-  --dvt-surface2:      #363636;
+  --dvt-bg:            #1c2833;
+  --dvt-surface:       #212f3d;
+  --dvt-surface2:      #2a3a49;
   --dvt-text:          rgba(255,255,255,.92);
   --dvt-text-mid:      rgba(255,255,255,.70);
   --dvt-border:        rgba(255,255,255,.13);

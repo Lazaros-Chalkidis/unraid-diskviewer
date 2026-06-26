@@ -1240,7 +1240,38 @@
         }
     }
 
+    // safety net: server-side theme can be wrong if unraid's theme value is unreadable,
+    // so confirm light/dark from the actual rendered background and fix the class if needed
+    function correctTheme(){
+        try {
+            var root = document.querySelector('.dv-widget-wrap') || document.getElementById('db-diskviewer');
+            if (!root) return;
+            var el = root.parentElement, rgb = null;
+            while (el) {
+                var m = (getComputedStyle(el).backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+                if (m) {
+                    var p = m[1].split(',');
+                    if ((p.length > 3 ? parseFloat(p[3]) : 1) > 0.1) {
+                        rgb = [parseFloat(p[0]), parseFloat(p[1]), parseFloat(p[2])];
+                        break;
+                    }
+                }
+                el = el.parentElement;
+            }
+            if (!rgb) {
+                var bm = (getComputedStyle(document.body).backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+                if (bm) { var bp = bm[1].split(','); rgb = [parseFloat(bp[0]), parseFloat(bp[1]), parseFloat(bp[2])]; }
+            }
+            if (!rgb) return;
+            var lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+            var hasLight = root.classList.contains('dv-light');
+            if (lum > 0.55 && !hasLight) root.classList.add('dv-light');
+            else if (lum < 0.45 && hasLight) root.classList.remove('dv-light');
+        } catch (e) {}
+    }
+
     function init(){
+        correctTheme();
         expandRows = loadExpand();
 
         var handle = $('dv-drag-handle');

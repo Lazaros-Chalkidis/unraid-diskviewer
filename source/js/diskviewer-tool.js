@@ -45,6 +45,9 @@
     var _showDecimal   = false;
     var _showIdTooltip = true;
     var _showPower     = false;
+    var _showActivity  = false;
+    var _actWarn       = 95;
+    var _actCrit       = 98;
     var _refreshTimer  = null;
     var _lastSections  = [];
 
@@ -169,6 +172,9 @@
             _showDecimal   = !!cfg.show_decimal_pct;
             _showIdTooltip = cfg.show_id_tooltip !== false;
             _showPower     = !!cfg.show_power;
+            _showActivity  = !!cfg.show_activity;
+            _actWarn       = (typeof cfg.activity_warning  === 'number') ? cfg.activity_warning  : 95;
+            _actCrit       = (typeof cfg.activity_critical === 'number') ? cfg.activity_critical : 98;
             renderOverviewDisks(model.sections || []);
             wireSpin();
             wireBulkSpin();
@@ -228,7 +234,7 @@
         { key: 'size',    label: 'Size',        cls: 'dvt-tbl__num',  width: 62  },
         { key: 'free',    label: 'Free',        cls: 'dvt-tbl__num',  width: 86  },
         { key: 'used',    label: 'Used',        cls: 'dvt-tbl__num',  hdCls: 'dvt-tbl__ctr', width: 150 },
-        { key: 'speed',   label: 'Speed r/w',   cls: 'dvt-tbl__num',  width: 96  },
+        { key: 'speed',   label: 'Speed r/w - i/o', cls: 'dvt-tbl__ctr', hdCls: 'dvt-tbl__ctr', width: 165 },
         { key: 'temp',    label: 'Temp',        cls: 'dvt-tbl__num',  width: 64  },
         { key: 'health',  label: 'Health',      cls: 'dvt-tbl__ctr',  width: 78  },
         { key: 'errors',  label: 'Errors',      cls: 'dvt-tbl__num',  width: 64  },
@@ -482,7 +488,7 @@
         if (_activeTab !== 'dvtTabOverview') return;
         var host = document.getElementById('dvt-overview-disks');
         if (!host || !host.querySelector('.dvt-tbl__row')) return;
-        fetchJson('speeds').then(function (arr) {
+        fetchJson('speeds', 'tool=1').then(function (arr) {
             if (Array.isArray(arr)) applySpeeds(arr, host);
         }).catch(function () {});
     }
@@ -508,8 +514,14 @@
             var d = byName[name];
             if (!d) continue;
 
-            var cell = row.querySelector('.dvt-speed-cell');
-            if (cell) updateSpeedCell(cell, !!d.spun, +d.speed_bps || 0, d.speed_dir || '');
+            var actWrap = row.querySelector('.dvt-col-act');
+            if (actWrap) {
+                updateActCell(actWrap, !!d.spun, +d.speed_bps || 0, d.speed_dir || '',
+                              (d.activity == null ? null : +d.activity), d.rotational);
+            } else {
+                var cell = row.querySelector('.dvt-speed-cell');
+                if (cell) updateSpeedCell(cell, !!d.spun, +d.speed_bps || 0, d.speed_dir || '');
+            }
             var bps = +d.speed_bps || 0, dir = d.speed_dir || '';
             if (dir === 'r') agg[secId].sumR += bps;
             else if (dir === 'w') agg[secId].sumW += bps;
@@ -544,6 +556,47 @@
 
     function speedCell(tile) {
         return buildSpeed(!!tile.spun, +tile.speed_bps || 0, tile.speed_dir || '');
+    }
+
+    // speed column activity: used-style line (speed + util%) with a bar when there is i/o, compact text when idle.
+    // ssd/nvme stay blue, spinners go green/amber/red by threshold.
+    function actFillCls(pct, rotational) {
+        var rot = String(rotational) === '1';
+        return !rot ? 'dvt-act-fill--blue'
+             : pct > _actCrit ? 'dvt-act-fill--crit'
+             : pct > _actWarn ? 'dvt-act-fill--warn'
+             : 'dvt-act-fill--ok';
+    }
+    function actCell(spun, bps, dir, activity, rotational) {
+        var active = spun && bps > 0;
+        var idleCls = active ? '' : ' dvt-col-act--idle';
+        var hasPct  = (activity != null);
+        var pct     = hasPct ? Math.max(0, Math.min(100, +activity)) : 0;
+        var cls     = hasPct ? actFillCls(pct, rotational) : 'dvt-act-fill--ok';
+        return '<span class="dvt-col-act' + idleCls + '">'
+             + '<span class="dvt-act-inner">'
+             + '<span class="dvt-act-line"><span class="dvt-speed-cell">' + buildSpeed(spun, bps, dir) + '</span>'
+             + '<span class="dvt-act-pct">' + (hasPct ? Math.round(pct) + '%' : '') + '</span></span>'
+             + '<span class="dvt-act-bar"><span class="dvt-act-fill ' + cls + '" style="width:' + pct + '%"></span></span>'
+             + '</span></span>';
+    }
+    // poll update: live speed + util in place, toggle compact/used-style by i/o
+    function updateActCell(wrap, spun, bps, dir, activity, rotational) {
+        var active = spun && bps > 0;
+        wrap.classList.toggle('dvt-col-act--idle', !active);
+        var sc = wrap.querySelector('.dvt-speed-cell');
+        if (sc) updateSpeedCell(sc, spun, bps, dir);
+        if (activity != null) {
+            var pct = Math.max(0, Math.min(100, +activity));
+            var pctEl = wrap.querySelector('.dvt-act-pct');
+            if (pctEl) { var t = Math.round(pct) + '%'; if (pctEl.textContent !== t) pctEl.textContent = t; }
+            var fillEl = wrap.querySelector('.dvt-act-fill');
+            if (fillEl) {
+                var w = pct + '%'; if (fillEl.style.width !== w) fillEl.style.width = w;
+                var fc = 'dvt-act-fill ' + actFillCls(pct, rotational);
+                if (fillEl.className !== fc) fillEl.className = fc;
+            }
+        }
     }
 
     function updateSpeedCell(cell, spun, bps, dir) {
@@ -747,7 +800,13 @@
                        ? esc(tile.scrub_frag) : NA);
         var nscrubCell = isMemberRow ? '' : (scrubCapable ? (tile.scrub_next_ts ? relFuture(tile.scrub_next_ts) : muted('no schedule')) : NA);
 
-        var speedCellHtml = '<span class="dvt-speed-cell">' + speedCell(tile) + '</span>';
+        var speedCellHtml;
+        if (_showActivity && !tile.is_summary) {
+            speedCellHtml = actCell(!!tile.spun, +tile.speed_bps || 0, tile.speed_dir || '',
+                                    (tile.activity == null ? null : +tile.activity), tile.rotational);
+        } else {
+            speedCellHtml = '<span class="dvt-speed-cell">' + speedCell(tile) + '</span>';
+        }
 
         var cells = {
             bolt:    boltCell(tile),
@@ -953,7 +1012,37 @@
         if (sb) sb.innerHTML = '<div style="padding:1rem;color:var(--dvt-text-dim);">Disk list pending</div>';
     }
 
+    // safety net: confirm light/dark from the actual rendered background and fix the class if the server-side theme was wrong
+    function correctTheme(){
+        try {
+            var root = document.querySelector('.dvt-wrapper');
+            if (!root) return;
+            var el = root.parentElement, rgb = null;
+            while (el) {
+                var m = (getComputedStyle(el).backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+                if (m) {
+                    var p = m[1].split(',');
+                    if ((p.length > 3 ? parseFloat(p[3]) : 1) > 0.1) {
+                        rgb = [parseFloat(p[0]), parseFloat(p[1]), parseFloat(p[2])];
+                        break;
+                    }
+                }
+                el = el.parentElement;
+            }
+            if (!rgb) {
+                var bm = (getComputedStyle(document.body).backgroundColor || '').match(/rgba?\(([^)]+)\)/);
+                if (bm) { var bp = bm[1].split(','); rgb = [parseFloat(bp[0]), parseFloat(bp[1]), parseFloat(bp[2])]; }
+            }
+            if (!rgb) return;
+            var lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+            var hasLight = root.classList.contains('dvt-light');
+            if (lum > 0.55 && !hasLight) root.classList.add('dvt-light');
+            else if (lum < 0.45 && hasLight) root.classList.remove('dvt-light');
+        } catch (e) {}
+    }
+
     function boot() {
+        correctTheme();
         wireTabs();
         loadOverview();
     }

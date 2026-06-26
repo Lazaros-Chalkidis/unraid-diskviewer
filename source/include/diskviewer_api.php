@@ -21,6 +21,8 @@ final class DiskViewerEndpoint
     private const SMART_ONE_FILE     = '/boot/config/smart-one.cfg';
 
     private static bool $toolMode = false;
+    // true only during the tool speed poll: that request computes and stores live activity
+    private static bool $activityLive = false;
 
     private const CACHE_FILE         = '/tmp/diskviewer_cache/state.json';
     private const HEADER_COUNT_FILE  = '/tmp/diskviewer_cache/header_count';
@@ -35,6 +37,7 @@ final class DiskViewerEndpoint
     private const SMART_ATTRS_CACHE     = '/boot/config/plugins/diskviewer/smart_attrs.json';
     private const SMART_ATTRS_TTL       = 3600;
     private const SCRUB_CACHE           = '/tmp/diskviewer_cache/scrub_status.json';
+    private const ACTIVITY_SNAP_FILE    = '/tmp/diskviewer_cache/activity_snap.json';
     private const SCRUB_TTL             = 3600;
     private const SCRUB_SCHED_CACHE     = '/tmp/diskviewer_cache/scrub_sched.json';
     private const SCRUB_SCHED_TTL       = 600;
@@ -130,6 +133,45 @@ final class DiskViewerEndpoint
 
         $w = trim((string)@shell_exec("smartctl -c /dev/$dev 2>/dev/null | grep -Pom1 '^ *$state [+-] +\\K[^W]+'"));
         return $cache[$dev] = (is_numeric($w) ? (float)$w : 0.0);
+    }
+
+    // disk %util from /proc/diskstats io_ticks, averaged over the gap since the last sample.
+    // counters live in kernel memory, so reading them never spins up a sleeping disk.
+    private static function diskActivity(bool $write = true): array
+    {
+        $now = microtime(true) * 1000.0;
+        $snap = json_decode((string)@file_get_contents(self::ACTIVITY_SNAP_FILE), true);
+        $cached = (is_array($snap) && isset($snap['u']) && is_array($snap['u'])) ? $snap['u'] : [];
+
+        // main-refresh path: reuse what the poll last measured, never touch the snapshot
+        if (!$write) return $cached;
+
+        $cur = [];
+        foreach (@file('/proc/diskstats', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            $f = preg_split('/\s+/', trim($line));
+            if (count($f) < 13) continue;
+            $name = $f[2];
+            // whole disks only, drop partitions (sda1, nvme0n1p2)
+            if (strpos($name, 'nvme') === 0) { if (preg_match('/p\d+$/', $name)) continue; }
+            elseif (preg_match('/\d$/', $name)) continue;
+            $cur[$name] = (float)$f[12];
+        }
+        $out = $cached; // default to last good values so a bad gap does not blank the bars
+        if (is_array($snap) && isset($snap['t'], $snap['d']) && is_array($snap['d'])) {
+            $dt = $now - (float)$snap['t'];
+            if ($dt >= 500 && $dt <= 300000) {
+                $out = [];
+                foreach ($cur as $dev => $ticks) {
+                    if (!isset($snap['d'][$dev])) continue;
+                    $delta = $ticks - (float)$snap['d'][$dev];
+                    if ($delta < 0) $delta = 0.0; // counter reset after reboot
+                    $pct = ($delta / $dt) * 100.0;
+                    $out[$dev] = $pct < 0 ? 0.0 : ($pct > 100 ? 100.0 : $pct);
+                }
+            }
+        }
+        @file_put_contents(self::ACTIVITY_SNAP_FILE, json_encode(['t' => $now, 'd' => $cur, 'u' => $out]));
+        return $out;
     }
 
     public static function arrayRaidProfile(int $parityCount): string
@@ -440,6 +482,9 @@ final class DiskViewerEndpoint
                 'HEADER_CLICK_ACTION' => 'main',
                 'SHOW_DECIMAL_PCT'    => '1',
                 'SHOW_USED_COLUMN'    => '1',
+                'SHOW_ACTIVITY'       => '1',
+                'ACTIVITY_WARN_PCT'   => '95',
+                'ACTIVITY_CRIT_PCT'   => '98',
                 'SHOW_ID_TOOLTIP'     => '1',
                 'SHOW_MISSING_DISKS'  => '1',
                 'SHOW_BOOT_DEVICE'    => '0',
@@ -474,6 +519,12 @@ final class DiskViewerEndpoint
             $spaceWarn = $cw;
             $spaceCrit = $cc;
         }
+
+        $actWarn = (int)($cfg['ACTIVITY_WARN_PCT'] ?? 95);
+        $actCrit = (int)($cfg['ACTIVITY_CRIT_PCT'] ?? 98);
+        if ($actWarn < 1 || $actWarn > 99)  $actWarn = 95;
+        if ($actCrit < 2 || $actCrit > 100) $actCrit = 98;
+        if ($actCrit <= $actWarn) $actCrit = min(100, $actWarn + 1);
 
         return [
 
@@ -523,6 +574,9 @@ final class DiskViewerEndpoint
             'header_click_action' => self::clampHeaderClickAction((string)($cfg['HEADER_CLICK_ACTION'] ?? 'main')),
             'enable_spin_button'  => ($cfg['ENABLE_SPIN_BUTTON'] ?? '1') === '1',
             'hidden_devices'      => array_values(array_filter(preg_split('/\s+/', trim((string)($cfg['HIDDEN_DEVICES'] ?? ''))), 'strlen')),
+            'show_activity'       => ($cfg['SHOW_ACTIVITY'] ?? '0') === '1',
+            'activity_warning'    => $actWarn,
+            'activity_critical'   => $actCrit,
         ];
     }
 
@@ -995,6 +1049,10 @@ final class DiskViewerEndpoint
         static $cache = null;
         if ($cache !== null) return $cache;
 
+        $actCfg  = self::config();
+        $showAct = !empty($actCfg['show_activity']) && (self::$toolMode || self::$activityLive);
+        $actMap  = $showAct ? self::diskActivity(self::$activityLive) : [];
+
         $disks = self::parseDisksIni();
         $poolNames = self::listPools();
         $bootPools = self::dedicatedBootPools($disks);
@@ -1107,8 +1165,15 @@ final class DiskViewerEndpoint
                 }
             }
 
+            $devNode = preg_replace('@^/dev/@', '', (string)$devPath);
+            $devNode = (strpos($devNode, 'nvme') === 0)
+                         ? preg_replace('/p\d+$/', '', $devNode)
+                         : preg_replace('/\d+$/', '', $devNode);
+
             $devices[] = [
                 'name'          => $name,
+                'activity'      => ($showAct && array_key_exists($devNode, $actMap)) ? round($actMap[$devNode], 1) : null,
+                'rotational'    => (string)($d['rotational'] ?? ''),
 
                 'display_name'  => ($cls['kind'] === 'boot' ? 'Boot Device' : null),
                 'device'        => $devPath,
@@ -1696,6 +1761,9 @@ final class DiskViewerEndpoint
                 'show_decimal_pct'        => $cfg['show_decimal_pct'],
                 'show_id_tooltip'         => $cfg['show_id_tooltip'],
                 'show_power'              => $cfg['show_power'],
+                'show_activity'           => $cfg['show_activity'],
+                'activity_warning'        => $cfg['activity_warning'],
+                'activity_critical'       => $cfg['activity_critical'],
                 'font_size'               => $cfg['font_size'],
             ],
         ];
@@ -2083,7 +2151,9 @@ final class DiskViewerEndpoint
     public static function widgetActive(): bool
     {
         $ts = @file_get_contents(self::HEARTBEAT_FILE);
-        if ($ts === false || $ts === '') return false;
+        // no heartbeat yet (fresh install, or not rendered since boot): the widget is present, just not loaded.
+        // only a heartbeat that existed and went stale means the widget was removed from the dashboard.
+        if ($ts === false || $ts === '') return true;
         return (time() - (int)$ts) < self::WIDGET_HEARTBEAT_TTL;
     }
 
@@ -2341,16 +2411,21 @@ final class DiskViewerEndpoint
 
                 case 'speeds':
 
+                    // the tool poll asks for live activity; the widget poll does not
+                    if (($_GET['tool'] ?? '') === '1') { self::$toolMode = true; self::$activityLive = true; }
                     $devs = self::devices();
+                    self::$toolMode = false; self::$activityLive = false;
                     $out = [];
                     foreach ($devs as $d) {
                         $out[] = [
-                            'name'      => (string)($d['name'] ?? ''),
-                            'speed_bps' => (int)($d['speed_bps'] ?? 0),
-                            'speed_dir' => (string)($d['speed_dir'] ?? ''),
-                            'spun'      => (bool)($d['spun'] ?? false),
-                            'errors'    => (int)($d['errors'] ?? 0),
-                            'is_parity' => (bool)($d['is_parity'] ?? false),
+                            'name'       => (string)($d['name'] ?? ''),
+                            'speed_bps'  => (int)($d['speed_bps'] ?? 0),
+                            'speed_dir'  => (string)($d['speed_dir'] ?? ''),
+                            'spun'       => (bool)($d['spun'] ?? false),
+                            'errors'     => (int)($d['errors'] ?? 0),
+                            'is_parity'  => (bool)($d['is_parity'] ?? false),
+                            'activity'   => $d['activity'] ?? null,
+                            'rotational' => (string)($d['rotational'] ?? ''),
                         ];
                     }
                     echo json_encode($out, JSON_UNESCAPED_SLASHES);

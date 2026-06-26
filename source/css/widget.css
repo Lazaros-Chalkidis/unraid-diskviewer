@@ -82,10 +82,10 @@
   --dv-c-bg:            rgba(255,255,255,.04);
   --dv-c-bg-summary:    rgba(255,255,255,.07);
   --dv-c-bg-track:      rgba(255,255,255,.12);
-  --dv-c-bg-sticky:     #2e2e2e;
+  --dv-c-bg-sticky:     #212f3d;
 
-  --dv-row-odd:         #2e2e2e;
-  --dv-row-even:        #2a2a2a;
+  --dv-row-odd:         #253b50;
+  --dv-row-even:        #2b4156;
 }
 
 /* widget shell */

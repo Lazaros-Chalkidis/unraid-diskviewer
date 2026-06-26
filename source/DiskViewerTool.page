@@ -17,8 +17,12 @@ require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php';
 
 $cfg = @parse_plugin_cfg('diskviewer', true) ?: [];
 
-$dynamix_cfg  = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
-$unraid_theme = $dynamix_cfg['display']['theme'] ?? '';
+// unraid's resolved theme first, cfg fallback (cfg can be empty when theme was never explicitly set)
+$unraid_theme = (string)($GLOBALS['display']['theme'] ?? '');
+if ($unraid_theme === '') {
+    $dynamix_cfg  = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+    $unraid_theme = (string)($dynamix_cfg['display']['theme'] ?? '');
+}
 // tool only needs light vs dark, not the widget's four-theme tuning
 $dvt_theme    = in_array($unraid_theme, ['black','white','azure','gray'], true) ? $unraid_theme : 'black';
 $dvt_light    = in_array($dvt_theme, ['white', 'azure'], true);

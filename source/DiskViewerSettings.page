@@ -108,6 +108,9 @@ if (isset($_POST['#apply'])) {
     $new_cfg['TOOL_HEADER_CLICK_ACTION'] = in_array($toolClickIn, ['main','widget','tool','settings'], true) ? $toolClickIn : 'main';
     $new_cfg['TOOL_SHOW_DECIMAL_PCT']    = $yn($_POST['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_USED_COLUMN']    = $yn($_POST['TOOL_SHOW_USED_COLUMN'] ?? '1', '1');
+    $new_cfg['TOOL_SHOW_ACTIVITY']       = $yn($_POST['TOOL_SHOW_ACTIVITY'] ?? '0', '0');
+    $new_cfg['TOOL_ACTIVITY_WARN_PCT']   = $clamp_int($_POST['TOOL_ACTIVITY_WARN_PCT'] ?? 95, 1,  99,  95);
+    $new_cfg['TOOL_ACTIVITY_CRIT_PCT']   = $clamp_int($_POST['TOOL_ACTIVITY_CRIT_PCT'] ?? 98, 2, 100,  98);
     $new_cfg['TOOL_SHOW_ID_TOOLTIP']     = $yn($_POST['TOOL_SHOW_ID_TOOLTIP'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_MISSING_DISKS']  = $yn($_POST['TOOL_SHOW_MISSING_DISKS'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_BOOT_DEVICE']    = $yn($_POST['TOOL_SHOW_BOOT_DEVICE'] ?? '0', '1');
@@ -170,6 +173,9 @@ $def = [
     'TOOL_HEADER_CLICK_ACTION'  => 'main',
     'TOOL_SHOW_DECIMAL_PCT'     => '1',
     'TOOL_SHOW_USED_COLUMN'     => '1',
+    'TOOL_SHOW_ACTIVITY'        => '1',
+    'TOOL_ACTIVITY_WARN_PCT'    => '95',
+    'TOOL_ACTIVITY_CRIT_PCT'    => '98',
     'TOOL_SHOW_ID_TOOLTIP'      => '1',
     'TOOL_SHOW_MISSING_DISKS'   => '1',
     'TOOL_SHOW_BOOT_DEVICE'     => '0',
@@ -188,8 +194,12 @@ if (!in_array($active_tab, ['widget','tool'], true)) $active_tab = 'widget';
 $widget_active = DiskViewerEndpoint::widgetActive();
 $headerBlockCls = 'dv-dimmed-block' . ($widget_active ? '' : ' dv-unlocked');
 
-$dynamix_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
-$unraid_theme  = $dynamix_cfg['display']['theme'] ?? '';
+// unraid's resolved theme first, cfg fallback (cfg can be empty when theme was never explicitly set)
+$unraid_theme  = (string)($GLOBALS['display']['theme'] ?? '');
+if ($unraid_theme === '') {
+    $dynamix_cfg  = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+    $unraid_theme = (string)($dynamix_cfg['display']['theme'] ?? '');
+}
 $valid_themes  = ['black','white','azure','gray'];
 $dv_theme      = in_array($unraid_theme, $valid_themes, true) ? $unraid_theme : 'black';
 $dv_light      = in_array($dv_theme, ['white','azure'], true);
@@ -666,6 +676,31 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
           </div>
         </div>
         <div class="dv-r">
+          <div class="dv-r-label">Disk activity bar</div>
+          <div class="dv-r-field">
+            <?= $toggle('TOOL_SHOW_ACTIVITY', $cfg['TOOL_SHOW_ACTIVITY'] ?? '1', '1') ?>
+            <span class="dv-r-desc">Show a thin disk-activity bar under the read/write speeds, filled to how busy each disk is. SSD and NVMe drives stay blue; spinning drives go green, then amber and red as they get busier</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Activity warning %</div>
+          <div class="dv-r-field">
+            <input type="number" name="TOOL_ACTIVITY_WARN_PCT" min="1" max="99" step="1"
+                   value="<?= htmlspecialchars((string)($cfg['TOOL_ACTIVITY_WARN_PCT'] ?? '95'), ENT_QUOTES) ?>"
+                   class="dv-input dv-input--num" id="dvtActWarn">
+            <span class="dv-r-desc">Activity level at which a spinning disk's bar turns amber. Must be lower than the critical value. Does not apply to SSD or NVMe</span>
+          </div>
+        </div>
+        <div class="dv-r">
+          <div class="dv-r-label">Activity critical %</div>
+          <div class="dv-r-field">
+            <input type="number" name="TOOL_ACTIVITY_CRIT_PCT" min="2" max="100" step="1"
+                   value="<?= htmlspecialchars((string)($cfg['TOOL_ACTIVITY_CRIT_PCT'] ?? '98'), ENT_QUOTES) ?>"
+                   class="dv-input dv-input--num" id="dvtActCrit">
+            <span class="dv-r-desc">Activity level at which a spinning disk's bar turns red. Must be higher than the warning value. Does not apply to SSD or NVMe</span>
+          </div>
+        </div>
+        <div class="dv-r">
           <div class="dv-r-label">Decimal in used %</div>
           <div class="dv-r-field">
             <?= $toggle('TOOL_SHOW_DECIMAL_PCT', $cfg['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1') ?>
@@ -936,6 +971,9 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         TOOL_HEADER_CLICK_ACTION:  'main',
         TOOL_SHOW_DECIMAL_PCT:     '1',
         TOOL_SHOW_USED_COLUMN:     '1',
+        TOOL_SHOW_ACTIVITY:        '1',
+        TOOL_ACTIVITY_WARN_PCT:    '95',
+        TOOL_ACTIVITY_CRIT_PCT:    '98',
         TOOL_SHOW_ID_TOOLTIP:      '1',
         TOOL_SHOW_MISSING_DISKS:   '1',
         TOOL_SHOW_BOOT_DEVICE:     '0',

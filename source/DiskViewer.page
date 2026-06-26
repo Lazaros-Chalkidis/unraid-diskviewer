@@ -13,8 +13,12 @@ require_once '/usr/local/emhttp/plugins/dynamix/include/Helpers.php';
 
 $cfg = DiskViewerEndpoint::config();
 
-$dynamix_cfg   = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
-$unraid_theme  = $dynamix_cfg['display']['theme'] ?? '';
+// unraid's resolved theme first, cfg fallback (cfg can be empty when theme was never explicitly set)
+$unraid_theme  = (string)($GLOBALS['display']['theme'] ?? '');
+if ($unraid_theme === '') {
+    $dynamix_cfg  = @parse_ini_file('/boot/config/plugins/dynamix/dynamix.cfg', true);
+    $unraid_theme = (string)($dynamix_cfg['display']['theme'] ?? '');
+}
 $valid_themes  = ['black','white','azure','gray'];
 $dv_theme      = in_array($unraid_theme, $valid_themes, true) ? $unraid_theme : 'black';
 $dv_light      = in_array($dv_theme, ['white','azure'], true);
