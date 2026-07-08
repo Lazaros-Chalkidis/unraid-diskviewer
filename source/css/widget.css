@@ -413,6 +413,19 @@
   grid-template-columns:
     26px minmax(110px, 1.4fr) 62px 72px minmax(82px, 1.6fr) 68px 88px 19px 21px;
 }
+
+/* activity on: wider speed column, used keeps priority on slack */
+.dv-show-act .dv-colhd,
+.dv-show-act .dv-row {
+  grid-template-columns:
+    26px minmax(104px, 1.4fr) 62px 72px minmax(calc(88px * var(--dv-fs, 1.05)), 1.9fr) calc(92px * var(--dv-fs, 1.05)) 38px 19px 21px;
+}
+
+.dv-show-act.dv-show-power .dv-colhd,
+.dv-show-act.dv-show-power .dv-row {
+  grid-template-columns:
+    26px minmax(104px, 1.4fr) 62px 72px minmax(calc(88px * var(--dv-fs, 1.05)), 1.9fr) calc(92px * var(--dv-fs, 1.05)) 88px 19px 21px;
+}
 .dv-col-pwr { color: var(--dv-c-text-faint); }
 
 .dv-colhd {
@@ -783,6 +796,52 @@
 .dv-bar-fill--warn { background: var(--dv-warn); }
 
 .dv-bar-fill--crit { background: var(--dv-crit); }
+
+.dv-bar-fill--blue { background: var(--dv-member); }
+
+/* same shape as .dv-col-used so the row height holds */
+.dv-col-act {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.1;
+  overflow: hidden;
+  padding-left: 8px;  /* clear of the used bar */
+}
+
+.dv-act-line {
+  display: flex;
+  /* centered, not baseline: the arrow would grow the line otherwise */
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* keep this line no taller than the used line */
+.dv-col-act .dv-col-speed,
+.dv-col-act .dv-col-speed-num {
+  font-size: calc(8.8px * var(--dv-fs, 1.05));
+  line-height: 1;
+}
+.dv-col-act .dv-col-speed svg {
+  width: calc(8.8px * var(--dv-fs, 1.05));
+  height: calc(8.8px * var(--dv-fs, 1.05));
+}
+
+.dv-act-pct {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  font-size: calc(8.8px * var(--dv-fs, 1.05));
+  font-weight: 500;
+  letter-spacing: .02em;
+  color: var(--dv-c-text-mid);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.dv-act-pct--warn { color: var(--dv-warn-text); }
+.dv-act-pct--crit { color: var(--dv-crit-text); }
+.dv-act-pct--blue { color: var(--dv-member); }
 
 .dv-col-speed-wrap {
   text-align: right;

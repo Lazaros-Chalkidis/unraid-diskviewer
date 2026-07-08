@@ -29,6 +29,8 @@ $dvt_light    = in_array($dvt_theme, ['white', 'azure'], true);
 $lightClass   = $dvt_light ? ' dvt-light' : '';
 $themeClass   = ' dvt-theme-' . $dvt_theme;
 
+$var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
+
 $tool_config = [
     'dvToken'    => DiskViewerEndpoint::generateNonce(),
     'csrfToken'  => (string)($var['csrf_token'] ?? ''),

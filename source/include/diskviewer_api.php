@@ -36,6 +36,7 @@ final class DiskViewerEndpoint
 
     private const SMART_ATTRS_CACHE     = '/boot/config/plugins/diskviewer/smart_attrs.json';
     private const SMART_ATTRS_TTL       = 3600;
+    private const SMART_ATTRS_VER       = 2;  // bump when parseSmartctl gains fields
     private const SCRUB_CACHE           = '/tmp/diskviewer_cache/scrub_status.json';
     private const ACTIVITY_SNAP_FILE    = '/tmp/diskviewer_cache/activity_snap.json';
     private const SCRUB_TTL             = 3600;
@@ -448,7 +449,7 @@ final class DiskViewerEndpoint
 
     public static function clampHeaderClickAction(string $v): string
     {
-        $allowed = ['main', 'widget', 'settings'];
+        $allowed = ['main', 'widget', 'tool', 'settings'];
         return in_array($v, $allowed, true) ? $v : 'main';
     }
 
@@ -1050,7 +1051,8 @@ final class DiskViewerEndpoint
         if ($cache !== null) return $cache;
 
         $actCfg  = self::config();
-        $showAct = !empty($actCfg['show_activity']) && (self::$toolMode || self::$activityLive);
+        // only the polls compute live; other paths read the cache
+        $showAct = !empty($actCfg['show_activity']);
         $actMap  = $showAct ? self::diskActivity(self::$activityLive) : [];
 
         $disks = self::parseDisksIni();
@@ -1807,7 +1809,8 @@ final class DiskViewerEndpoint
             return null;
         }
 
-        $attrs = ['age_hours' => null, 'realloc' => null, 'pending' => null, 'crc' => null, 'wear_pct' => null, 'temp' => null];
+        $attrs = ['age_hours' => null, 'realloc' => null, 'pending' => null, 'crc' => null, 'wear_pct' => null, 'temp' => null,
+                  'written' => null, 'link_cur' => null, 'link_max' => null, 'link_ok' => true];
 
         // nvme health output, different layout from ata smart attributes
         if (stripos($out, 'Percentage Used') !== false || stripos($out, 'Power On Hours') !== false) {
@@ -1823,6 +1826,16 @@ final class DiskViewerEndpoint
             if (preg_match('/Temperature:\s*(\d+)\s*Celsius/i', $out, $m)) {
                 $attrs['temp'] = (int)$m[1];
             }
+            // one data unit = 512,000 bytes
+            if (preg_match('/Data Units Written:\s*([\d,]+)/i', $out, $m)) {
+                $attrs['written'] = (int)str_replace(',', '', $m[1]) * 512000;
+            }
+            $pcie = self::nvmePcieLink(basename($dev));
+            if ($pcie !== null) {
+                $attrs['link_cur'] = $pcie['cur'];
+                $attrs['link_max'] = $pcie['max'];
+                $attrs['link_ok']  = $pcie['ok'];
+            }
             return $attrs;
         }
 
@@ -1835,6 +1848,20 @@ final class DiskViewerEndpoint
         if (isset($rawById[5]))   $attrs['realloc']   = $rawById[5];
         if (isset($rawById[197])) $attrs['pending']   = $rawById[197];
         if (isset($rawById[199])) $attrs['crc']       = $rawById[199];  // 5 realloc, 197 pending, 199 crc, 9 hours
+        if (isset($rawById[241])) {
+            // usually 512-byte lbas; cap absurd values
+            $wr = $rawById[241] * 512;
+            if ($wr > 0 && $wr < 5.0e15) $attrs['written'] = $wr;  // 5 PB ceiling, well above any real consumer/prosumer ssd
+        }
+
+        // current below max means a bad cable or backplane
+        if (preg_match('/^SATA Version is:.*?([\d.]+)\s*Gb\/s(?:\s*\(current:\s*([\d.]+)\s*Gb\/s\))?/mi', $out, $lm)) {
+            $max = $lm[1];
+            $cur = (isset($lm[2]) && $lm[2] !== '') ? $lm[2] : $max;
+            $attrs['link_max'] = $max;
+            $attrs['link_cur'] = $cur;
+            $attrs['link_ok']  = ((float)$cur >= (float)$max);
+        }
 
         if (preg_match('/^\s*(?:194|190)\s+.*?\s-\s+(\d+)/im', $out, $mt)) {
             $attrs['temp'] = (int)$mt[1];
@@ -1842,10 +1869,42 @@ final class DiskViewerEndpoint
 
         if ($attrs['age_hours'] === null && $attrs['realloc'] === null
             && $attrs['pending'] === null && $attrs['crc'] === null
-            && $attrs['temp'] === null) {
+            && $attrs['temp'] === null && $attrs['written'] === null
+            && $attrs['link_cur'] === null) {
             return null;
         }
         return $attrs;
+    }
+
+    // nvme pcie link from sysfs
+    private static function nvmePcieLink(string $devShort): ?array
+    {
+        $ctrl = preg_replace('/n\d+$/', '', $devShort);  // nvme0n1 -> nvme0
+        if ($ctrl === '' || strpos($ctrl, 'nvme') !== 0) return null;
+        $base = '/sys/class/nvme/' . $ctrl . '/device/';
+        $curS = trim((string)@file_get_contents($base . 'current_link_speed'));
+        $maxS = trim((string)@file_get_contents($base . 'max_link_speed'));
+        $curW = trim((string)@file_get_contents($base . 'current_link_width'));
+        $maxW = trim((string)@file_get_contents($base . 'max_link_width'));
+        if ($curS === '' || $curW === '') return null;
+
+        $gen = static function (string $s): array {
+            // "8.0 GT/s PCIe" -> gt 8.0, label G3
+            $gt = (float)$s;
+            $map = ['2.5' => 'G1', '5' => 'G2', '8' => 'G3', '16' => 'G4', '32' => 'G5', '64' => 'G6'];
+            $key = rtrim(rtrim(sprintf('%.1f', $gt), '0'), '.');
+            return [$gt, $map[$key] ?? ($gt > 0 ? $key . 'GT' : '?')];
+        };
+        [$curGt, $curGen] = $gen($curS);
+        [$maxGt, $maxGen] = ($maxS !== '') ? $gen($maxS) : [$curGt, $curGen];
+        if ($maxW === '') $maxW = $curW;
+
+        $ok = ($curGt >= $maxGt) && ((int)$curW >= (int)$maxW);
+        return [
+            'cur' => $curGen . ' x' . (int)$curW,
+            'max' => $maxGen . ' x' . (int)$maxW,
+            'ok'  => $ok,
+        ];
     }
 
     private static function scrubScheduleForPools(array $pools): array
@@ -1873,8 +1932,15 @@ final class DiskViewerEndpoint
         foreach ((glob('/etc/cron.d/*') ?: []) as $f) {
             if (is_file($f)) { $c = @file_get_contents($f); if (is_string($c)) $cronText .= "\n" . $c; }
         }
+        // cron.d is authoritative; skip stale dynamix scrub lines the spool may still hold
         foreach (['/var/spool/cron/crontabs/root', '/etc/crontab'] as $f) {
-            if (is_file($f)) { $c = @file_get_contents($f); if (is_string($c)) $cronText .= "\n" . $c; }
+            if (!is_file($f)) continue;
+            $c = @file_get_contents($f);
+            if (!is_string($c)) continue;
+            foreach (preg_split('/\r?\n/', $c) as $ln) {
+                if (stripos($ln, 'dynamix/scripts/') !== false && stripos($ln, 'scrub') !== false) continue;
+                $cronText .= "\n" . $ln;
+            }
         }
 
         $sched = [];
@@ -2019,7 +2085,12 @@ final class DiskViewerEndpoint
         $raw = @file_get_contents(self::SMART_ATTRS_CACHE);
         if (is_string($raw) && $raw !== '') {
             $decoded = json_decode($raw, true);
-            if (is_array($decoded)) $cache = $decoded;
+            if (is_array($decoded)) {
+                // drop old-shaped cache so new fields fill on the next poll
+                if ((int)($decoded['_ver'] ?? 0) === self::SMART_ATTRS_VER && isset($decoded['d']) && is_array($decoded['d'])) {
+                    $cache = $decoded['d'];
+                }
+            }
         }
 
         $result = [];
@@ -2056,7 +2127,8 @@ final class DiskViewerEndpoint
             $dir = dirname(self::SMART_ATTRS_CACHE);
             @mkdir($dir, 0755, true);
             $tmp = self::SMART_ATTRS_CACHE . '.tmp';
-            if (@file_put_contents($tmp, json_encode($cache, JSON_UNESCAPED_SLASHES)) !== false) {
+            $payload = ['_ver' => self::SMART_ATTRS_VER, 'd' => $cache];
+            if (@file_put_contents($tmp, json_encode($payload, JSON_UNESCAPED_SLASHES)) !== false) {
                 @rename($tmp, self::SMART_ATTRS_CACHE);
             }
         }
@@ -2411,8 +2483,9 @@ final class DiskViewerEndpoint
 
                 case 'speeds':
 
-                    // the tool poll asks for live activity; the widget poll does not
+                    // tool poll: live + tool overlay; widget act=1: live only
                     if (($_GET['tool'] ?? '') === '1') { self::$toolMode = true; self::$activityLive = true; }
+                    elseif (($_GET['act'] ?? '') === '1') { self::$activityLive = true; }
                     $devs = self::devices();
                     self::$toolMode = false; self::$activityLive = false;
                     $out = [];

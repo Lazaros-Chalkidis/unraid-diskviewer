@@ -37,6 +37,9 @@
     var showUsedColumn    = !!cfg.showUsedColumn;
     var showIdTooltip     = cfg.showIdTooltip !== false;
     var showSectionIndicators = cfg.showSectionIndicators !== false;
+    var showActivity      = !!cfg.showActivity;
+    var activityWarning   = +cfg.activityWarning  || 95;
+    var activityCritical  = +cfg.activityCritical || 98;
     var fontSize          = (cfg.fontSize === 'small' || cfg.fontSize === 'large') ? cfg.fontSize : 'default';
     var STORAGE_KEY  = 'dv_expand_v3';
 
@@ -114,7 +117,7 @@
     var BOLT_SVG   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
 
     var STACK_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l-9 4.5l9 4.5l9 -4.5l-9 -4.5"/><path d="M3 13.5l9 4.5l9 -4.5"/></svg>';
-    var NVME_SVG   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>';
+    var NVME_SVG   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="20" rx="1.5"/><rect x="10.5" y="5" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/><rect x="10.5" y="10.5" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/><rect x="10.5" y="16" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/></svg>';
     var THUMB_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V10z"/></svg>';
 
     var ARROW_UP   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
@@ -200,7 +203,7 @@
             '<span class="dv-colhd-size">SIZE</span>' +
             '<span class="dv-colhd-free">FREE</span>' +
             '<span class="' + usedCls + '">USED</span>' +
-            '<span class="dv-colhd-speed">SPEED R/W</span>' +
+            '<span class="dv-colhd-speed">' + (showActivity ? 'SPEED R/W - I/O' : 'SPEED R/W') + '</span>' +
             '<span class="' + tempCls + '">TEMP</span>' +
             '<span class="' + healthCls + '">H</span>' +
             '<span class="dv-colhd-settings">S</span>' +
@@ -220,7 +223,7 @@
             return '<span class="dv-col-speed ' + dirCls + '">' + arrow
                  + '<span class="dv-col-speed-num">' + formatBytes(speed) + '/s</span></span>';
         }
-        // mirror the tool: awake but no i/o -> idle, spun down -> sleep
+        // idle when awake, sleep when spun down
         return '<span class="dv-col-speed-na">' + (spun ? 'idle' : 'sleep') + '</span>';
     }
 
@@ -240,6 +243,84 @@
             else cell.innerHTML = buildSpeedHtml(o);
         } else {
             cell.innerHTML = buildSpeedHtml(o);
+        }
+    }
+
+    // same shape as the USED cell so the row height holds
+    function actFillCls(pct, rotational){
+        var rot = String(rotational) === '1';
+        return !rot ? 'dv-bar-fill--blue'
+             : pct > activityCritical ? 'dv-bar-fill--crit'
+             : pct > activityWarning  ? 'dv-bar-fill--warn'
+             : 'dv-bar-fill--ok';
+    }
+    function actPctCls(pct, rotational){
+        var rot = String(rotational) === '1';
+        return !rot ? ' dv-act-pct--blue'
+             : pct > activityCritical ? ' dv-act-pct--crit'
+             : pct > activityWarning  ? ' dv-act-pct--warn'
+             : '';
+    }
+    function buildActHtml(o){
+        var spun = !!o.spun;
+        if (!spun) return '<span class="dv-col-speed-na">sleep</span>';
+        var speed = +o.speed || 0;
+        // idle: plain label, no bar
+        if (!(speed > 0)) return '<span class="dv-col-speed-na">idle</span>';
+        var hasPct = (o.activity != null);
+        var pct    = hasPct ? Math.max(0, Math.min(100, +o.activity)) : 0;
+        var isRead = (String(o.speedDir || '') === 'r');
+        var speedHtml = '<span class="dv-col-speed ' + (isRead ? 'dv-col-speed--r' : 'dv-col-speed--w') + '">'
+                      + (isRead ? ARROW_DOWN : ARROW_UP)
+                      + '<span class="dv-col-speed-num">' + formatBytes(speed) + '/s</span></span>';
+        return '<div class="dv-col-act">'
+             + '<div class="dv-act-line">' + speedHtml
+             + '<span class="dv-act-pct' + actPctCls(pct, o.rotational) + '">' + (hasPct ? Math.round(pct) + '%' : '') + '</span></div>'
+             + '<div class="dv-col-bar"><div class="dv-bar-fill ' + actFillCls(pct, o.rotational) + '" style="width:' + pct + '%"></div></div>'
+             + '</div>';
+    }
+    function updateActCell(cell, o){
+        var spun  = !!o.spun;
+        var speed = +o.speed || 0;
+        var wrap  = cell.querySelector('.dv-col-act');
+        // sleep/idle or shape change: rebuild
+        if (!spun || !(speed > 0) || !wrap) {
+            var html = buildActHtml(o);
+            if (cell.innerHTML !== html) cell.innerHTML = html;
+            return;
+        }
+        var line = wrap.querySelector('.dv-act-line');
+        if (line) {
+            var isRead = (String(o.speedDir || '') === 'r');
+            var wantCls = isRead ? 'dv-col-speed--r' : 'dv-col-speed--w';
+            var speedEl = line.querySelector('.dv-col-speed');
+            var numTxt  = formatBytes(speed) + '/s';
+            if (speedEl && speedEl.className.indexOf(wantCls) !== -1) {
+                var numEl = speedEl.querySelector('.dv-col-speed-num');
+                if (numEl && numEl.textContent !== numTxt) numEl.textContent = numTxt;
+            } else {
+                var wantSpeed = '<span class="dv-col-speed ' + wantCls + '">'
+                              + (isRead ? ARROW_DOWN : ARROW_UP)
+                              + '<span class="dv-col-speed-num">' + numTxt + '</span></span>';
+                if (speedEl) speedEl.outerHTML = wantSpeed;
+                else line.insertAdjacentHTML('afterbegin', wantSpeed);
+            }
+        }
+        var hasPct = (o.activity != null);
+        var pct    = hasPct ? Math.max(0, Math.min(100, +o.activity)) : 0;
+        var pctEl  = wrap.querySelector('.dv-act-pct');
+        if (pctEl) {
+            var t = hasPct ? Math.round(pct) + '%' : '';
+            if (pctEl.textContent !== t) pctEl.textContent = t;
+            var pc = 'dv-act-pct' + actPctCls(pct, o.rotational);
+            if (pctEl.className !== pc) pctEl.className = pc;
+        }
+        var fillEl = wrap.querySelector('.dv-bar-fill');
+        if (fillEl) {
+            var w = pct + '%';
+            if (fillEl.style.width !== w) fillEl.style.width = w;
+            var fc = 'dv-bar-fill ' + actFillCls(pct, o.rotational);
+            if (fillEl.className !== fc) fillEl.className = fc;
         }
     }
 
@@ -341,10 +422,19 @@
                 '</div>';
         }
 
-        var speedHtml = buildSpeedHtml({
-            errors: errors, spun: spun, speed: speed, speedDir: speedDir,
-            isSummary: isSummary, isParity: isParity
-        });
+        var speedHtml;
+        if (showActivity && !isSummary) {
+            speedHtml = buildActHtml({
+                spun: spun, speed: speed, speedDir: speedDir,
+                activity: (row.activity == null ? null : +row.activity),
+                rotational: row.rotational
+            });
+        } else {
+            speedHtml = buildSpeedHtml({
+                errors: errors, spun: spun, speed: speed, speedDir: speedDir,
+                isSummary: isSummary, isParity: isParity
+            });
+        }
 
         var tempText = isSummary ? '' : (spun ? 'n/a' : 'sleep');
         var tempCls  = 'dv-col-temp dv-temp-na';
@@ -508,10 +598,11 @@
                          + '</span>';
             }
             if (healthDisks.length > 0) {
-                indHtml += '<span class="dv-section-ind dv-section-ind--crit dv-section-ind--health">'
+                var healthCls = (healthWorst === 'critical') ? 'dv-section-ind--crit' : 'dv-section-ind--warn';
+                indHtml += '<span class="dv-section-ind ' + healthCls + ' dv-section-ind--health">'
                          + THUMB_SVG
                          + '<span class="dv-section-ind-badge">' + healthDisks.length + '</span>'
-                         + '<span class="dv-row-toast dv-row-toast--crit">' + toastInner('Health', healthDisks) + '</span>'
+                         + '<span class="dv-row-toast ' + (healthWorst === 'critical' ? 'dv-row-toast--crit' : 'dv-row-toast--warn') + '">' + toastInner('Health', healthDisks) + '</span>'
                          + '</span>';
             }
         }
@@ -590,6 +681,7 @@
         container.innerHTML = html;
 
         container.classList.toggle('dv-pool-highlight', poolHighlightUsed);
+        container.classList.toggle('dv-show-act', showActivity);
 
         var hasPower = false;
         if (showPower) {
@@ -709,7 +801,7 @@
     // speed column polls on its own faster cadence so throughput stays live between full refreshes
     function fetchSpeeds(){
         var x = new XMLHttpRequest();
-        x.open('GET', API_URL + '?action=speeds&t=' + Date.now());
+        x.open('GET', API_URL + '?action=speeds' + (showActivity ? '&act=1' : '') + '&t=' + Date.now());
         x.timeout = 5000;
         x.onload = function(){
             if (x.status !== 200) return;
@@ -742,11 +834,21 @@
             if (!d) continue;
             var cell = row.querySelector('.dv-col-speed-wrap');
             if (!cell) continue;
-            updateSpeedCell(cell, {
-                spun:     d.spun,
-                speed:    d.speed_bps,
-                speedDir: d.speed_dir
-            });
+            if (showActivity) {
+                updateActCell(cell, {
+                    spun:       d.spun,
+                    speed:      d.speed_bps,
+                    speedDir:   d.speed_dir,
+                    activity:   (d.activity == null ? null : +d.activity),
+                    rotational: d.rotational
+                });
+            } else {
+                updateSpeedCell(cell, {
+                    spun:     d.spun,
+                    speed:    d.speed_bps,
+                    speedDir: d.speed_dir
+                });
+            }
         }
 
         var sections = document.querySelectorAll('.dv-section');
@@ -790,6 +892,8 @@
                     row2.speed_dir = d2.speed_dir;
                     row2.errors    = d2.errors;
                     row2.spun      = d2.spun;
+                    row2.activity  = d2.activity;
+                    if (d2.rotational !== undefined) row2.rotational = d2.rotational;
                 }
             }
         }
@@ -1339,6 +1443,9 @@
             showUsedColumn    = !!cfg.showUsedColumn;
             showIdTooltip     = cfg.showIdTooltip !== false;
             showSectionIndicators = cfg.showSectionIndicators !== false;
+            showActivity      = !!cfg.showActivity;
+            activityWarning   = +cfg.activityWarning  || 95;
+            activityCritical  = +cfg.activityCritical || 98;
             fontSize          = (cfg.fontSize === 'small' || cfg.fontSize === 'large') ? cfg.fontSize : 'default';
 
             var handle = $('dv-drag-handle');

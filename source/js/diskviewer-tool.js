@@ -53,7 +53,7 @@
 
     var BOLT_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>';
     var STACK_SVG  = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l-9 4.5l9 4.5l9 -4.5l-9 -4.5"/><path d="M3 13.5l9 4.5l9 -4.5"/></svg>';
-    var NVME_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>';
+    var NVME_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="20" rx="1.5"/><rect x="10.5" y="5" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/><rect x="10.5" y="10.5" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/><rect x="10.5" y="16" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/></svg>';
     var ARROW_UP   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
     var ARROW_DOWN = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>';
 
@@ -234,14 +234,16 @@
         { key: 'size',    label: 'Size',        cls: 'dvt-tbl__num',  width: 62  },
         { key: 'free',    label: 'Free',        cls: 'dvt-tbl__num',  width: 86  },
         { key: 'used',    label: 'Used',        cls: 'dvt-tbl__num',  hdCls: 'dvt-tbl__ctr', width: 150 },
-        { key: 'speed',   label: 'Speed r/w - i/o', cls: 'dvt-tbl__ctr', hdCls: 'dvt-tbl__ctr', width: 165 },
-        { key: 'temp',    label: 'Temp',        cls: 'dvt-tbl__num',  width: 64  },
+        { key: 'speed',   label: 'Speed r/w - i/o', cls: 'dvt-tbl__ctr', hdCls: 'dvt-tbl__ctr', width: 118 },
+        { key: 'temp',    label: 'Temp',        cls: 'dvt-tbl__num',  width: 62,  fsw: true },
         { key: 'health',  label: 'Health',      cls: 'dvt-tbl__ctr',  width: 78  },
+        { key: 'written', label: 'Written',     cls: 'dvt-tbl__num',  width: 80,  ph: true, fsw: true },
         { key: 'errors',  label: 'Errors',      cls: 'dvt-tbl__num',  width: 64  },
         { key: 'age',     label: 'Age/Hours',   cls: 'dvt-tbl__num',  width: 120, ph: true, fsw: true },
         { key: 'realloc', label: 'Realloc',     cls: 'dvt-tbl__num',  width: 72,  ph: true },
         { key: 'pending', label: 'Pending',     cls: 'dvt-tbl__num',  width: 72,  ph: true },
-        { key: 'crc',     label: 'CRC',         cls: 'dvt-tbl__num',  width: 66,  ph: true },
+        { key: 'crc',     label: 'CRC',         cls: 'dvt-tbl__num',  width: 58,  ph: true },
+        { key: 'link',    label: 'Link',        cls: 'dvt-tbl__ctr',  width: 82,  ph: true, fsw: true },
         { key: 'verdict', label: 'Verdict',     cls: 'dvt-tbl__ctr',  width: 108, ph: true },
         { key: 'scrub',   label: 'Last scrub',  cls: 'dvt-tbl__ctr',  width: 94,  ph: true },
         { key: 'nscrub',  label: 'Next scrub',  cls: 'dvt-tbl__ctr',  width: 94,  ph: true },
@@ -263,24 +265,12 @@
 
         var colSev = worstColSeverity(sections);
 
-        // if any nvme reports a draw (and the native toggle is on), the temp column needs more room for "9.00 W / 42 C"
-        var hasPower = false;
-        if (_showPower) {
-            for (var hs = 0; hs < sections.length && !hasPower; hs++) {
-                var ht = sections[hs].tiles || [];
-                for (var hi = 0; hi < ht.length; hi++) {
-                    if ((+ht[hi].power || 0) > 0) { hasPower = true; break; }
-                }
-            }
-        }
-
         var colgroup = '<colgroup>';
         var thead = '<thead><tr>';
         for (var c = 0; c < COLS.length; c++) {
 
             var colBaseW = COLS[c].width;
             var colFsw   = COLS[c].fsw;
-            if (COLS[c].key === 'temp' && hasPower) { colBaseW = 100; colFsw = true; }
             var colW = colFsw
                      ? 'calc(' + colBaseW + 'px * var(--dvt-fs, 1))'
                      : (colBaseW + 'px');
@@ -337,12 +327,26 @@
             }
         }
         html += '</tbody></table></div>';
+
+        // keep the horizontal scroll position across a re-render
+        var prevLeft = 0;
+        var oldScroller = document.querySelector('#dvt-overview-disks .dvt-tbl-scroll');
+        if (oldScroller) prevLeft = oldScroller.scrollLeft || 0;
+
         setHtml('dvt-overview-disks', html);
+
+        if (prevLeft > 0) {
+            var newScroller = document.querySelector('#dvt-overview-disks .dvt-tbl-scroll');
+            if (newScroller) {
+                newScroller.scrollLeft = prevLeft;
+                syncFixedThead();
+            }
+        }
     }
 
     function worstColSeverity(sections) {
         var rank = { ok: 0, warn: 1, crit: 2 };
-        var w = { temp: 'ok', health: 'ok', errors: 'ok', realloc: 'ok', pending: 'ok', crc: 'ok' };
+        var w = { temp: 'ok', health: 'ok', errors: 'ok', realloc: 'ok', pending: 'ok', crc: 'ok', link: 'ok' };
         function bump(col, sev) { if (rank[sev] > rank[w[col]]) w[col] = sev; }
         function smartSev(v, warnGt, critGt) {
             if (v === null || v === undefined) return 'ok';
@@ -372,6 +376,7 @@
                     bump('realloc', smartSev(saw.realloc, 0, 10));
                     bump('pending', smartSev(saw.pending, 0, 5));
                     bump('crc',     smartSev(saw.crc, 100, undefined));
+                    if (saw.link_ok === false) bump('link', 'warn');
                 }
             }
         }
@@ -707,15 +712,21 @@
                 var tWarn = +tile.temp_warning || 0, tCrit = +tile.temp_critical || 0;
                 if (tCrit && n >= tCrit) tempCls = ' dvt-crit';
                 else if (tWarn && n >= tWarn) tempCls = ' dvt-warn';
-                tempCell = '<span class="' + tempCls.trim() + '">' + n + (_lastUnit === 'F' ? '\u00b0F' : '\u00b0C') + '</span>';
+                // thresholds stay in C, only the shown value converts
+                var tOut = (_lastUnit === 'F') ? Math.round(9 / 5 * n + 32) : n;
+                tempCell = '<span class="' + tempCls.trim() + '">' + tOut + (_lastUnit === 'F' ? '\u00b0F' : '\u00b0C') + '</span>';
             }
         }
         if (!hasTemp) tempCell = metricEmpty();
 
-        // nvme power to the left of temp, like unraid (native toggle on and a draw reported)
+        // watt on a small line under the temp, keeps the column narrow
         if (_showPower && !isSummary) {
             var pw = +tile.power || 0;
-            if (pw > 0) tempCell = '<span class="dvt-pwr">' + (pw < 10 ? pw.toFixed(2) : pw.toFixed(1)) + ' W / </span>' + tempCell;
+            if (pw > 0) {
+                var pwTxt = (pw < 10 ? pw.toFixed(2) : pw.toFixed(1)) + ' W';
+                tempCell = '<span class="dvt-temp-stack"><span class="dvt-temp-top">' + tempCell + '</span>'
+                         + '<span class="dvt-pwr">' + pwTxt + '</span></span>';
+            }
         }
 
         var smart = tile.smart || 'unknown';
@@ -769,6 +780,38 @@
             verdictCell = metricEmpty();
         }
 
+        // lifetime host writes; drives that don't report it show n/a
+        var writtenCell;
+        if (sa && sa.written !== null && sa.written !== undefined && sa.written > 0) {
+            writtenCell = '<span class="dvt-col-age">' + formatBytes(sa.written) + '</span>';
+        } else {
+            writtenCell = metricEmpty();
+        }
+
+        // current link vs max; a drop usually means a bad cable
+        var linkCell;
+        if (sa && sa.link_cur !== null && sa.link_cur !== undefined && sa.link_cur !== '') {
+            var lc = String(sa.link_cur).trim();
+            if (/^[\d.]+$/.test(lc)) {
+                // drop a trailing .0, keep .5
+                var sataNum = function (v) { var f = parseFloat(v); return isNaN(f) ? String(v) : String(f); };
+                if (sa.link_ok === false) {
+                    linkCell = '<span class="dvt-warn">S ' + esc(sataNum(lc)) + '/' + esc(sataNum(sa.link_max)) + ' Gb/s</span>';
+                } else {
+                    linkCell = '<span class="dvt-ok">S ' + esc(sataNum(lc)) + ' Gb/s</span>';
+                }
+            } else {
+                // nvme: shown as-is
+                if (sa.link_ok === false) {
+                    linkCell = '<span class="dvt-warn">' + esc(lc.replace(' ', '')) + '/' + esc(String(sa.link_max).replace(' ', '')) + '</span>';
+                } else {
+                    linkCell = '<span class="dvt-ok">' + esc(lc) + '</span>';
+                }
+            }
+        } else {
+            linkCell = metricEmpty();
+        }
+
         function relAge(ts, fmt) {
             var d = new Date(ts * 1000), now = new Date();
             if (d.getFullYear() === now.getFullYear()
@@ -818,6 +861,8 @@
             speed:   speedCellHtml,
             temp:    tempCell,
             health:  healthHtml,
+            written: writtenCell,
+            link:    linkCell,
             s:       gearHtml,
             age:     ageCell,
 
@@ -835,6 +880,7 @@
             cells.fs = cells.size = cells.free = cells.used = '';
             cells.speed = cells.temp = cells.health = '';
             cells.age = cells.realloc = cells.pending = cells.crc = '';
+            cells.written = cells.link = '';
             cells.verdict = cells.scrub = cells.errors = cells.frag = cells.nscrub = '';
         }
 

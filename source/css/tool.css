@@ -526,6 +526,23 @@
 .dvt-pwr { color: #6bb3ff; }
 .dvt-light .dvt-pwr { color: #1565c0; }
 
+/* watt stacked under the temp; sizes sum to one line so the row height holds */
+.dvt-temp-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  line-height: 1;
+  position: relative;
+  top: -1px;  /* align temp with single-line temps */
+}
+.dvt-temp-stack .dvt-temp-top { line-height: 1; font-size: .88em; }
+.dvt-temp-stack .dvt-pwr {
+  font-size: .80em;
+  line-height: 1;
+  font-weight: 500;
+}
+
 .dvt-thumb {
   display: inline-flex;
   align-items: center;

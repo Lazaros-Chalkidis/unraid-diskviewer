@@ -76,6 +76,10 @@ if (isset($_POST['#apply'])) {
 
     $new_cfg['SHOW_USED_COLUMN']     = $yn($_POST['SHOW_USED_COLUMN'] ?? '1', '1');
 
+    $new_cfg['SHOW_ACTIVITY']        = $yn($_POST['SHOW_ACTIVITY'] ?? '0', '0');
+    $new_cfg['ACTIVITY_WARN_PCT']    = $clamp_int($_POST['ACTIVITY_WARN_PCT'] ?? 95, 1,  99,  95);
+    $new_cfg['ACTIVITY_CRIT_PCT']    = $clamp_int($_POST['ACTIVITY_CRIT_PCT'] ?? 98, 2, 100,  98);
+
     $new_cfg['SHOW_ID_TOOLTIP']      = $yn($_POST['SHOW_ID_TOOLTIP'] ?? '1', '1');
 
     $new_cfg['SHOW_MISSING_DISKS']   = $yn($_POST['SHOW_MISSING_DISKS'] ?? '1', '1');
@@ -153,6 +157,9 @@ $def = [
     'SHOW_DISK_ERRORS'     => '1',
     'SHOW_DECIMAL_PCT'     => '1',
     'SHOW_USED_COLUMN'     => '1',
+    'SHOW_ACTIVITY'        => '0',
+    'ACTIVITY_WARN_PCT'    => '95',
+    'ACTIVITY_CRIT_PCT'    => '98',
     'SHOW_ID_TOOLTIP'      => '1',
     'SHOW_MISSING_DISKS'   => '1',
     'SHOW_BOOT_DEVICE'     => '0',
@@ -471,6 +478,31 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         <div class="dv-r-field">
           <?= $toggle('SHOW_USED_COLUMN', $cfg['SHOW_USED_COLUMN'] ?? '1', '1') ?>
           <span class="dv-r-desc">Show the absolute used size (in bytes) next to the percentage in the USED column</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Disk activity bar</div>
+        <div class="dv-r-field">
+          <?= $toggle('SHOW_ACTIVITY', $cfg['SHOW_ACTIVITY'] ?? '0', '0') ?>
+          <span class="dv-r-desc">Show a thin disk-activity bar under the read/write speeds, filled to how busy each disk is. SSD and NVMe drives stay blue; spinning drives go green, then amber and red as they get busier. The Speed column widens slightly to fit the i/o percentage</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Activity warning %</div>
+        <div class="dv-r-field">
+          <input type="number" name="ACTIVITY_WARN_PCT" min="1" max="99" step="1"
+                 value="<?= htmlspecialchars((string)($cfg['ACTIVITY_WARN_PCT'] ?? '95'), ENT_QUOTES) ?>"
+                 class="dv-input dv-input--num" id="dvActWarn">
+          <span class="dv-r-desc">Activity level at which a spinning disk's bar turns amber. Must be lower than the critical value. Does not apply to SSD or NVMe</span>
+        </div>
+      </div>
+      <div class="dv-r">
+        <div class="dv-r-label">Activity critical %</div>
+        <div class="dv-r-field">
+          <input type="number" name="ACTIVITY_CRIT_PCT" min="2" max="100" step="1"
+                 value="<?= htmlspecialchars((string)($cfg['ACTIVITY_CRIT_PCT'] ?? '98'), ENT_QUOTES) ?>"
+                 class="dv-input dv-input--num" id="dvActCrit">
+          <span class="dv-r-desc">Activity level at which a spinning disk's bar turns red. Must be higher than the warning value. Does not apply to SSD or NVMe</span>
         </div>
       </div>
       <div class="dv-r">
@@ -952,6 +984,9 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         SHOW_DISK_ERRORS:     '1',
         SHOW_DECIMAL_PCT:     '1',
         SHOW_USED_COLUMN:     '1',
+        SHOW_ACTIVITY:        '0',
+        ACTIVITY_WARN_PCT:    '95',
+        ACTIVITY_CRIT_PCT:    '98',
         SHOW_ID_TOOLTIP:      '1',
         SHOW_MISSING_DISKS:   '1',
         SHOW_BOOT_DEVICE:     '0',

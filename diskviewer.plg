@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.06.26">
+ <!ENTITY version   "2026.07.08">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "4a9c1b1d15a9191fc9cc0b9f2e68d300">
+ <!ENTITY md5       "80ed597023330325694578dbdba9dbdb">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,24 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.07.08
+
+### Fixed
+- On systems set to Fahrenheit, the Tool page showed the temperature in Celsius with an F after it, so a 38C disk read as 38F. It now converts correctly. The widget and header badge were already right.
+- The health dot in each section header of the widget was always red. It now shows amber for SMART warnings and red only for a real fault.
+- A pool whose scrub schedule you had turned off could still show a next scrub date on the Tool page. It now follows Unraid's current schedule, so a disabled pool shows no schedule. Note: if Unraid left the old job behind in its own crontab, the scrub can still run until you rebuild cron or reboot.
+- On the Tool page, scrolling sideways to reach the far columns no longer jumps back to the start every time the page refreshes.
+- Cleared a harmless PHP warning from the log when spinning a disk up or down from the Tool page.
+
+### New Features
+- The dashboard widget can now show disk activity in the Speed column, like the Tool page does. Each busy disk shows its i/o as a percentage next to the read/write speed, with a small bar: blue for SSD and NVMe, green through amber to red for hard drives as they get busier. It reads the kernel's counters, so it never wakes a sleeping disk. Off by default, turn it on under the Widget tab in settings.
+- Two new columns on the Tool page. Link shows each drive's current interface speed against its maximum, so a SATA disk stuck at 1.5 Gb/s on a 6 Gb/s port, or an NVMe drive running below its PCIe speed, is easy to spot. That is often what sits behind CRC errors and corruption. Written shows total lifetime writes for drives that report it. Both use SMART data the plugin already collects, so there is no extra disk access.
+
+### Improvements
+- The Tool page now fits a 1920-wide screen without a sideways scrollbar. The Speed column was made narrower, and NVMe power draw now sits under the temperature on a small second line instead of beside it.
+- The Link column spells out the unit, for example S 6 Gb/s instead of a bare 6.0.
+- New icon for NVMe drives that reads better at small sizes.
 
 ## Version 2026.06.26
 
