@@ -27,8 +27,11 @@ $version_data        = @parse_ini_file('/etc/unraid-version');
 $webgui_version      = $version_data['version'] ?? '0.0.0';
 $isResponsiveWebgui  = version_compare($webgui_version, '7.2.0-beta', '>=');  // 7.2 reworked the dashboard tile header, so we render two layouts
 
-$var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
-$csrf_token = (string)($var['csrf_token'] ?? '');
+$csrf_token = DiskViewerEndpoint::currentCsrf();  // same robust reader the server validates with
+
+// cache-bust js/css so a reinstall serves fresh files instead of the browser's cached copy
+$dv_asset_ver = (string)@filemtime('/usr/local/emhttp/plugins/diskviewer/js/diskviewer.js');
+if ($dv_asset_ver === '') $dv_asset_ver = date('YmdHis');
 
 $initial_model = DiskViewerEndpoint::buildModel();
 
@@ -171,9 +174,9 @@ $render_fallback_tbody = static function(
     string $body_html,
     string $config_html,
     string $lightClass
-): string {
+) use ($dv_asset_ver): string {
     return <<<HTML
-<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/widget.css">
+<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/widget.css?v={$dv_asset_ver}">
 <tbody id="db-diskviewer" title="{$tile_title}" class="{$lightClass}">
     <tr>
         <td class="next" colspan="3">
@@ -187,7 +190,7 @@ $render_fallback_tbody = static function(
     </tr>
 </tbody>
 {$config_html}
-<script defer src="/plugins/diskviewer/js/diskviewer.js"></script>
+<script defer src="/plugins/diskviewer/js/diskviewer.js?v={$dv_asset_ver}"></script>
 HTML;
 };
 
@@ -209,8 +212,8 @@ $tile = [
     'small'   => 1,
     'medium'  => 1,
     'large'   => 2,
-    'script'  => '/plugins/diskviewer/js/diskviewer.js',
-    'style'   => '/plugins/diskviewer/css/widget.css',
+    'script'  => '/plugins/diskviewer/js/diskviewer.js?v=' . $dv_asset_ver,
+    'style'   => '/plugins/diskviewer/css/widget.css?v=' . $dv_asset_ver,
 ];
 
 $themeClass  = ' dv-theme-' . $dv_theme;

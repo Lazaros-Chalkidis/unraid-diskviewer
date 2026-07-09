@@ -1,6 +1,12 @@
 
 # Disk Viewer
 
+## Version 2026.07.09
+
+### Fixed
+- The browser now always loads the current version of the plugin's files after an update. They previously had no version tag, so a browser could keep serving old cached copies of the dashboard and Tool page code even after the plugin was updated, which made fixes look like they had not applied. A normal page reload after updating is now enough.
+- Spin up and down failed with a "bad csrf token" message on both the widget and the Tool page, on individual disks and the bulk buttons. Recent Unraid versions validate the security token themselves and then strip it from the request, both from the form body and from headers, before the plugin sees it, so the plugin's own check found nothing and refused. The token now also travels under a second field name that Unraid leaves untouched, satisfying both checks. The plugin additionally keeps the token fresh on every update and retries once automatically if it is ever rejected.
+
 ## Version 2026.07.08
 
 ### Fixed

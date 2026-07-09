@@ -245,7 +245,8 @@ base64 -d /boot/config/plugins/&name;/&name;-&version;.txz.b64 \
   base64 -D /boot/config/plugins/&name;/&name;-&version;.txz.b64 \
     > /boot/config/plugins/&name;/&name;-&version;.txz
 rm -f /boot/config/plugins/&name;/&name;-&version;.txz.b64
-upgradepkg --install-new /boot/config/plugins/&name;/&name;-&version;.txz
+# --reinstall forces the files to be replaced even when the version is unchanged (same-day rebuilds share a date-based version)
+upgradepkg --reinstall --install-new /boot/config/plugins/&name;/&name;-&version;.txz
 </INLINE>
 </FILE>
 
@@ -310,7 +311,7 @@ ${CHANGES_BLOCK}
 ]]>
 </CHANGES>
 
-<FILE Name="/boot/config/plugins/&name;/&name;-&version;.txz" Run="upgradepkg --install-new">
+<FILE Name="/boot/config/plugins/&name;/&name;-&version;.txz" Run="upgradepkg --reinstall --install-new">
   <URL>&pluginURL;</URL>
   <MD5>&md5;</MD5>
 </FILE>

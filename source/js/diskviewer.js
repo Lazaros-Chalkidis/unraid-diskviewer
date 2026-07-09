@@ -787,6 +787,7 @@
             if (x.status === 200) {
                 try {
                     var model = JSON.parse(x.responseText);
+                    if (model && model.csrf) _csrf = model.csrf;
                     render(model);
                 } catch(e){}
             }
@@ -911,8 +912,36 @@
         if (speedTimer) { clearInterval(speedTimer); speedTimer = null; }
     }
 
+    var _csrf = cfg.csrfToken || window.csrf_token || '';
     function getCsrfToken(){
-        return cfg.csrfToken || window.csrf_token || '';
+        return _csrf || cfg.csrfToken || window.csrf_token || '';
+    }
+
+    // spin sender. server validates against var.ini's token, so send that; on rejection, retry once with the exact token the server hands back
+    function spinRequest(name, dir, done, forceToken){
+        var token = (forceToken != null) ? forceToken : getCsrfToken();
+        var body = 'name=' + encodeURIComponent(name) +
+                   '&direction=' + encodeURIComponent(dir) +
+                   '&csrf_token=' + encodeURIComponent(token) +
+                   '&dv_csrf=' + encodeURIComponent(token);
+        var x = new XMLHttpRequest();
+        x.open('POST', API_URL + '?action=spin');
+        x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
+        x.setRequestHeader('X-CSRF-TOKEN', token);  // unraid's gate strips the body copy after validating it
+        x.timeout = 10000;
+        x.onload = function(){
+            var ok = false, err = '', fresh = '';
+            try { var r = JSON.parse(x.responseText); ok = !!r.ok; err = r.error || ''; fresh = r.csrf || ''; }
+            catch(e){ err = 'invalid response'; }
+            if (!ok && forceToken == null && err.indexOf('csrf') !== -1 && fresh) {
+                _csrf = fresh;
+                spinRequest(name, dir, done, fresh);
+                return;
+            }
+            done(ok, err);
+        };
+        x.onerror = x.ontimeout = function(){ done(false, 'request failed'); };
+        x.send(body);
     }
 
     function onHandleDown(ev){
@@ -1034,20 +1063,7 @@
             var toast = row ? row.querySelector('.dv-row-toast') : null;
             btn.disabled = true;
             btn.classList.add('dv-bolt--busy');
-            var body = 'name=' + encodeURIComponent(name) +
-                       '&direction=' + encodeURIComponent(dir) +
-                       '&csrf_token=' + encodeURIComponent(getCsrfToken());
-            var x = new XMLHttpRequest();
-            x.open('POST', API_URL + '?action=spin');
-            x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
-            x.timeout = 10000;
-            x.onload = function(){
-                var ok = false, err = '';
-                try {
-                    var r = JSON.parse(x.responseText);
-                    ok  = !!r.ok;
-                    err = r.error || '';
-                } catch(e) { err = 'invalid response'; }
+            spinRequest(name, dir, function(ok, err){
                 if (!ok && toast) {
                     toast.className = 'dv-row-toast dv-row-toast--crit dv-row-toast--show';
                     toast.innerHTML = '\u26A0 ' + escapeHtml('Spin failed: ' + (err || 'unknown'));
@@ -1058,17 +1074,7 @@
                     btn.disabled = false;
                     fetchState();
                 }, 1200);
-            };
-            x.onerror = x.ontimeout = function(){
-                if (toast) {
-                    toast.className = 'dv-row-toast dv-row-toast--crit dv-row-toast--show';
-                    toast.innerHTML = '\u26A0 Spin request failed';
-                    setTimeout(function(){ toast.className = 'dv-row-toast'; }, 3000);
-                }
-                btn.classList.remove('dv-bolt--busy');
-                btn.disabled = false;
-            };
-            x.send(body);
+            });
         });
     }
 
@@ -1159,17 +1165,8 @@
                     return;
                 }
                 var name = targets[idx++];
-                var body = 'name=' + encodeURIComponent(name) +
-                           '&direction=' + encodeURIComponent(dir) +
-                           '&csrf_token=' + encodeURIComponent(getCsrfToken());
-                var x = new XMLHttpRequest();
-                x.open('POST', API_URL + '?action=spin');
-                x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
-                x.timeout = 10000;
-
-                x.onload  = function(){ setTimeout(next, throttleMs); };  // bulk spin runs one disk at a time, throttled, so emcmd isn't hammered
-                x.onerror = x.ontimeout = function(){ setTimeout(next, throttleMs); };
-                x.send(body);
+                // one disk at a time, throttled, so emcmd isn't hammered
+                spinRequest(name, dir, function(){ setTimeout(next, throttleMs); });
             }
             next();
         });

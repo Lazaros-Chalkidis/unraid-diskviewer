@@ -16,6 +16,8 @@ if ($dvb_theme === '') {
     $dvb_theme = (string)($dvb_cfg['display']['theme'] ?? '');
 }
 if (!in_array($dvb_theme, ['black','white','azure','gray'], true)) $dvb_theme = 'black';
+$dvb_ver = (string)@filemtime('/usr/local/emhttp/plugins/diskviewer/js/diskviewer-header.js');
+if ($dvb_ver === '') $dvb_ver = date('YmdHis');
 ?>
 <script>window.diskviewerTheme=<?= json_encode($dvb_theme) ?>;</script>
-<script src="/plugins/diskviewer/js/diskviewer-header.js"></script>
+<script src="/plugins/diskviewer/js/diskviewer-header.js?v=<?= $dvb_ver ?>"></script>

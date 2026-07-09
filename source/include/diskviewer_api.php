@@ -66,12 +66,8 @@ final class DiskViewerEndpoint
     // csrf gate for spin, token comes from unraid's var.ini
     public static function validateCsrf(): bool
     {
-
-        $expected = '';
-        $var = @parse_ini_file(self::VAR_INI);
-        if (is_array($var) && !empty($var['csrf_token'])) {
-            $expected = (string)$var['csrf_token'];
-        } elseif (isset($GLOBALS['var']) && is_array($GLOBALS['var']) && !empty($GLOBALS['var']['csrf_token'])) {
+        $expected = self::currentCsrf();
+        if ($expected === '' && isset($GLOBALS['var']['csrf_token'])) {
             $expected = (string)$GLOBALS['var']['csrf_token'];
         }
 
@@ -82,8 +78,12 @@ final class DiskViewerEndpoint
         }
 
         $sent = '';
-        if (array_key_exists('csrf_token', $_POST)) {
+        if (!empty($_POST['dv_csrf'])) {
+            $sent = (string)$_POST['dv_csrf'];  // unraid's gate consumes csrf_token from post and the header; this name survives
+        } elseif (array_key_exists('csrf_token', $_POST)) {
             $sent = (string)$_POST['csrf_token'];
+        } elseif (!empty($_GET['dv_csrf'])) {
+            $sent = (string)$_GET['dv_csrf'];
         } elseif (array_key_exists('csrf_token', $_GET)) {
             $sent = (string)$_GET['csrf_token'];
         } elseif (isset($_SERVER['HTTP_X_CSRF_TOKEN'])) {
@@ -93,6 +93,20 @@ final class DiskViewerEndpoint
         if ($sent === '') return false;
 
         return $sent === $expected;
+    }
+
+    // token from var.ini. raw scanner first (the normal one chokes on some machine-written values), regex as last resort
+    public static function currentCsrf(): string
+    {
+        $var = @parse_ini_file(self::VAR_INI, false, INI_SCANNER_RAW);
+        if (is_array($var) && !empty($var['csrf_token'])) {
+            return trim((string)$var['csrf_token'], "\"' ");
+        }
+        $raw = @file_get_contents(self::VAR_INI);
+        if (is_string($raw) && preg_match('/^csrf_token\s*=\s*"?([0-9A-Za-z]+)"?\s*$/m', $raw, $m)) {
+            return $m[1];
+        }
+        return '';
     }
 
     public static function nativeTempThresholds(): array
@@ -2344,6 +2358,7 @@ final class DiskViewerEndpoint
 
                     @mkdir('/tmp/diskviewer_cache', 0755, true);
                     @file_put_contents(self::HEARTBEAT_FILE, (string)time());
+                    $model['csrf'] = self::currentCsrf();
                     echo json_encode($model, JSON_UNESCAPED_SLASHES);
                     return;
 
@@ -2478,6 +2493,7 @@ final class DiskViewerEndpoint
                         'missing_count' => (int)($model['missing_devices'] ?? 0),
                         'temp_unit'     => $model['cfg']['temp_unit'] ?? 'C',
                     ];
+                    $model['csrf'] = self::currentCsrf();
                     echo json_encode($model, JSON_UNESCAPED_SLASHES);
                     return;
 
@@ -2508,7 +2524,7 @@ final class DiskViewerEndpoint
 
                     if (!self::validateCsrf()) {
                         http_response_code(403);
-                        echo json_encode(['ok' => false, 'error' => 'bad csrf token']);
+                        echo json_encode(['ok' => false, 'error' => 'bad csrf token', 'csrf' => self::currentCsrf()]);
                         return;
                     }
                     $cfgAll = self::config();

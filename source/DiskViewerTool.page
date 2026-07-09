@@ -29,17 +29,20 @@ $dvt_light    = in_array($dvt_theme, ['white', 'azure'], true);
 $lightClass   = $dvt_light ? ' dvt-light' : '';
 $themeClass   = ' dvt-theme-' . $dvt_theme;
 
-$var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
+
+// cache-bust js/css so a reinstall serves fresh files instead of the browser's cached copy
+$dvt_asset_ver = (string)@filemtime('/usr/local/emhttp/plugins/diskviewer/js/diskviewer-tool.js');
+if ($dvt_asset_ver === '') $dvt_asset_ver = date('YmdHis');
 
 $tool_config = [
     'dvToken'    => DiskViewerEndpoint::generateNonce(),
-    'csrfToken'  => (string)($var['csrf_token'] ?? ''),
+    'csrfToken'  => DiskViewerEndpoint::currentCsrf(),
     'lightTheme' => $dvt_light,
 ];
 $tool_config_json = json_encode($tool_config, JSON_UNESCAPED_SLASHES);
 ?>
 
-<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/tool.css">
+<link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/tool.css?v=<?= $dvt_asset_ver ?>">
 <script>window.diskviewerToolConfig = <?= $tool_config_json ?>;</script>
 
 <div class="dvt-wrapper<?= $themeClass . $lightClass ?>">
@@ -71,7 +74,7 @@ $tool_config_json = json_encode($tool_config, JSON_UNESCAPED_SLASHES);
 
 </div>
 
-<script defer src="/plugins/diskviewer/js/diskviewer-tool.js"></script>
+<script defer src="/plugins/diskviewer/js/diskviewer-tool.js?v=<?= $dvt_asset_ver ?>"></script>
 
 <script>
 

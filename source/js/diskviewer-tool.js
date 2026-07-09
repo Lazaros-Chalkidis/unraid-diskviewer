@@ -11,7 +11,28 @@
     var _token = _cfg.dvToken || '';
 
     // prefer the token the page injected, fall back to the global unraid sets
-    function csrfToken() { return _cfg.csrfToken || window.csrf_token || ''; }
+    var _csrf = _cfg.csrfToken || window.csrf_token || '';
+    function csrfToken() { return _csrf || _cfg.csrfToken || window.csrf_token || ''; }
+
+    // spin sender. server validates against var.ini's token; on rejection retry once with the exact token it returns
+    function spinRequest(name, dir, forceToken) {
+        var token = (forceToken != null) ? forceToken : csrfToken();
+        var body = 'name=' + encodeURIComponent(name) + '&direction=' + encodeURIComponent(dir)
+                 + '&csrf_token=' + encodeURIComponent(token)
+                 + '&dv_csrf=' + encodeURIComponent(token);
+        return fetch(API + '?action=spin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': token },
+            credentials: 'same-origin',
+            body: body
+        }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (r) {
+            if (r && !r.ok && forceToken == null && r.error && r.error.indexOf('csrf') !== -1 && r.csrf) {
+                _csrf = r.csrf;
+                return spinRequest(name, dir, r.csrf);
+            }
+            return r;
+        });
+    }
 
     var API = '/plugins/diskviewer/include/diskviewer_api.php';
 
@@ -164,6 +185,7 @@
         var sub0 = document.getElementById('dvt-subtitle');
         if (sub0) sub0.textContent = '';
         fetchJson('tool_overview').then(function (model) {
+            if (model && model.csrf) _csrf = model.csrf;
             var ov = model.overview || {};
             var cfg = model.cfg || {};
             _lastUnit = ov.temp_unit === 'F' ? 'F' : 'C';
@@ -201,6 +223,18 @@
         });
     }
 
+    // silent table update: no loading skeleton, no scroll reset. used by the timer and after a spin
+    function refreshOverviewQuiet() {
+        fetchJson('tool_overview').then(function (model) {
+            if (model && model.csrf) _csrf = model.csrf;
+            var ov = model.overview || {};
+            _lastUnit = ov.temp_unit === 'F' ? 'F' : 'C';
+            renderOverviewDisks(model.sections || []);
+            wireSpin();
+            ensureFixedThead();
+        }).catch(function () {});
+    }
+
     function applyFontSize(cfg) {
         var host = document.getElementById('dvt-overview-disks');
         if (!host) return;
@@ -217,13 +251,7 @@
         _refreshTimer = setInterval(function () {
 
             if (_activeTab !== 'dvtTabOverview') return;
-            fetchJson('tool_overview').then(function (model) {
-                var ov = model.overview || {};
-                _lastUnit = ov.temp_unit === 'F' ? 'F' : 'C';
-                renderOverviewDisks(model.sections || []);
-                wireSpin();
-                ensureFixedThead();
-            }).catch(function () {});
+            refreshOverviewQuiet();
         }, ms);
     }
 
@@ -910,22 +938,14 @@
             var btn = ev.target.closest && ev.target.closest('button.dvt-bolt');
             if (!btn) return;
             ev.preventDefault();
+            ev.stopPropagation();
             var dir  = btn.getAttribute('data-dvt-spin');
             var name = btn.getAttribute('data-dvt-name') || '';
             if (!name || !dir) return;
             btn.disabled = true;
             btn.classList.add('dvt-bolt--busy');
-            var body = 'name=' + encodeURIComponent(name) + '&direction=' + encodeURIComponent(dir)
-                     + '&csrf_token=' + encodeURIComponent(csrfToken());
-            fetch(API + '?action=spin', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
-                credentials: 'same-origin',
-                body: body
-            }).then(function (r) { return r.json(); }).then(function (r) {
-
-                _overviewLoaded = false;
-                loadOverview();
+            spinRequest(name, dir).then(function () {
+                refreshOverviewQuiet();
             }).catch(function () {
                 btn.classList.remove('dvt-bolt--busy');
                 btn.disabled = false;
@@ -967,7 +987,7 @@
                     allBulk[m].disabled = false;
                     allBulk[m].classList.remove('dvt-bolt--busy');
                 }
-                if (reload) { _overviewLoaded = false; loadOverview(); }
+                if (reload) refreshOverviewQuiet();
             }
             for (var k = 0; k < allBulk.length; k++) {
                 allBulk[k].disabled = true;
@@ -980,14 +1000,7 @@
             function next() {
                 if (idx >= targets.length) { setTimeout(function () { release(true); }, 1000); return; }
                 var name = targets[idx++];
-                var body = 'name=' + encodeURIComponent(name) + '&direction=' + encodeURIComponent(dir)
-                         + '&csrf_token=' + encodeURIComponent(csrfToken());
-                fetch(API + '?action=spin', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
-                    credentials: 'same-origin',
-                    body: body
-                }).then(function () { setTimeout(next, throttleMs); })
+                spinRequest(name, dir).then(function () { setTimeout(next, throttleMs); })
                   .catch(function () { setTimeout(next, throttleMs); });
             }
             next();
