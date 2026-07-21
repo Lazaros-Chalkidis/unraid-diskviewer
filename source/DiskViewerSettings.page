@@ -811,10 +811,6 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
 
 <div class="dv-footer-row">
   <div class="dv-footer-links">
-    <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/"
-       id="dvSupportLink" class="dv-footer-link"
-       target="_blank" rel="noopener">Support Forum</a>
-    <span class="dv-footer-sep" aria-hidden="true"></span>
     <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues"
        class="dv-footer-link"
        target="_blank" rel="noopener">GitHub Issues</a>
@@ -871,9 +867,6 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         <div class="dv-credits-links">
           <a href="https://github.com/Lazaros-Chalkidis" target="_blank" rel="noopener" class="dv-credits-link">
             <i class="fa fa-github"></i><span>GitHub Profile</span><i class="fa fa-external-link dv-credits-link-ext"></i>
-          </a>
-          <a href="https://forums.unraid.net/topic/198667-plugin-disk-viewer/" target="_blank" rel="noopener" class="dv-credits-link">
-            <i class="fa fa-comments-o"></i><span>Plugin Support Thread</span><i class="fa fa-external-link dv-credits-link-ext"></i>
           </a>
           <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues" target="_blank" rel="noopener" class="dv-credits-link">
             <i class="fa fa-exclamation-circle"></i><span>GitHub Issues</span><i class="fa fa-external-link dv-credits-link-ext"></i>
