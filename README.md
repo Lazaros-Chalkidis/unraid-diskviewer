@@ -146,7 +146,6 @@ unraid-diskviewer/
 ## Issues and support
 
 - GitHub Issues: https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues
-- Unraid Forum: https://forums.unraid.net/topic/198667-plugin-disk-viewer/
 
 ## Author
 
