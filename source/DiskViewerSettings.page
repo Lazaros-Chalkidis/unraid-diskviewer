@@ -813,7 +813,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
   <div class="dv-footer-links">
     <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues"
        class="dv-footer-link"
-       target="_blank" rel="noopener">GitHub Issues</a>
+       target="_blank" rel="noopener">Support</a>
     <span class="dv-footer-sep" aria-hidden="true"></span>
     <a href="#" id="dvCreditsLink" class="dv-footer-link">Credits</a>
   </div>
@@ -830,7 +830,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
           <img src="/plugins/diskviewer/img/avatar.png" alt="Lazaros Chalkidis" class="dv-credits-avatar">
         </div>
         <div class="dv-credits-name">Lazaros Chalkidis</div>
-        <div class="dv-credits-role">Developer</div>
+        <div class="dv-credits-role">Author</div>
       </div>
 
       <div class="dv-credits-right">
@@ -869,7 +869,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
             <i class="fa fa-github"></i><span>GitHub Profile</span><i class="fa fa-external-link dv-credits-link-ext"></i>
           </a>
           <a href="https://github.com/Lazaros-Chalkidis/unraid-diskviewer/issues" target="_blank" rel="noopener" class="dv-credits-link">
-            <i class="fa fa-exclamation-circle"></i><span>GitHub Issues</span><i class="fa fa-external-link dv-credits-link-ext"></i>
+            <i class="fa fa-exclamation-circle"></i><span>Support</span><i class="fa fa-external-link dv-credits-link-ext"></i>
           </a>
         </div>
       </div>

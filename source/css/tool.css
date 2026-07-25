@@ -215,7 +215,6 @@
   color: var(--dvt-text-muted);
   vertical-align: middle !important;
 }
-.dvt-bolt::-moz-focus-inner { border: 0 !important; padding: 0 !important; }
 .dvt-bolt--on  { color: var(--dvt-ok) !important; }
 .dvt-bolt--off { color: var(--dvt-text-muted) !important; }
 .dvt-bolt--static { cursor: default !important; pointer-events: none; }

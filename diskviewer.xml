@@ -8,6 +8,7 @@
   <Project>https://github.com/Lazaros-Chalkidis/unraid-diskviewer</Project>
   <ReadMe>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/README.md</ReadMe>
   <Category>Tools:Utilities Tools:System</Category>
+  <MinVer>7.2.0</MinVer>
   <Icon>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/source/img/diskviewerplugin.png</Icon>
   <License>GPL v3</License>
   <Screenshot>https://raw.githubusercontent.com/Lazaros-Chalkidis/unraid-diskviewer/main/screenshots/pc/widget1.png</Screenshot>

@@ -1,9 +1,15 @@
 
 # Disk Viewer
 
-## 2026.07.21
+## Version 2026.07.25
 
-Changed: support links now point to GitHub Issues, and the README wording was tightened
+### Fixed
+- Removed four dead `::-moz-focus-inner` rules that current Firefox no longer supports. They were logging warnings in the browser console on every dashboard load. No visual change: the pseudo-element they targeted is not rendered any more.
+
+## Version 2026.07.21
+
+### Fixed
+- Support links now point to GitHub Issues, and the README wording was tightened
 
 ## Version 2026.07.09
 

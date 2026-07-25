@@ -360,8 +360,6 @@
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
 
-.dv-bulk-spin::-moz-focus-inner { border: 0 !important; padding: 0 !important; }
-
 .dv-bulk-spin svg { width: 11px !important; height: 11px !important; }
 
 .dv-bulk-spin .dv-bulk-arrow {
@@ -565,8 +563,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.dv-row button::-moz-focus-inner { border: 0 !important; }
-
 .dv-row .dv-bolt svg,
 .dv-row .dv-col-gear svg,
 .dv-row .dv-thumb svg {
@@ -679,8 +675,6 @@
   -webkit-tap-highlight-color: transparent;
   transition: background .15s ease, border-color .15s ease;
 }
-
-.dv-bolt::-moz-focus-inner { border: 0 !important; padding: 0 !important; }
 
 .dv-bolt--static { cursor: default !important; pointer-events: none; }
 
