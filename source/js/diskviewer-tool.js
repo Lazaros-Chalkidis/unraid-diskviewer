@@ -67,6 +67,7 @@
     var _showIdTooltip = true;
     var _showPower     = false;
     var _showActivity  = false;
+    var _showStatusBar = true;
     var _actWarn       = 95;
     var _actCrit       = 98;
     var _refreshTimer  = null;
@@ -77,6 +78,10 @@
     var NVME_SVG   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="20" rx="1.5"/><rect x="10.5" y="5" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/><rect x="10.5" y="10.5" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/><rect x="10.5" y="16" width="3" height="3" rx=".5" fill="currentColor" stroke="none"/></svg>';
     var ARROW_UP   = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
     var ARROW_DOWN = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>';
+
+    // the glyph filled a fraction of 24x24, so it rendered tiny at 11px
+    var SPD_UP   = '<svg width="11" height="11" viewBox="0 0 14 9" fill="currentColor" aria-hidden="true"><path d="M2 7l5-5 5 5z"/></svg>';
+    var SPD_DOWN = '<svg width="11" height="11" viewBox="0 0 14 9" fill="currentColor" aria-hidden="true"><path d="M2 2l5 5 5-5z"/></svg>';
 
     var THUMB_SVG  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V10z"/></svg>';
     var GEAR_SVG   = '<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 01-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 01.872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 012.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 012.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 01.872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 01-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 01-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 110-5.858 2.929 2.929 0 010 5.858z"/></svg>';
@@ -178,6 +183,64 @@
              + '</div>';
     }
 
+    var WARN_TRIANGLE_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2L1 22h22L12 2zm0 4.45L19.95 20H4.05L12 6.45zM11 10v5h2v-5h-2zm0 6v2h2v-2h-2z"/></svg>';
+    var THERMO_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0zm-3-9a1 1 0 0 1 1 1v3h-2V5a1 1 0 0 1 1-1z"/></svg>';
+    var GAUGE_SVG  = '<svg width="11" height="11" viewBox="3.5 2 17 17" fill="currentColor" aria-hidden="true"><path d="M12 4a8 8 0 0 0-8 8 8 8 0 0 0 1.6 4.8l1.6-1.2A6 6 0 0 1 6 12a6 6 0 0 1 12 0 6 6 0 0 1-1.2 3.6l1.6 1.2A8 8 0 0 0 20 12a8 8 0 0 0-8-8zm0 3.5-3 6.5a3.3 3.3 0 0 0 6 0l-3-6.5z"/></svg>';
+
+    // built from model.disk_issues, same source as the widget strip
+    var STATUS_AXES = [
+        { key: 'errors', title: 'Disk errors', icon: WARN_TRIANGLE_SVG, label: 'Errors' },
+        { key: 'temp',   title: 'Temperature', icon: THERMO_SVG,        label: 'Temperature' },
+        { key: 'health', title: 'SMART',       icon: THUMB_SVG,         label: 'SMART health' },
+        { key: 'used',   title: 'Used space',  icon: GAUGE_SVG,         label: 'Used space' }
+    ];
+
+    function renderStatusStrip(model) {
+        var host = document.getElementById('dvt-status');
+        if (!host) return;
+        if (!_showStatusBar) { host.innerHTML = ''; host.hidden = true; return; }
+        host.hidden = false;
+
+        var rank   = { ok: 0, warning: 1, critical: 2 };
+        var issues = (model && model.disk_issues) || [];
+        var byAxis = {};
+        for (var i = 0; i < issues.length; i++) {
+            var it = issues[i], a = it.axis || '';
+            if (!byAxis[a]) byAxis[a] = { worst: 'ok', warn: [], crit: [] };
+            var sev = it.severity === 'critical' ? 'critical' : 'warning';
+            if (rank[sev] > rank[byAxis[a].worst]) byAxis[a].worst = sev;
+            byAxis[a][sev === 'critical' ? 'crit' : 'warn'].push(
+                String(it.name || '?').toUpperCase() + (it.label ? ' - ' + it.label : ''));
+        }
+
+        var html = '';
+        for (var k = 0; k < STATUS_AXES.length; k++) {
+            var ax = STATUS_AXES[k];
+            var d  = byAxis[ax.key];
+            var n  = d ? (d.warn.length + d.crit.length) : 0;
+
+            if (!d || n === 0) {
+                // health reads as a verdict, not an alarm, so its thumb stays lit green instead of going dim
+                var okCls = ax.key === 'health' ? 'dvt-status-item--ok' : 'dvt-status-item--off';
+                html += '<span class="dvt-status-item ' + okCls + '" title="' + esc(ax.label) + ': OK">' + ax.icon + '</span>';
+                continue;
+            }
+
+            var blink = (ax.key === 'temp' && model && model.temp_blink) ? ' dvt-status-item--blink' : '';
+            var flip  = (ax.key === 'health') ? ' dvt-status-item--flip' : '';
+            var worst = d.worst === 'critical' ? 'crit' : 'warn';
+
+            var tip = '<span class="dvt-tip-title">' + esc(ax.title) + '</span>';
+            for (var cI = 0; cI < d.crit.length; cI++) tip += '<span class="dvt-tip-item dvt-tip-item--crit">' + esc(d.crit[cI]) + '</span>';
+            for (var wI = 0; wI < d.warn.length; wI++) tip += '<span class="dvt-tip-item dvt-tip-item--warn">' + esc(d.warn[wI]) + '</span>';
+
+            html += '<span class="dvt-status-item dvt-status-item--' + worst + blink + flip + '">'
+                  + ax.icon + '<span class="dvt-status-n">' + n + '</span>'
+                  + '<span class="dvt-status-tip dvt-status-tip--' + worst + '">' + tip + '</span></span>';
+        }
+        host.innerHTML = html;
+    }
+
     function loadOverview() {
         if (_overviewLoaded) return;
         _overviewLoaded = true;
@@ -197,6 +260,8 @@
             _showActivity  = !!cfg.show_activity;
             _actWarn       = (typeof cfg.activity_warning  === 'number') ? cfg.activity_warning  : 95;
             _actCrit       = (typeof cfg.activity_critical === 'number') ? cfg.activity_critical : 98;
+            _showStatusBar = cfg.show_section_indicators !== false;
+            renderStatusStrip(model);
             renderOverviewDisks(model.sections || []);
             wireSpin();
             wireBulkSpin();
@@ -517,6 +582,21 @@
         _speedTimer = setInterval(pollSpeeds, SPEED_INTERVAL);
     }
 
+    // a disk working in bursts reads zero between samples and the cell would flip to idle and back
+    var SPEED_HOLD_MS = 6000;
+    var speedHold = {};
+
+    function holdSpeed(name, spun, bps, dir, act, rot) {
+        var now = Date.now();
+        var o   = { spun: spun, bps: bps, dir: dir, act: act, rot: rot };
+        if (spun && bps > 0) { speedHold[name] = { until: now + SPEED_HOLD_MS, o: o }; return o; }
+        var h = speedHold[name];
+        // spun down is a real change, only a quiet sample waits
+        if (h && spun && now < h.until) return h.o;
+        if (h) delete speedHold[name];
+        return o;
+    }
+
     function pollSpeeds() {
         if (_activeTab !== 'dvtTabOverview') return;
         var host = document.getElementById('dvt-overview-disks');
@@ -547,15 +627,16 @@
             var d = byName[name];
             if (!d) continue;
 
+            var h = holdSpeed(name, !!d.spun, +d.speed_bps || 0, d.speed_dir || '',
+                              (d.activity == null ? null : +d.activity), d.rotational);
             var actWrap = row.querySelector('.dvt-col-act');
             if (actWrap) {
-                updateActCell(actWrap, !!d.spun, +d.speed_bps || 0, d.speed_dir || '',
-                              (d.activity == null ? null : +d.activity), d.rotational);
+                updateActCell(actWrap, h.spun, h.bps, h.dir, h.act, h.rot);
             } else {
                 var cell = row.querySelector('.dvt-speed-cell');
-                if (cell) updateSpeedCell(cell, !!d.spun, +d.speed_bps || 0, d.speed_dir || '');
+                if (cell) updateSpeedCell(cell, h.spun, h.bps, h.dir);
             }
-            var bps = +d.speed_bps || 0, dir = d.speed_dir || '';
+            var bps = h.bps, dir = h.dir;
             if (dir === 'r') agg[secId].sumR += bps;
             else if (dir === 'w') agg[secId].sumW += bps;
             if (d.spun) agg[secId].anySpun = true;
@@ -568,7 +649,9 @@
             var sCell = a.summary.querySelector('.dvt-speed-cell');
             if (!sCell) continue;
             var total = a.sumR + a.sumW;
-            updateSpeedCell(sCell, a.anySpun, total, total > 0 ? (a.sumR >= a.sumW ? 'r' : 'w') : '');
+            var hs = holdSpeed('\u0000sec:' + sid, a.anySpun, total,
+                               total > 0 ? (a.sumR >= a.sumW ? 'r' : 'w') : '', null, null);
+            updateSpeedCell(sCell, hs.spun, hs.bps, hs.dir);
         }
     }
 
@@ -581,7 +664,7 @@
         if (!spun)     return muted(SLEEP_HTML);
         if (bps <= 0)  return muted('idle');
         var isRead = (dir || '') === 'r';
-        var arrow = isRead ? ARROW_DOWN : ARROW_UP;
+        var arrow = isRead ? SPD_DOWN : SPD_UP;
         var cls = isRead ? 'dvt-speed--r' : 'dvt-speed--w';
         return '<span class="dvt-speed ' + cls + '">' + arrow
              + '<span class="dvt-speed-num">' + formatBytes(bps) + '/s</span></span>';
@@ -728,7 +811,7 @@
 
         var fsRaw = (tile.fs || '').toString().trim();
         var fs = fsRaw.toLowerCase();
-        var showFs = (isSummary || !!tile.style_as_summary || secId === 'pools' || secId === 'boot') && fsRaw;
+        var showFs = (isSummary || secId === 'pools' || secId === 'boot') && fsRaw;
         var fsHtml = showFs ? '<span class="dvt-fs-pill">' + esc(fsRaw) + '</span>' : '';
 
         var rawT = tile.temp, tempCell, tempCls = '';
@@ -1111,6 +1194,11 @@
     } else {
         boot();
     }
+
+    window.addEventListener('pagehide', function () {
+        if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+        if (_speedTimer)   { clearInterval(_speedTimer);   _speedTimer   = null; }
+    });
 
     window.diskviewerTool = { switchTab: switchTab, fetchJson: fetchJson };
 })();

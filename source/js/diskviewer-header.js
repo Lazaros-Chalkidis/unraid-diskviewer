@@ -29,6 +29,7 @@ function DiskViewerButton(){
     var thermoBlink = null;
     var diskTooltip   = null;
     var tooltipText   = '#ddd';
+    var tooltipSev    = { ok: '#4caf50', warning: '#ffb300', critical: '#f44336' };
 
     // matches --dv-ok / --dv-warn / --dv-crit from the stylesheet
     var SEV_COLOR = {
@@ -39,14 +40,14 @@ function DiskViewerButton(){
 
     var THERMO_SVG =
         '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" '
-      + 'stroke="currentColor" stroke-width="5" stroke-linecap="round" '
+      + 'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
       + 'stroke-linejoin="round" aria-hidden="true">'
       + '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>'
       + '</svg>';
 
     var THUMB_UP_SVG =
         '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" '
-      + 'stroke="currentColor" stroke-width="5" stroke-linecap="round" '
+      + 'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
       + 'stroke-linejoin="round" aria-hidden="true">'
       + '<path d="M7 10v12"/>'
       + '<path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>'
@@ -54,14 +55,24 @@ function DiskViewerButton(){
 
     var THUMB_DOWN_SVG =
         '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" '
-      + 'stroke="currentColor" stroke-width="5" stroke-linecap="round" '
+      + 'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
       + 'stroke-linejoin="round" aria-hidden="true">'
       + '<path d="M17 14V2"/>'
       + '<path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/>'
       + '</svg>';
 
-    var MARKER_FILTER_DARK  = 'drop-shadow(0 0 1px rgba(0,0,0,.95)) drop-shadow(0 0 .5px rgba(0,0,0,.95))';
-    var MARKER_FILTER_LIGHT = 'drop-shadow(0 0 1px rgba(255,255,255,.95)) drop-shadow(0 0 .5px rgba(255,255,255,.95))';
+    // one tight halo, not two stacked, or a 10px glyph turns into a blur
+    var PCT_SVG =
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" '
+      + 'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" '
+      + 'stroke-linejoin="round" aria-hidden="true">'
+      + '<line x1="19" y1="5" x2="5" y2="19"/>'
+      + '<circle cx="6.5" cy="6.5" r="2.5"/>'
+      + '<circle cx="17.5" cy="17.5" r="2.5"/>'
+      + '</svg>';
+
+    var MARKER_FILTER_DARK  = 'drop-shadow(0 0 .75px rgba(0,0,0,.9))';
+    var MARKER_FILTER_LIGHT = 'drop-shadow(0 0 .75px rgba(255,255,255,.9))';
 
     // inject the disk icon + the three severity markers into the navbar once
     function setup(){
@@ -175,26 +186,23 @@ function DiskViewerButton(){
             pctMark.style.display = 'inline-flex';
             pctMark.style.alignItems = 'center';
             pctMark.style.justifyContent = 'center';
-            pctMark.style.fontSize = '11px';
-            pctMark.style.fontWeight = '900';
             pctMark.style.lineHeight = '1';
             pctMark.style.pointerEvents = 'none';
             pctMark.style.color = SEV_COLOR.ok;
             pctMark.style.filter = markerFilter;
-            pctMark.style.fontFamily = 'Arial Black, Helvetica Neue, system-ui, -apple-system, sans-serif';
-            pctMark.style.webkitTextStroke = '0.6px currentColor';
-            pctMark.textContent = '%';
+            pctMark.innerHTML = PCT_SVG;
             anchor.appendChild(pctMark);
         }
 
         poll();
         setInterval(poll, 30000);
 
+        // the tooltip paints its own background, so severity needs its own per-theme colours
         var themePalette = {
-            black: { bg: '#1a1a1a', border: '#555',    text: '#dddddd' },
-            gray:  { bg: '#2a2a2a', border: '#555',    text: '#e8e8e8' },
-            white: { bg: '#ffffff', border: '#cdcdcd', text: '#222222' },
-            azure: { bg: '#fbfdff', border: '#bcd2e8', text: '#1a3149' }
+            black: { bg: '#1a1a1a', border: '#555',    text: '#dddddd', ok: '#4caf50', warn: '#ffb300', crit: '#f44336' },
+            gray:  { bg: '#2a2a2a', border: '#555',    text: '#e8e8e8', ok: '#4caf50', warn: '#ffb300', crit: '#f44336' },
+            white: { bg: '#ffffff', border: '#cdcdcd', text: '#222222', ok: '#2e7d32', warn: '#8f6a00', crit: '#b3261e' },
+            azure: { bg: '#fbfdff', border: '#bcd2e8', text: '#1a3149', ok: '#2e7d32', warn: '#8f6a00', crit: '#b3261e' }
         };
 
         var unraidTheme = 'black';
@@ -208,6 +216,7 @@ function DiskViewerButton(){
         }
         var pal = themePalette[unraidTheme];
         tooltipText = pal.text;
+        tooltipSev  = { ok: pal.ok, warning: pal.warn, critical: pal.crit };
 
         diskTooltip = document.createElement('div');
         diskTooltip.style.cssText =
@@ -268,18 +277,18 @@ function DiskViewerButton(){
         if (!diskTooltip) return;
         if (!issues || issues.length === 0) {
             diskTooltip.innerHTML =
-                '<div style="color:#4caf50;font-weight:600;text-align:center;padding:2px 0;">' +
+                '<div style="color:' + tooltipSev.ok + ';font-weight:600;text-align:center;padding:2px 0;">' +
                 'All disks are OK</div>';
             return;
         }
-        var axisLabel = { health: 'HEALTH', errors: 'ERRORS', temp: 'TEMP', used: 'USED' };
-        var sevColor  = { critical: '#f44336', warning: '#ffb300' };
+        var axisLabel = { health: 'SMART', errors: 'ERRORS', temp: 'TEMP', used: 'USED' };
+        var sevColor  = { critical: tooltipSev.critical, warning: tooltipSev.warning };
 
         var cells = '';
         for (var i = 0; i < issues.length; i++) {
             var it    = issues[i] || {};
             var color = sevColor[it.severity] || tooltipText;
-            var name  = String(it.name  || '?');
+            var name  = String(it.name  || '?').toUpperCase();
 
             var ax    = (it.axis === 'errors') ? '' : (axisLabel[it.axis] || String(it.axis || '').toUpperCase());
             var label = String(it.label || '');

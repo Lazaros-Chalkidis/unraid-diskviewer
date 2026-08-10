@@ -25,14 +25,14 @@ if [[ ! -f "$BAK" ]]; then
     exit 0
 fi
 
-TMP="${CFG}.new"
+TMP="${CFG}.$$.tmp"
 
 awk '
     NR==FNR {
         eq = index($0, "=")
         if (eq > 0) {
             k = substr($0, 1, eq-1)
-            if (k != "") user[k] = $0
+            if (k != "") { user[k] = $0; order[++n] = k }
         }
         next
     }
@@ -41,10 +41,24 @@ awk '
         eq = index($0, "=")
         if (eq > 0) {
             k = substr($0, 1, eq-1)
-            if (k in user) { print user[k]; next }
+            if (k in user) { print user[k]; seen[k] = 1; next }
         }
         print
     }
+    # without this an update drops every key the new defaults do not list
+    END {
+        for (i = 1; i <= n; i++) {
+            k = order[i]
+            if (!(k in seen)) { print user[k]; seen[k] = 1 }
+        }
+    }
 ' "$BAK" "$CFG" > "$TMP"
 
+if [[ ! -s "$TMP" ]]; then
+    rm -f "$TMP"
+    echo "merge_cfg: merge produced nothing, keeping $CFG as is" 1>&2
+    exit 1
+fi
+
 mv "$TMP" "$CFG"
+chmod 644 "$CFG"

@@ -31,12 +31,22 @@
 
   --dv-member:          #42a5f5;
 
+  --dv-status-bd:      rgba(0,0,0,.55);
+  --dv-status-div:     rgba(255,255,255,.08);
+  --dv-status-dim:     rgba(255,255,255,.22);
+  --dv-status-lip:     rgba(255,255,255,.06);
+
   --dv-row-odd:         #232323;
   --dv-row-even:        #2b2b2b;
 }
 
 /* light themes (white, azure) */
 .dv-light {
+  --dv-status-bd:      rgba(0,0,0,.16);
+  --dv-status-div:     rgba(0,0,0,.09);
+  --dv-status-dim:     rgba(0,0,0,.25);
+  --dv-status-lip:     rgba(255,255,255,.75);
+
   --dv-c-text:          rgba(0,0,0,.85);
   --dv-c-text-mid:      rgba(0,0,0,.60);
   --dv-c-text-muted:    rgba(0,0,0,.45);
@@ -89,7 +99,10 @@
 }
 
 /* widget shell */
+/* the tile is not the viewport: breakpoints have to measure this box, not the window */
 .dv-widget-wrap {
+  container-type: inline-size;
+  container-name: dvw;
   color: var(--dv-c-text);
   font-size: 13px;
   line-height: 1.3;
@@ -118,11 +131,11 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
-.dv-header__controls { display: inline-flex; gap: 4px; align-items: center; }
+.dv-header__controls { display: inline-flex; gap: 4px; align-items: center; align-self: flex-end; }
 
 .dv-legacy-header {
   display: flex;
@@ -177,7 +190,7 @@
 .dv-badge-missing { color: var(--dv-warn-text); }
 
 .dv-body {
-  padding: 4px 0 0;
+  padding: 0.01rem;
   min-height: 0;
 }
 
@@ -258,65 +271,76 @@
 
 .dv-section-lbl { text-transform: uppercase; }
 
-.dv-section-ind {
+.dv-status {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  padding: 1px;
+  border: 1px solid var(--dv-status-bd);
+  border-radius: 4px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.5), 0 1px 0 var(--dv-status-lip);
+}
+
+.dv-status[hidden] { display: none; }
+
+.dv-status-item {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  cursor: default;
-  line-height: 0;
-  position: relative;
-  margin-left: 5px;
-}
-.dv-section-ind svg {
-  display: block;
-}
-.dv-section-ind:hover .dv-row-toast {
-  display: block;
+  justify-content: center;
+  flex: 1 1 0;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1;
 }
 
-.dv-section-ind--err   { color: var(--dv-warn); }
-.dv-section-ind--warn  { color: var(--dv-warn); }
-.dv-section-ind--crit  { color: var(--dv-crit); }
+.dv-status-item + .dv-status-item { box-shadow: inset 1px 0 0 var(--dv-status-div); }
 
-@keyframes dv-ind-blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+.dv-status-item svg { width: 11px; height: 11px; }
 
-.dv-section-ind--blink > svg,
-.dv-section-ind--blink > .dv-section-ind-badge { animation: dv-ind-blink 2s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) {
-  .dv-section-ind--blink > svg,
-  .dv-section-ind--blink > .dv-section-ind-badge { animation: none; }
-}
+.dv-status-item--off  { color: var(--dv-status-dim); }
+.dv-status-item--ok   { color: var(--dv-ok); }
+.dv-status-item--warn { color: var(--dv-warn-text); }
+.dv-status-item--crit { color: var(--dv-crit-text); }
+.dv-status-item--flip.dv-status-item--warn svg,
+.dv-status-item--flip.dv-status-item--crit svg { transform: rotate(180deg); }
 
-.dv-section-ind--health svg { transform: rotate(180deg); }
-
-.dv-section-ind-badge {
-  position: absolute;
-  top: -7px;
-  right: -7px;
+.dv-status-n {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
   font-size: 9px;
   font-weight: 700;
-  line-height: 1;
-  text-align: center;
-  letter-spacing: 0;
+  letter-spacing: .02em;
 }
 
-.dv-section-ind--err  .dv-section-ind-badge,
-.dv-section-ind--warn .dv-section-ind-badge {
-  color: var(--dv-warn);
-}
-.dv-section-ind--crit .dv-section-ind-badge {
-  color: var(--dv-crit);
-}
-.dv-section-ind:hover .dv-row-toast {
-  display: block;
-}
+@keyframes dv-status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+.dv-status-item--blink { animation: dv-status-pulse 1.1s ease-in-out infinite; }
 
-.dv-section-ind .dv-row-toast {
+/* black fill in every theme, the severity stays in the border and the text */
+.dv-status-item .dv-row-toast {
   top: calc(100% + 6px);
+  right: 0;
+  left: auto;
   bottom: auto;
-  left: 0;
-  padding: 7px 12px;
-  z-index: 10;
+  transform: none;
+  z-index: 30;
+  background: #101010;
+  --dv-c-text:       rgba(255,255,255,.87);
+  --dv-c-text-muted: rgba(255,255,255,.50);
+  --dv-warn-text:    #ffb443;
+  --dv-crit-text:    #ff6a6a;
+  --dv-ok-text:      #4caf50;
 }
+
+.dv-status-item:hover .dv-row-toast { display: block; }
+
+.dv-toast-item--warn { color: var(--dv-warn-text); }
+.dv-toast-item--crit { color: var(--dv-crit-text); }
+
+.dv-light .dv-status { box-shadow: inset 0 1px 2px rgba(0,0,0,.10), 0 1px 0 var(--dv-status-lip); }
+
+/* the strip paints its own dark well, so the toast keeps the dark theme text colours there too */
+.dv-legacy-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 
 .dv-section-actions {
   margin-left: auto;
@@ -393,12 +417,13 @@
   display: grid;
   grid-template-columns:
     26px
-    minmax(110px, 1.4fr)
-    62px
-    72px
-    minmax(82px, 1.6fr)
+    minmax(80px, 1.4fr)
+    36px
+    40px
     68px
-    38px
+    minmax(82px, 1.8fr)
+    76px
+    36px
     19px
     21px;
   gap: 8px;
@@ -409,22 +434,46 @@
 .dv-show-power .dv-colhd,
 .dv-show-power .dv-row {
   grid-template-columns:
-    26px minmax(110px, 1.4fr) 62px 72px minmax(82px, 1.6fr) 68px 88px 19px 21px;
+    26px minmax(80px, 1.4fr) 36px 40px 68px minmax(82px, 1.8fr) 76px 88px 19px 21px;
 }
 
 /* activity on: wider speed column, used keeps priority on slack */
 .dv-show-act .dv-colhd,
 .dv-show-act .dv-row {
   grid-template-columns:
-    26px minmax(104px, 1.4fr) 62px 72px minmax(calc(88px * var(--dv-fs, 1.05)), 1.9fr) calc(92px * var(--dv-fs, 1.05)) 38px 19px 21px;
+    26px minmax(70px, 1.4fr) 36px 40px 68px minmax(calc(88px * var(--dv-fs, 1.05)), 1.6fr) minmax(calc(80px * var(--dv-fs, 1.05)), 1.6fr) 36px 19px 21px;
 }
 
 .dv-show-act.dv-show-power .dv-colhd,
 .dv-show-act.dv-show-power .dv-row {
   grid-template-columns:
-    26px minmax(104px, 1.4fr) 62px 72px minmax(calc(88px * var(--dv-fs, 1.05)), 1.9fr) calc(92px * var(--dv-fs, 1.05)) 88px 19px 21px;
+    26px minmax(70px, 1.4fr) 36px 40px 68px minmax(calc(88px * var(--dv-fs, 1.05)), 1.6fr) minmax(calc(80px * var(--dv-fs, 1.05)), 1.6fr) 88px 19px 21px;
 }
 .dv-col-pwr { color: var(--dv-c-text-faint); }
+
+/* fs off: drop the track too, or an empty strip is left behind */
+.dv-hide-fscol.dv-colhd,
+.dv-hide-fscol .dv-colhd,
+.dv-hide-fscol .dv-row {
+  grid-template-columns:
+    26px minmax(80px, 1.4fr) 40px 68px minmax(82px, 1.8fr) 76px 36px 19px 21px;
+}
+.dv-hide-fscol.dv-show-power .dv-colhd,
+.dv-hide-fscol.dv-show-power .dv-row {
+  grid-template-columns:
+    26px minmax(80px, 1.4fr) 40px 68px minmax(82px, 1.8fr) 76px 88px 19px 21px;
+}
+.dv-hide-fscol.dv-show-act .dv-colhd,
+.dv-hide-fscol.dv-show-act .dv-row {
+  grid-template-columns:
+    26px minmax(70px, 1.4fr) 40px 68px minmax(calc(88px * var(--dv-fs, 1.05)), 1.6fr) minmax(calc(80px * var(--dv-fs, 1.05)), 1.6fr) 36px 19px 21px;
+}
+.dv-hide-fscol.dv-show-act.dv-show-power .dv-colhd,
+.dv-hide-fscol.dv-show-act.dv-show-power .dv-row {
+  grid-template-columns:
+    26px minmax(70px, 1.4fr) 40px 68px minmax(calc(88px * var(--dv-fs, 1.05)), 1.6fr) minmax(calc(80px * var(--dv-fs, 1.05)), 1.6fr) 88px 19px 21px;
+}
+
 
 .dv-colhd {
   padding: 4px 6px 3px;
@@ -490,17 +539,17 @@
 
 .dv-fs-pill {
   display: inline-block;
-  font-size: 9px;
+  font-size: calc(7.2px * var(--dv-fs, 1.05));
   font-weight: 500;
   background: rgba(74,144,226,.15);
   color: #6bb3ff;
   border: 0;
   border-radius: 2px;
-  padding: 0 5px;
+  padding: 0 4px;
   margin-left: 6px;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.3px;
   text-transform: uppercase;
-  line-height: 1.6;
+  line-height: 1.7;
   vertical-align: 1px;
 }
 
@@ -520,33 +569,34 @@
   background: color-mix(in srgb, var(--dv-member) 10%, transparent);
 }
 
-.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(odd),
-.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(odd) {
+/* flat lists, unlike array and multi-disk pools where a summary row anchors the eye */
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(odd),
+.dv-section[data-section="unassigned"] .dv-rows .dv-row:nth-child(odd) {
   background: var(--dv-row-odd);
 }
-.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(even),
-.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(even) {
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(even),
+.dv-section[data-section="unassigned"] .dv-rows .dv-row:nth-child(even) {
   background: var(--dv-row-even);
 }
-.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(odd):hover,
-.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(odd):hover {
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(odd):hover,
+.dv-section[data-section="unassigned"] .dv-rows .dv-row:nth-child(odd):hover {
   background: var(--dv-row-odd);
 }
-.dv-section[data-section="cache"] .dv-rows .dv-row:nth-child(even):hover,
-.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(even):hover {
+.dv-section[data-section="pools"] .dv-rows .dv-row:nth-child(even):hover,
+.dv-section[data-section="unassigned"] .dv-rows .dv-row:nth-child(even):hover {
   background: var(--dv-row-even);
 }
 
-.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--warn,
 .dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--warn,
-.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--warn:hover,
-.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--warn:hover {
+.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--warn:hover,
+.dv-pool-highlight .dv-section[data-section="unassigned"] .dv-rows .dv-row.dv-row--warn,
+.dv-pool-highlight .dv-section[data-section="unassigned"] .dv-rows .dv-row.dv-row--warn:hover {
   background: color-mix(in srgb, var(--dv-warn) 14%, transparent);
 }
-.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--crit,
 .dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--crit,
-.dv-pool-highlight .dv-section[data-section="cache"] .dv-rows .dv-row.dv-row--crit:hover,
-.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--crit:hover {
+.dv-pool-highlight .dv-section[data-section="pools"] .dv-rows .dv-row.dv-row--crit:hover,
+.dv-pool-highlight .dv-section[data-section="unassigned"] .dv-rows .dv-row.dv-row--crit,
+.dv-pool-highlight .dv-section[data-section="unassigned"] .dv-rows .dv-row.dv-row--crit:hover {
   background: color-mix(in srgb, var(--dv-crit) 14%, transparent);
 }
 
@@ -594,6 +644,8 @@
   font-weight: 700;
   margin-bottom: 7px;
   opacity: .95;
+  text-transform: uppercase;
+  letter-spacing: .06em;
 }
 .dv-row-toast .dv-toast-item {
   display: block;
@@ -635,6 +687,17 @@
   color: var(--dv-c-text);
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
   letter-spacing: .2px;
+}
+
+/* these float on their own dark background, so they keep the dark-theme text colours */
+.dv-light .dv-row-toast,
+.dv-light .dv-tip {
+  --dv-c-text:          rgba(255,255,255,.87);
+  --dv-c-text-mid:      rgba(255,255,255,.65);
+  --dv-c-border-strong: rgba(255,255,255,.22);
+  --dv-ok-text:         #4caf50;
+  --dv-warn-text:       #ffb443;
+  --dv-crit-text:       #ff6a6a;
 }
 
 .dv-name[data-dv-ident] { cursor: default; }
@@ -707,10 +770,34 @@
   color: var(--dv-c-text);
   letter-spacing: .02em;
   text-transform: uppercase;
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* the name gives way first, so a long one never pushes the fs pill out of the column */
+.dv-col-name > .dv-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.dv-col-name > .dv-missing-label { flex: 0 0 auto; }
+
+/* its own column, so the pill no longer eats into the name */
+.dv-col-fs {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.dv-col-fs .dv-fs-pill { margin-left: 0; }
+
+/* nothing to show in either fs toggle: collapse the track instead of leaving a gap */
+.dv-hide-fscol .dv-colhd-fs,
+.dv-hide-fscol .dv-col-fs { display: none; }
 
 .dv-col-name--missing {
   overflow: visible;
@@ -793,6 +880,11 @@
 
 .dv-bar-fill--blue { background: var(--dv-member); }
 
+/* scoped to used, the activity bar shares these classes and stays flat */
+.dv-col-used .dv-bar-fill--ok   { background: linear-gradient(90deg, color-mix(in srgb, var(--dv-ok)   30%, transparent), var(--dv-ok));   }
+.dv-col-used .dv-bar-fill--warn { background: linear-gradient(90deg, color-mix(in srgb, var(--dv-warn) 30%, transparent), var(--dv-warn)); }
+.dv-col-used .dv-bar-fill--crit { background: linear-gradient(90deg, color-mix(in srgb, var(--dv-crit) 30%, transparent), var(--dv-crit)); }
+
 /* same shape as .dv-col-used so the row height holds */
 .dv-col-act {
   display: flex;
@@ -817,6 +909,12 @@
 .dv-col-act .dv-col-speed-num {
   font-size: calc(8.8px * var(--dv-fs, 1.05));
   line-height: 1;
+}
+
+/* same treatment as the used line right above it, otherwise it reads lighter */
+.dv-col-act .dv-col-speed-num {
+  font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
+  color: var(--dv-c-text);
 }
 .dv-col-act .dv-col-speed svg {
   width: calc(8.8px * var(--dv-fs, 1.05));
@@ -1004,33 +1102,41 @@
 }
 
 /* responsive */
-@media (max-width: 1024px) {
+@container dvw (max-width: 700px) {
   .dv-header-meta { flex-wrap: wrap; }
 
   .dv-row { padding: 6px 6px; }
 }
 
-@media (max-width: 720px) {
-  .dv-header-meta { flex-wrap: wrap; }
-  .dv-colhd,
-  .dv-row {
+/* three classes, or .dv-show-act.dv-show-power outranks these */
+
+@container dvw (max-width: 584px) {
+  .dv-widget-wrap .dv-sections .dv-colhd,
+  .dv-widget-wrap .dv-sections .dv-row {
     grid-template-columns:
-      22px minmax(80px, 110px) 60px 60px minmax(82px, 1fr) 38px 16px 18px;
-  }
-  .dv-show-power .dv-colhd,
-  .dv-show-power .dv-row {
-    grid-template-columns:
-      22px minmax(80px, 110px) 60px 60px minmax(82px, 1fr) 88px 16px 18px;
+      24px minmax(70px, 1.4fr) 36px 40px 68px minmax(82px, 1.8fr) 36px 19px 21px;
   }
   .dv-colhd-speed,
-  .dv-col-speed-wrap { display: none; }
+  .dv-col-speed-wrap,
+  .dv-col-act,
+  .dv-col-pwr { display: none; }
 }
 
-@media (max-width: 560px) {
-  .dv-colhd,
-  .dv-row {
+@container dvw (max-width: 474px) {
+  .dv-widget-wrap .dv-sections .dv-colhd,
+  .dv-widget-wrap .dv-sections .dv-row {
     grid-template-columns:
-      20px minmax(70px, 100px) 60px 60px 1fr 16px 18px;
+      24px minmax(70px, 1.4fr) 40px 68px minmax(82px, 1.8fr) 36px 19px 21px;
+  }
+  .dv-colhd-fs,
+  .dv-col-fs { display: none; }
+}
+
+@container dvw (max-width: 430px) {
+  .dv-widget-wrap .dv-sections .dv-colhd,
+  .dv-widget-wrap .dv-sections .dv-row {
+    grid-template-columns:
+      22px minmax(66px, 1.4fr) 40px 64px minmax(78px, 1.8fr) 18px 20px;
   }
   .dv-colhd-temp,
   .dv-col-temp { display: none; }
@@ -1039,15 +1145,14 @@
   .dv-row   { font-size: 12px; }
 }
 
-@media (max-width: 420px) {
-  .dv-colhd,
-  .dv-row {
+@container dvw (max-width: 386px) {
+  .dv-widget-wrap .dv-sections .dv-colhd,
+  .dv-widget-wrap .dv-sections .dv-row {
     grid-template-columns:
-      20px minmax(60px, 90px) 1fr 44px;
+      20px minmax(60px, 1.4fr) 40px minmax(72px, 1fr) 20px;
   }
   .dv-col-free,
   .dv-col-thumb,
-  .dv-col-gear,
   .dv-colhd-free,
   .dv-colhd-health { display: none; }
 

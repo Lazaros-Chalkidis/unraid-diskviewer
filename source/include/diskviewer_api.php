@@ -36,6 +36,7 @@ final class DiskViewerEndpoint
 
     private const SMART_ATTRS_CACHE     = '/boot/config/plugins/diskviewer/smart_attrs.json';
     private const SMART_ATTRS_TTL       = 3600;
+    private const SMART_MISS_TTL        = 900;
     private const SMART_ATTRS_VER       = 2;  // bump when parseSmartctl gains fields
     private const SCRUB_CACHE           = '/tmp/diskviewer_cache/scrub_status.json';
     private const ACTIVITY_SNAP_FILE    = '/tmp/diskviewer_cache/activity_snap.json';
@@ -92,7 +93,25 @@ final class DiskViewerEndpoint
 
         if ($sent === '') return false;
 
-        return $sent === $expected;
+        return hash_equals($expected, $sent);
+    }
+
+    private static function atomicWrite(string $path, string $data): bool
+    {
+        $dir = dirname($path);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) return false;
+        // widget and tool poll at the same time, a shared .tmp name would let them clobber each other
+        $tmp = $path . '.' . getmypid() . '.tmp';
+        if (@file_put_contents($tmp, $data) === false) {
+            @unlink($tmp);
+            return false;
+        }
+        @chmod($tmp, 0644);
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
+            return false;
+        }
+        return true;
     }
 
     // token from var.ini. raw scanner first (the normal one chokes on some machine-written values), regex as last resort
@@ -143,10 +162,13 @@ final class DiskViewerEndpoint
         if ($dev === '' || strpos($dev, 'nvme') !== 0 || !preg_match('/^[a-z0-9]+$/', $dev)) return 0.0;
         if (isset($cache[$dev])) return $cache[$dev];
 
-        $state = trim((string)@shell_exec("nvme get-feature /dev/$dev -f2 2>/dev/null | grep -Pom1 'value:.+\\K.$'"));
+        $devArg = escapeshellarg('/dev/' . $dev);
+        $state = trim((string)@shell_exec('nvme get-feature ' . $devArg . ' -f2 2>/dev/null | grep -Pom1 '
+            . escapeshellarg('value:.+\K.$')));
         if (!preg_match('/^[0-9a-fA-F]$/', $state)) return $cache[$dev] = 0.0;
 
-        $w = trim((string)@shell_exec("smartctl -c /dev/$dev 2>/dev/null | grep -Pom1 '^ *$state [+-] +\\K[^W]+'"));
+        $w = trim((string)@shell_exec('smartctl -c ' . $devArg . ' 2>/dev/null | grep -Pom1 '
+            . escapeshellarg('^ *' . $state . ' [+-] +\K[^W]+')));
         return $cache[$dev] = (is_numeric($w) ? (float)$w : 0.0);
     }
 
@@ -185,7 +207,7 @@ final class DiskViewerEndpoint
                 }
             }
         }
-        @file_put_contents(self::ACTIVITY_SNAP_FILE, json_encode(['t' => $now, 'd' => $cur, 'u' => $out]));
+        self::atomicWrite(self::ACTIVITY_SNAP_FILE, (string)json_encode(['t' => $now, 'd' => $cur, 'u' => $out]));
         return $out;
     }
 
@@ -503,6 +525,7 @@ final class DiskViewerEndpoint
                 'SHOW_ID_TOOLTIP'     => '1',
                 'SHOW_MISSING_DISKS'  => '1',
                 'SHOW_BOOT_DEVICE'    => '0',
+                'SHOW_SECTION_INDICATORS' => '1',
                 'FONT_SIZE'           => 'default',
                 'SPACE_SEVERITY_MODE' => 'inherit',
                 'SPACE_WARNING_PCT'   => '70',
@@ -563,7 +586,6 @@ final class DiskViewerEndpoint
 
             'show_fs_badge'       => ($cfg['SHOW_FS_BADGE']    ?? '1') === '1',
 
-            'show_disk_errors'    => ($cfg['SHOW_DISK_ERRORS'] ?? '1') === '1',
 
             'show_decimal_pct'    => ($cfg['SHOW_DECIMAL_PCT']  ?? '1') === '1',
 
@@ -589,7 +611,7 @@ final class DiskViewerEndpoint
             'header_click_action' => self::clampHeaderClickAction((string)($cfg['HEADER_CLICK_ACTION'] ?? 'main')),
             'enable_spin_button'  => ($cfg['ENABLE_SPIN_BUTTON'] ?? '1') === '1',
             'hidden_devices'      => array_values(array_filter(preg_split('/\s+/', trim((string)($cfg['HIDDEN_DEVICES'] ?? ''))), 'strlen')),
-            'show_activity'       => ($cfg['SHOW_ACTIVITY'] ?? '0') === '1',
+            'show_activity'       => ($cfg['SHOW_ACTIVITY'] ?? '1') === '1',
             'activity_warning'    => $actWarn,
             'activity_critical'   => $actCrit,
         ];
@@ -646,6 +668,21 @@ final class DiskViewerEndpoint
             'used' => (int)$m[2] * 1024,
             'free' => (int)$m[3] * 1024,
         ];
+    }
+
+    // an internal boot pool can reach disks.ini without an fsType, the same gap that hides its sizes
+    private static function mountFsType(string $mp): string
+    {
+        if ($mp === '' || $mp[0] !== '/') return '';
+        $mounts = @file('/proc/mounts', FILE_IGNORE_NEW_LINES);
+        if (!is_array($mounts)) return '';
+        foreach ($mounts as $ln) {
+            $f = explode(' ', $ln);
+            // /proc/mounts escapes spaces in the mountpoint as \040
+            if (str_replace('\040', ' ', (string)($f[1] ?? '')) !== $mp) continue;
+            return strtolower(trim((string)($f[2] ?? '')));
+        }
+        return '';
     }
 
     private static function parseUnassigned(): array
@@ -905,10 +942,9 @@ final class DiskViewerEndpoint
 
     private static function writeUDDiagnostic(array $diag): void
     {
-        $dir = dirname(self::CACHE_FILE);
-        if (!is_dir($dir)) @mkdir($dir, 0755, true);
         $diag['timestamp'] = date('c');
-        @file_put_contents($dir . '/ud_diag.json', json_encode($diag, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        self::atomicWrite(dirname(self::CACHE_FILE) . '/ud_diag.json',
+            (string)json_encode($diag, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     private static function diskSpeed(string $devPath): array
@@ -945,8 +981,7 @@ final class DiskViewerEndpoint
             $file     = $cacheFile;
             // stash this poll's counters so the next request can diff against them
             register_shutdown_function(function () use ($snapshot, $file) {
-                @mkdir(dirname($file), 0755, true);
-                @file_put_contents($file, json_encode($snapshot), LOCK_EX);
+                self::atomicWrite($file, (string)json_encode($snapshot));
             });
         }
 
@@ -1157,6 +1192,15 @@ final class DiskViewerEndpoint
 
             $notInstalled      = ($devPath === '' && $rawSize <= 0);
 
+            $fsType = strtolower(trim((string)($d['fsType'] ?? '')));
+            if ($fsType === '') {
+                if (strtolower(trim((string)($d['type'] ?? ''))) === 'flash') {
+                    $fsType = 'vfat';
+                } elseif ($isBoot && strtolower((string)($d['fsStatus'] ?? '')) === 'mounted') {
+                    $fsType = self::mountFsType(trim((string)($d['fsMountpoint'] ?? '')));
+                }
+            }
+
             if ($notInstalled && !$showMissing) continue;
             $spinDisabled      = ($isArrayMember || $isMultiPoolMember || $notInstalled || $isBoot || $isNvmeDisk);
 
@@ -1171,13 +1215,13 @@ final class DiskViewerEndpoint
                     $errPool  = ($cls['kind'] === 'boot' && ($cls['boot_pool'] ?? '') !== '') ? $cls['boot_pool'] : $cls['group'];
                     $poolErrs = self::poolDeviceErrors($errPool, $tileFs);
 
-                    $key = preg_replace('@^/dev/@', '', $devPath);
-                    if (strpos($key, 'nvme') === 0) {
-                        $key = preg_replace('/p\d+$/', '', $key);
+                    $errKey = preg_replace('@^/dev/@', '', $devPath);
+                    if (strpos($errKey, 'nvme') === 0) {
+                        $errKey = preg_replace('/p\d+$/', '', $errKey);
                     } else {
-                        $key = preg_replace('/\d+$/', '', $key);
+                        $errKey = preg_replace('/\d+$/', '', $errKey);
                     }
-                    $tileErrors = (int)($poolErrs[$key] ?? 0);
+                    $tileErrors = (int)($poolErrs[$errKey] ?? 0);
                 }
             }
 
@@ -1216,9 +1260,7 @@ final class DiskViewerEndpoint
                 'free'          => $fsFree,
                 'pct'           => $pct,
 
-                'fs'            => (strtolower(trim((string)($d['type'] ?? ''))) === 'flash')
-                                     ? (strtolower(trim((string)($d['fsType'] ?? ''))) ?: 'vfat')
-                                     : strtolower(trim((string)($d['fsType'] ?? ''))),
+                'fs'            => $fsType,
                 'speed_bps'     => $speed['bps'],
                 'speed_dir'     => $speed['dir'],
                 'errors'        => $tileErrors,
@@ -1665,14 +1707,12 @@ final class DiskViewerEndpoint
         }
 
         $errorsSeverity = 'ok';
-        if (!empty($cfg['show_disk_errors'])) {
-            foreach ($sections as $sec) {
-                foreach ($sec['tiles'] as $t) {
-                    if (!empty($t['is_summary'])) continue;
-                    if (((int)($t['errors'] ?? 0)) > 0) {
-                        $errorsSeverity = 'warning';
-                        break 2;
-                    }
+        foreach ($sections as $sec) {
+            foreach ($sec['tiles'] as $t) {
+                if (!empty($t['is_summary'])) continue;
+                if (((int)($t['errors'] ?? 0)) > 0) {
+                    $errorsSeverity = 'warning';
+                    break 2;
                 }
             }
         }
@@ -1694,9 +1734,9 @@ final class DiskViewerEndpoint
 
                 $smart = (string)($t['smart'] ?? 'unknown');
                 if ($smart === 'critical') {
-                    $issuesRaw[] = ['name' => $name, 'axis' => 'health', 'severity' => 'critical', 'label' => 'SMART failed'];
+                    $issuesRaw[] = ['name' => $name, 'axis' => 'health', 'severity' => 'critical', 'label' => 'FAILED'];
                 } elseif ($smart === 'warning') {
-                    $issuesRaw[] = ['name' => $name, 'axis' => 'health', 'severity' => 'warning', 'label' => 'SMART warning'];
+                    $issuesRaw[] = ['name' => $name, 'axis' => 'health', 'severity' => 'warning', 'label' => 'WARNING'];
                 }
 
                 $errCount = (int)($t['errors'] ?? 0);
@@ -1773,6 +1813,7 @@ final class DiskViewerEndpoint
                 'enable_spin_button'      => $cfg['enable_spin_button'],
                 'pool_highlight_used'     => $cfg['pool_highlight_used'],
                 'show_fs_badge'           => $cfg['show_fs_badge'],
+                'show_section_indicators' => $cfg['show_section_indicators'],
                 'show_used_column'        => $cfg['show_used_column'],
                 'show_decimal_pct'        => $cfg['show_decimal_pct'],
                 'show_id_tooltip'         => $cfg['show_id_tooltip'],
@@ -1975,8 +2016,7 @@ final class DiskViewerEndpoint
             }
         }
 
-        @mkdir('/tmp/diskviewer_cache', 0755, true);
-        @file_put_contents(self::SCRUB_SCHED_CACHE, json_encode(['ts' => $now, 'map' => $sched], JSON_UNESCAPED_SLASHES));
+        self::atomicWrite(self::SCRUB_SCHED_CACHE, (string)json_encode(['ts' => $now, 'map' => $sched], JSON_UNESCAPED_SLASHES));
         return $sched;
     }
 
@@ -2040,21 +2080,22 @@ final class DiskViewerEndpoint
 
         $t = (intdiv($from, 60) + 1) * 60;
         $limit = $from + 366 * 86400;
-        for (; $t <= $limit; $t += 60) {
-            $mn = (int)date('i', $t);
-            if (!isset($min[$mn])) continue;
-            $hr = (int)date('G', $t);
-            if (!isset($hour[$hr])) continue;
-            $mo = (int)date('n', $t);
-            if (!isset($mon[$mo])) continue;
-            $dm = (int)date('j', $t);
-            $dw = (int)date('w', $t);
+        while ($t <= $limit) {
+            [$mo, $dm, $dw, $hr, $mn] = array_map('intval', explode(' ', date('n j w G i', $t)));
+
             $domOk = isset($dom[$dm]);
             $dowOk = isset($dow[$dw]);
             // when both day-of-month and day-of-week are set, cron ORs them
             $dayOk = ($domRestricted && $dowRestricted) ? ($domOk || $dowOk)
                    : (($domRestricted ? $domOk : true) && ($dowRestricted ? $dowOk : true));
-            if (!$dayOk) continue;
+
+            // a bad cron line used to scan a whole year minute by minute
+            if (!isset($mon[$mo]) || !$dayOk) {
+                $t = mktime(0, 0, 0, $mo, $dm + 1, (int)date('Y', $t));
+                continue;
+            }
+            if (!isset($hour[$hr])) { $t += 3600 - ($mn * 60); continue; }
+            if (!isset($min[$mn]))  { $t += 60; continue; }
             return $t;
         }
         return null;
@@ -2112,7 +2153,8 @@ final class DiskViewerEndpoint
         foreach (array_unique($devices) as $dev) {
             if ($dev === '') continue;
             $entry = $cache[$dev] ?? null;
-            if (is_array($entry) && isset($entry['ts']) && ($now - (int)$entry['ts']) < self::SMART_ATTRS_TTL) {
+            $ttl   = (is_array($entry) && !empty($entry['miss'])) ? self::SMART_MISS_TTL : self::SMART_ATTRS_TTL;
+            if (is_array($entry) && isset($entry['ts']) && ($now - (int)$entry['ts']) < $ttl) {
                 $result[$dev] = $entry['attrs'] ?? null;
                 continue;
             }
@@ -2126,7 +2168,8 @@ final class DiskViewerEndpoint
                     $result[$dev] = $prev;
                 } else {
 
-                    $cache[$dev]  = ['ts' => 0, 'attrs' => null];
+                    // without its own ttl a drive that reports nothing gets re-read on every poll
+                    $cache[$dev]  = ['ts' => $now, 'attrs' => null, 'miss' => true];
                     $result[$dev] = null;
                 }
             } else {
@@ -2137,13 +2180,14 @@ final class DiskViewerEndpoint
         }
 
         if ($dirty) {
-
-            $dir = dirname(self::SMART_ATTRS_CACHE);
-            @mkdir($dir, 0755, true);
-            $tmp = self::SMART_ATTRS_CACHE . '.tmp';
-            $payload = ['_ver' => self::SMART_ATTRS_VER, 'd' => $cache];
-            if (@file_put_contents($tmp, json_encode($payload, JSON_UNESCAPED_SLASHES)) !== false) {
-                @rename($tmp, self::SMART_ATTRS_CACHE);
+            // otherwise a swapped-out disk sits in the flash file forever
+            foreach ($cache as $dev => $entry) {
+                if (!is_array($entry) || ($now - (int)($entry['ts'] ?? 0)) > 2592000) unset($cache[$dev]);
+            }
+            $payload = (string)json_encode(['_ver' => self::SMART_ATTRS_VER, 'd' => $cache], JSON_UNESCAPED_SLASHES);
+            // this file lives on the flash stick
+            if ($payload !== '' && $payload !== $raw) {
+                self::atomicWrite(self::SMART_ATTRS_CACHE, $payload);
             }
         }
         return $result;
@@ -2228,8 +2272,7 @@ final class DiskViewerEndpoint
         }
 
         if ($dirty) {
-            @mkdir('/tmp/diskviewer_cache', 0755, true);
-            @file_put_contents(self::SCRUB_CACHE, json_encode($cache, JSON_UNESCAPED_SLASHES));
+            self::atomicWrite(self::SCRUB_CACHE, (string)json_encode($cache, JSON_UNESCAPED_SLASHES));
         }
         return $result;
     }

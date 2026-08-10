@@ -39,7 +39,7 @@ $tool_config = [
     'csrfToken'  => DiskViewerEndpoint::currentCsrf(),
     'lightTheme' => $dvt_light,
 ];
-$tool_config_json = json_encode($tool_config, JSON_UNESCAPED_SLASHES);
+$tool_config_json = json_encode($tool_config, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 ?>
 
 <link rel="stylesheet" type="text/css" href="/plugins/diskviewer/css/tool.css?v=<?= $dvt_asset_ver ?>">
@@ -62,6 +62,7 @@ $tool_config_json = json_encode($tool_config, JSON_UNESCAPED_SLASHES);
           <div class="dvt-header__icons">
             <a href="/Settings/DiskViewerSettings" title="Settings"><i class="fa fa-cog" aria-hidden="true"></i></a>
           </div>
+          <div class="dvt-status" id="dvt-status" role="status" aria-label="Disk warnings" hidden></div>
         </div>
       </div>
 

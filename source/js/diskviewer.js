@@ -31,7 +31,6 @@
     var enableSpinButton  = !!cfg.enableSpinButton;
     var poolHighlightUsed = !!cfg.poolHighlightUsed;
     var showFsBadge       = cfg.showFsBadge !== false;
-    var showDiskErrors    = cfg.showDiskErrors !== false;
     var showPower         = !!cfg.showPower;
     var showDecimalPct    = !!cfg.showDecimalPct;
     var showUsedColumn    = !!cfg.showUsedColumn;
@@ -123,9 +122,74 @@
     var ARROW_UP   = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 14l5-5 5 5z"/></svg>';
     var ARROW_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>';
 
+    // the glyph filled a fraction of 24x24, so it rendered tiny at 12px
+    var SPD_UP   = '<svg width="12" height="12" viewBox="0 0 14 9" fill="currentColor" aria-hidden="true"><path d="M2 7l5-5 5 5z"/></svg>';
+    var SPD_DOWN = '<svg width="12" height="12" viewBox="0 0 14 9" fill="currentColor" aria-hidden="true"><path d="M2 2l5 5 5-5z"/></svg>';
+
     var WARN_TRIANGLE_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2L1 22h22L12 2zm0 4.45L19.95 20H4.05L12 6.45zM11 10v5h2v-5h-2zm0 6v2h2v-2h-2z"/></svg>';
 
     var THERMO_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0zm-3-9a1 1 0 0 1 1 1v3h-2V5a1 1 0 0 1 1-1z"/></svg>';
+
+    // the gauge covers less of its viewBox than the other three, so it looked smaller
+    var GAUGE_SVG = '<svg width="13" height="13" viewBox="3.5 2 17 17" fill="currentColor" aria-hidden="true"><path d="M12 4a8 8 0 0 0-8 8 8 8 0 0 0 1.6 4.8l1.6-1.2A6 6 0 0 1 6 12a6 6 0 0 1 12 0 6 6 0 0 1-1.2 3.6l1.6 1.2A8 8 0 0 0 20 12a8 8 0 0 0-8-8zm0 3.5-3 6.5a3.3 3.3 0 0 0 6 0l-3-6.5z"/></svg>';
+
+    // built from model.disk_issues so the strip and the navbar badge cannot disagree
+    var STATUS_AXES = [
+        { key: 'errors', title: 'Disk errors', icon: function(){ return WARN_TRIANGLE_SVG; }, label: 'Errors' },
+        { key: 'temp',   title: 'Temperature', icon: function(){ return THERMO_SVG; },       label: 'Temperature' },
+        { key: 'health', title: 'SMART',       icon: function(){ return THUMB_SVG; },        label: 'SMART health' },
+        { key: 'used',   title: 'Used space',  icon: function(){ return GAUGE_SVG; },        label: 'Used space' }
+    ];
+
+    function renderStatusStrip(model){
+        var host = $('dv-status') || $('dv-status-legacy');
+        if (!host) return;
+        if (!showSectionIndicators) { host.innerHTML = ''; host.hidden = true; return; }
+        host.hidden = false;
+
+        var rank   = { ok: 0, warning: 1, critical: 2 };
+        var issues = (model && model.disk_issues) || [];
+        var byAxis = {};
+        for (var i = 0; i < issues.length; i++) {
+            var it = issues[i];
+            var a  = it.axis || '';
+            if (!byAxis[a]) byAxis[a] = { worst: 'ok', warn: [], crit: [] };
+            var sev = it.severity === 'critical' ? 'critical' : 'warning';
+            if (rank[sev] > rank[byAxis[a].worst]) byAxis[a].worst = sev;
+            byAxis[a][sev === 'critical' ? 'crit' : 'warn'].push(
+                String(it.name || '?').toUpperCase() + (it.label ? ' - ' + it.label : ''));
+        }
+
+        var html = '';
+        for (var k = 0; k < STATUS_AXES.length; k++) {
+            var ax = STATUS_AXES[k];
+            var d  = byAxis[ax.key];
+            var n  = d ? (d.warn.length + d.crit.length) : 0;
+
+            if (!d || n === 0) {
+                // health reads as a verdict, not an alarm, so its thumb stays lit green instead of going dim
+                var okCls = ax.key === 'health' ? 'dv-status-item--ok' : 'dv-status-item--off';
+                html += '<span class="dv-status-item ' + okCls + '" title="' + escapeHtml(ax.label) + ': OK">'
+                      + ax.icon() + '</span>';
+                continue;
+            }
+
+            // temp is the only axis that can pulse, same rule as the navbar badge
+            var blink = (ax.key === 'temp' && model && model.temp_blink) ? ' dv-status-item--blink' : '';
+            var tip   = '<span class="dv-toast-title">' + escapeHtml(ax.title) + '</span>';
+            for (var c = 0; c < d.crit.length; c++) tip += '<span class="dv-toast-item dv-toast-item--crit">' + escapeHtml(d.crit[c]) + '</span>';
+            for (var w = 0; w < d.warn.length; w++) tip += '<span class="dv-toast-item dv-toast-item--warn">' + escapeHtml(d.warn[w]) + '</span>';
+
+            // a failing thumb points down, same as in the disk rows
+            var flip = (ax.key === 'health') ? ' dv-status-item--flip' : '';
+            html += '<span class="dv-status-item dv-status-item--' + (d.worst === 'critical' ? 'crit' : 'warn') + blink + flip + '">'
+                  + ax.icon()
+                  + '<span class="dv-status-n">' + n + '</span>'
+                  + '<span class="dv-row-toast dv-row-toast--' + (d.worst === 'critical' ? 'crit' : 'warn') + '">' + tip + '</span>'
+                  + '</span>';
+        }
+        host.innerHTML = html;
+    }
 
     function computeColumnSeverities(model){
         var worstPct = 'ok', worstTemp = 'ok', worstHealth = 'ok';
@@ -200,14 +264,31 @@
         return '<div class="dv-colhd">' +
             '<span></span>' +
             '<span class="dv-colhd-name">DISK</span>' +
+            '<span class="dv-colhd-fs">FS</span>' +
             '<span class="dv-colhd-size">SIZE</span>' +
             '<span class="dv-colhd-free">FREE</span>' +
             '<span class="' + usedCls + '">USED</span>' +
-            '<span class="dv-colhd-speed">' + (showActivity ? 'SPEED R/W - I/O' : 'SPEED R/W') + '</span>' +
+            '<span class="dv-colhd-speed">' + (showActivity ? 'SPEED - I/O' : 'SPEED') + '</span>' +
             '<span class="' + tempCls + '">TEMP</span>' +
             '<span class="' + healthCls + '">H</span>' +
             '<span class="dv-colhd-settings">S</span>' +
         '</div>';
+    }
+
+    // a disk working in bursts reads zero between samples and the cell would flip to idle and back
+    var SPEED_HOLD_MS = 6000;
+    var speedHold = {};
+
+    function holdSpeed(name, o){
+        if (!name) return o;
+        var now  = Date.now();
+        var live = !!o.spun && (+o.speed || 0) > 0;
+        if (live) { speedHold[name] = { until: now + SPEED_HOLD_MS, o: o }; return o; }
+        var h = speedHold[name];
+        // spun down is a real change, only a quiet sample waits
+        if (h && o.spun && now < h.until) return h.o;
+        if (h) delete speedHold[name];
+        return o;
     }
 
     function buildSpeedHtml(o){
@@ -217,7 +298,7 @@
 
         if (spun && speed > 0) {
             var isRead = (speedDir === 'r');
-            var arrow  = isRead ? ARROW_DOWN : ARROW_UP;
+            var arrow  = isRead ? SPD_DOWN : SPD_UP;
 
             var dirCls = isRead ? 'dv-col-speed--r' : 'dv-col-speed--w';
             return '<span class="dv-col-speed ' + dirCls + '">' + arrow
@@ -271,7 +352,7 @@
         var pct    = hasPct ? Math.max(0, Math.min(100, +o.activity)) : 0;
         var isRead = (String(o.speedDir || '') === 'r');
         var speedHtml = '<span class="dv-col-speed ' + (isRead ? 'dv-col-speed--r' : 'dv-col-speed--w') + '">'
-                      + (isRead ? ARROW_DOWN : ARROW_UP)
+                      + (isRead ? SPD_DOWN : SPD_UP)
                       + '<span class="dv-col-speed-num">' + formatBytes(speed) + '/s</span></span>';
         return '<div class="dv-col-act">'
              + '<div class="dv-act-line">' + speedHtml
@@ -300,7 +381,7 @@
                 if (numEl && numEl.textContent !== numTxt) numEl.textContent = numTxt;
             } else {
                 var wantSpeed = '<span class="dv-col-speed ' + wantCls + '">'
-                              + (isRead ? ARROW_DOWN : ARROW_UP)
+                              + (isRead ? SPD_DOWN : SPD_UP)
                               + '<span class="dv-col-speed-num">' + numTxt + '</span></span>';
                 if (speedEl) speedEl.outerHTML = wantSpeed;
                 else line.insertAdjacentHTML('afterbegin', wantSpeed);
@@ -324,7 +405,7 @@
         }
     }
 
-    function renderRow(row, isMember){
+    function renderRow(row, isMember, secId){
         var rawName  = row.name || '';
 
         var displayName = row.display_name || rawName;
@@ -347,11 +428,11 @@
 
         var cls = 'dv-row';
 
-        var stylesAsSummary = !!row.style_as_summary;
+        var isBootRow = row.group === 'boot' && !isMember;
         if (isSummary)            cls += ' dv-row--summary';
         if (isMember)             cls += ' dv-row--member';
 
-        if (row.group === 'boot' && !isMember) cls += ' dv-row--boot';
+        if (isBootRow) cls += ' dv-row--boot';
         if (severity === 'warning')  cls += ' dv-row--warn';
         if (severity === 'critical') cls += ' dv-row--crit';
 
@@ -424,14 +505,15 @@
 
         var speedHtml;
         if (showActivity && !isSummary) {
-            speedHtml = buildActHtml({
+            speedHtml = buildActHtml(holdSpeed(rawName, {
                 spun: spun, speed: speed, speedDir: speedDir,
                 activity: (row.activity == null ? null : +row.activity),
                 rotational: row.rotational
-            });
+            }));
         } else {
+            var held = holdSpeed(rawName, { spun: spun, speed: speed, speedDir: speedDir });
             speedHtml = buildSpeedHtml({
-                errors: errors, spun: spun, speed: speed, speedDir: speedDir,
+                errors: errors, spun: held.spun, speed: held.speed, speedDir: held.speedDir,
                 isSummary: isSummary, isParity: isParity
             });
         }
@@ -478,9 +560,11 @@
                      + (nameTip ? ' data-dv-ident="' + escapeHtml(nameTip) + '"' : '')
                      + '>' + nameEsc + '</span>'
                      + (notInstalled ? ' <span class="dv-missing-label">NOT INSTALLED or MISSING</span>' : '');
-        if ((isSummary || stylesAsSummary) && row.fs && showFsBadge) {
-            nameHtml += ' <span class="dv-fs-pill">' + escapeHtml(row.fs) + '</span>';
-        }
+        // a single boot device has no summary row of its own, but BOOT still names a filesystem like ARRAY does
+        var wantsFs = showFsBadge && (isSummary || isBootRow || secId === 'pools');
+        var fsHtml  = (wantsFs && row.fs)
+            ? '<span class="dv-fs-pill">' + escapeHtml(row.fs) + '</span>'
+            : '';
 
         var toastHtml = '<div class="dv-row-toast" role="tooltip" aria-hidden="true"></div>';
 
@@ -494,6 +578,7 @@
         return '<div class="' + cls + '" data-name="' + escapeHtml(row.name || '') + '" data-severity="' + severity + '"' + (isSummary ? ' data-is-summary="1"' : '') + (notInstalled ? ' data-dv-missing="1"' : '') + '>' +
             '<span class="dv-col-bolt">' + boltEl + '</span>' +
             '<div class="dv-col-name' + (notInstalled ? ' dv-col-name--missing' : '') + '">' + nameHtml + '</div>' +
+            '<span class="dv-col-fs">' + fsHtml + '</span>' +
             '<span class="dv-col-size">' + sizeText + '</span>' +
             '<span class="dv-col-free">' + freeText + '</span>' +
             usedCellHtml +
@@ -524,94 +609,9 @@
             if (rows[i].is_summary) { hasSummary = true; break; }
         }
 
-        var rankS = { ok: 0, warning: 1, critical: 2 };
-        var errDisks = [], healthDisks = [];
-        var tempWarnDisks = [], tempCritDisks = [];
-        var tempCritBlink = false;
-        var healthWorst = 'warning';
-
-        for (var bi = 0; bi < rows.length; bi++) {
-            var bt = rows[bi];
-            if (bt.is_summary) continue;
-            var dlabel = bt.display_name || bt.name || '?';
-
-            if (showDiskErrors) {
-                var errCount = +bt.errors || 0;
-                if (errCount > 0) {
-                    errDisks.push(dlabel + ' (' + errCount + ' error' + (errCount === 1 ? '' : 's') + ')');
-                }
-            }
-
-            var raw = bt.temp;
-            if (raw && raw !== '*' && raw !== '-') {
-                var n = parseInt(raw, 10);
-                if (!isNaN(n)) {
-                    var tWarn = +bt.temp_warning  || tempWarning;
-                    var tCrit = +bt.temp_critical || tempCritical;
-                    if (n >= tCrit) {
-                        tempCritDisks.push(dlabel + ' (' + n + '\u00b0)');
-                        if (n >= tCrit * 1.10) tempCritBlink = true;
-                    } else if (n >= tWarn) {
-                        tempWarnDisks.push(dlabel + ' (' + n + '\u00b0)');
-                    }
-                }
-            }
-
-            var smart = bt.smart || 'unknown';
-            var hsev = smart === 'critical' ? 'critical' : smart === 'warning' ? 'warning' : 'ok';
-            if (hsev !== 'ok') {
-                healthDisks.push(dlabel);
-                if (rankS[hsev] > rankS[healthWorst]) healthWorst = hsev;
-            }
-        }
-
-        var indHtml = '';
-
-        function toastInner(title, items) {
-            var s = '<span class="dv-toast-title">' + escapeHtml(title) + '</span>';
-            for (var i = 0; i < items.length; i++) {
-                s += '<span class="dv-toast-item">' + escapeHtml(items[i]) + '</span>';
-            }
-            return s;
-        }
-        if (showSectionIndicators) {
-            if (errDisks.length > 0) {
-                indHtml += '<span class="dv-section-ind dv-section-ind--err">'
-                         + WARN_TRIANGLE_SVG
-                         + '<span class="dv-section-ind-badge">' + errDisks.length + '</span>'
-                         + '<span class="dv-row-toast dv-row-toast--warn">' + toastInner('Disk errors', errDisks) + '</span>'
-                         + '</span>';
-            }
-            if (tempWarnDisks.length > 0) {
-                indHtml += '<span class="dv-section-ind dv-section-ind--warn">'
-                         + THERMO_SVG
-                         + '<span class="dv-section-ind-badge">' + tempWarnDisks.length + '</span>'
-                         + '<span class="dv-row-toast dv-row-toast--warn">' + toastInner('High temp (warning)', tempWarnDisks) + '</span>'
-                         + '</span>';
-            }
-            if (tempCritDisks.length > 0) {
-                var critBlinkCls = tempCritBlink ? ' dv-section-ind--blink' : '';
-                indHtml += '<span class="dv-section-ind dv-section-ind--crit' + critBlinkCls + '">'
-                         + THERMO_SVG
-                         + '<span class="dv-section-ind-badge">' + tempCritDisks.length + '</span>'
-                         + '<span class="dv-row-toast dv-row-toast--crit">' + toastInner('High temp (critical)', tempCritDisks) + '</span>'
-                         + '</span>';
-            }
-            if (healthDisks.length > 0) {
-                var healthCls = (healthWorst === 'critical') ? 'dv-section-ind--crit' : 'dv-section-ind--warn';
-                indHtml += '<span class="dv-section-ind ' + healthCls + ' dv-section-ind--health">'
-                         + THUMB_SVG
-                         + '<span class="dv-section-ind-badge">' + healthDisks.length + '</span>'
-                         + '<span class="dv-row-toast ' + (healthWorst === 'critical' ? 'dv-row-toast--crit' : 'dv-row-toast--warn') + '">' + toastInner('Health', healthDisks) + '</span>'
-                         + '</span>';
-            }
-        }
-        var warnHtml = indHtml;
-
         var html = '<div class="dv-section" data-section="' + escapeHtml(secId) + '">';
         html += '<div class="dv-section-hd">';
         html += '<span class="dv-section-lbl">' + label + '</span>';
-        html += warnHtml;
 
         if (secId === 'pools' && enableSpinButton) {
             html += '<span class="dv-section-actions">';
@@ -632,7 +632,7 @@
         html += '<div class="dv-rows">';
         for (var i = 0; i < rows.length; i++) {
             var isMember = hasSummary && !rows[i].is_summary;
-            html += renderRow(rows[i], isMember);
+            html += renderRow(rows[i], isMember, secId);
         }
         html += '</div>';
         html += '</div>';
@@ -666,6 +666,8 @@
             }
         }
 
+        renderStatusStrip(model);
+
         var html = '';
         if ((model.sections || []).length > 0) {
             var colSev = computeColumnSeverities(model);
@@ -682,6 +684,7 @@
 
         container.classList.toggle('dv-pool-highlight', poolHighlightUsed);
         container.classList.toggle('dv-show-act', showActivity);
+        container.classList.toggle('dv-hide-fscol', !showFsBadge);
 
         var hasPower = false;
         if (showPower) {
@@ -836,19 +839,19 @@
             var cell = row.querySelector('.dv-col-speed-wrap');
             if (!cell) continue;
             if (showActivity) {
-                updateActCell(cell, {
+                updateActCell(cell, holdSpeed(name, {
                     spun:       d.spun,
                     speed:      d.speed_bps,
                     speedDir:   d.speed_dir,
                     activity:   (d.activity == null ? null : +d.activity),
                     rotational: d.rotational
-                });
+                }));
             } else {
-                updateSpeedCell(cell, {
+                updateSpeedCell(cell, holdSpeed(name, {
                     spun:     d.spun,
                     speed:    d.speed_bps,
                     speedDir: d.speed_dir
-                });
+                }));
             }
         }
 
@@ -873,11 +876,11 @@
                 if (md.spun) anyMemberSpun = true;
             }
             var totalSum = sumR + sumW;
-            updateSpeedCell(summaryCell, {
+            updateSpeedCell(summaryCell, holdSpeed('\u0000sec:' + (sec.getAttribute('data-section') || si), {
                 spun: anyMemberSpun,
                 speed: totalSum,
                 speedDir: totalSum > 0 ? (sumR >= sumW ? 'r' : 'w') : ''
-            });
+            }));
         }
 
         if (lastModel && Array.isArray(lastModel.sections)) {
@@ -1434,7 +1437,6 @@
             enableSpinButton  = !!cfg.enableSpinButton;
             poolHighlightUsed = !!cfg.poolHighlightUsed;
             showFsBadge       = cfg.showFsBadge !== false;
-            showDiskErrors    = cfg.showDiskErrors !== false;
             showPower         = !!cfg.showPower;
             showDecimalPct    = !!cfg.showDecimalPct;
             showUsedColumn    = !!cfg.showUsedColumn;

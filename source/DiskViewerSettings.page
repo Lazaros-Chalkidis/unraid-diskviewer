@@ -39,7 +39,14 @@ $clean_ids = static function($v): string {
 };
 
 // settings apply: rebuild the cfg from the posted fields, then write it back
-if (isset($_POST['#apply'])) {
+$dv_save_error = '';
+$dv_applying   = isset($_POST['#apply']);
+if ($dv_applying && !DiskViewerEndpoint::validateCsrf()) {
+    $dv_applying   = false;
+    $dv_save_error = 'The security token did not match. Reload the page and try again.';
+}
+
+if ($dv_applying) {
 
     $new_cfg = @parse_ini_file(DV_CFG_FILE) ?: [];
 
@@ -70,13 +77,12 @@ if (isset($_POST['#apply'])) {
 
     $new_cfg['SHOW_FS_BADGE']        = $yn($_POST['SHOW_FS_BADGE'] ?? '1', '1');
 
-    $new_cfg['SHOW_DISK_ERRORS']     = $yn($_POST['SHOW_DISK_ERRORS'] ?? '1', '1');
 
     $new_cfg['SHOW_DECIMAL_PCT']     = $yn($_POST['SHOW_DECIMAL_PCT'] ?? '1', '1');
 
     $new_cfg['SHOW_USED_COLUMN']     = $yn($_POST['SHOW_USED_COLUMN'] ?? '1', '1');
 
-    $new_cfg['SHOW_ACTIVITY']        = $yn($_POST['SHOW_ACTIVITY'] ?? '0', '0');
+    $new_cfg['SHOW_ACTIVITY']        = $yn($_POST['SHOW_ACTIVITY'] ?? '0', '1');
     $new_cfg['ACTIVITY_WARN_PCT']    = $clamp_int($_POST['ACTIVITY_WARN_PCT'] ?? 95, 1,  99,  95);
     $new_cfg['ACTIVITY_CRIT_PCT']    = $clamp_int($_POST['ACTIVITY_CRIT_PCT'] ?? 98, 2, 100,  98);
 
@@ -118,6 +124,7 @@ if (isset($_POST['#apply'])) {
     $new_cfg['TOOL_SHOW_ID_TOOLTIP']     = $yn($_POST['TOOL_SHOW_ID_TOOLTIP'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_MISSING_DISKS']  = $yn($_POST['TOOL_SHOW_MISSING_DISKS'] ?? '1', '1');
     $new_cfg['TOOL_SHOW_BOOT_DEVICE']    = $yn($_POST['TOOL_SHOW_BOOT_DEVICE'] ?? '0', '1');
+    $new_cfg['TOOL_SHOW_SECTION_INDICATORS'] = $yn($_POST['TOOL_SHOW_SECTION_INDICATORS'] ?? '1', '1');
     $new_cfg['TOOL_FONT_SIZE']           = in_array($_POST['TOOL_FONT_SIZE'] ?? 'default', ['small','default','large'], true) ? $_POST['TOOL_FONT_SIZE'] : 'default';
     $toolModeIn = strtolower((string)($_POST['TOOL_SPACE_SEVERITY_MODE'] ?? 'inherit'));
     $new_cfg['TOOL_SPACE_SEVERITY_MODE'] = in_array($toolModeIn, ['inherit','custom','disabled'], true) ? $toolModeIn : 'inherit';
@@ -129,13 +136,27 @@ if (isset($_POST['#apply'])) {
     $ini = '';
     foreach ($new_cfg as $k => $v) {
         $v = preg_replace('/[\x00-\x1f\x7f]/', '', (string)$v);  // strip control chars and escape quotes so the ini can't be broken out of
-        $v = str_replace('"', '\\"', $v);
+        $v = str_replace(['\\', '"'], ['\\\\', '\\"'], $v);
         $ini .= "{$k}=\"{$v}\"\n";
     }
-    @mkdir(dirname(DV_CFG_FILE), 0755, true);
-    file_put_contents(DV_CFG_FILE, $ini);
 
-    $cfg = $new_cfg;
+    $dv_dir = dirname(DV_CFG_FILE);
+    if (!is_dir($dv_dir) && !@mkdir($dv_dir, 0755, true) && !is_dir($dv_dir)) {
+        $dv_save_error = 'Could not create the settings folder on the flash drive.';
+    } elseif (@file_get_contents(DV_CFG_FILE) === $ini) {
+        // nothing changed, don't spend a flash write on it
+    } else {
+        $dv_tmp = DV_CFG_FILE . '.' . getmypid() . '.tmp';
+        if (@file_put_contents($dv_tmp, $ini) === false || !@rename($dv_tmp, DV_CFG_FILE)) {
+            @unlink($dv_tmp);
+            $dv_save_error = 'Could not write the settings to the flash drive.';
+        } else {
+            @chmod(DV_CFG_FILE, 0644);
+        }
+    }
+
+    if ($dv_save_error !== '') $cfg = @parse_ini_file(DV_CFG_FILE) ?: [];
+    else                       $cfg = $new_cfg;
 } else {
     $cfg = @parse_ini_file(DV_CFG_FILE) ?: [];
 }
@@ -154,10 +175,9 @@ $def = [
     'HEADER_CLICK_ACTION'  => 'main',
     'POOL_HIGHLIGHT_USED'  => '0',
     'SHOW_FS_BADGE'        => '1',
-    'SHOW_DISK_ERRORS'     => '1',
     'SHOW_DECIMAL_PCT'     => '1',
     'SHOW_USED_COLUMN'     => '1',
-    'SHOW_ACTIVITY'        => '0',
+    'SHOW_ACTIVITY'        => '1',
     'ACTIVITY_WARN_PCT'    => '95',
     'ACTIVITY_CRIT_PCT'    => '98',
     'SHOW_ID_TOOLTIP'      => '1',
@@ -186,6 +206,7 @@ $def = [
     'TOOL_SHOW_ID_TOOLTIP'      => '1',
     'TOOL_SHOW_MISSING_DISKS'   => '1',
     'TOOL_SHOW_BOOT_DEVICE'     => '0',
+    'TOOL_SHOW_SECTION_INDICATORS' => '1',
     'TOOL_FONT_SIZE'            => 'default',
     'TOOL_SPACE_SEVERITY_MODE'  => 'inherit',
     'TOOL_SPACE_WARNING_PCT'    => '70',
@@ -263,8 +284,8 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         $isHidden = isset($hiddenSet[$d['byid']]);
         $h  = '<label class="dv-vis-cell' . ($isHidden ? ' is-hidden' : '') . '">';
         $h .= '<span class="dv-vis-cell-main">';
-        $h .= '<span class="dv-vis-nameline"><span class="dv-vis-name">' . htmlspecialchars($d['name']) . '</span><span class="dv-vis-size">' . htmlspecialchars($d['size_h']) . '</span></span>';
-        $h .= '<span class="dv-vis-id">' . htmlspecialchars($d['byid']) . '</span>';
+        $h .= '<span class="dv-vis-nameline"><span class="dv-vis-name">' . htmlspecialchars($d['name'], ENT_QUOTES) . '</span><span class="dv-vis-size">' . htmlspecialchars($d['size_h'], ENT_QUOTES) . '</span></span>';
+        $h .= '<span class="dv-vis-id">' . htmlspecialchars($d['byid'], ENT_QUOTES) . '</span>';
         $h .= '</span>';
         $h .= '<input type="checkbox" class="dv-vis-tg" data-byid="' . htmlspecialchars($d['byid'], ENT_QUOTES) . '"' . ($isHidden ? '' : ' checked') . '>';
         $h .= '<span class="dv-vis-track"></span></label>';
@@ -310,6 +331,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
 
 <div class="dv-settings-panel">
 
+  <input type="hidden" name="dv_csrf" value="<?= htmlspecialchars(DiskViewerEndpoint::currentCsrf(), ENT_QUOTES) ?>">
   <input type="hidden" name="dv_active_tab" id="dvActiveTab" value="<?= htmlspecialchars($active_tab, ENT_QUOTES) ?>">
 
   <div id="dvWidgetTabPanel" style="<?= $active_tab !== 'widget' ? 'display:none;' : '' ?>">
@@ -354,7 +376,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         <div class="dv-r-label">Allow spin actions</div>
         <div class="dv-r-field">
           <?= $toggle('ENABLE_SPIN_BUTTON', $cfg['ENABLE_SPIN_BUTTON'] ?? '1', '1') ?>
-          <span class="dv-r-warn">When enabled, the bolt icon becomes clickable on single-disk pool and unassigned devices to spin them up or down. ARRAY members and multi-disk pool members are always protected.</span>
+          <span class="dv-r-desc dv-r-desc--warn"><i class="fa fa-info-circle" aria-hidden="true"></i>Makes the bolt icon clickable on single-disk pools and unassigned devices, so you can spin them up or down. <b>ARRAY and multi-disk pool members stay protected</b></span>
         </div>
       </div>
     </div>
@@ -385,28 +407,28 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show array section</div>
+        <div class="dv-r-label">Array section</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_ARRAY', $cfg['SHOW_ARRAY'], '1') ?>
           <span class="dv-r-desc">Display parity and data disks</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show raid groups</div>
+        <div class="dv-r-label">RAID groups</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_CACHE', $cfg['SHOW_CACHE'], '1') ?>
           <span class="dv-r-desc">Display multi-disk pool and RAID groups (cache, mirror, raidz, etc)</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show pool section</div>
+        <div class="dv-r-label">Pool section</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_POOLS', $cfg['SHOW_POOLS'], '1') ?>
           <span class="dv-r-desc">Display single-disk pool combined under POOL (cache or not)</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show unassigned section</div>
+        <div class="dv-r-label">Unassigned section</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_UNASSIGNED', $cfg['SHOW_UNASSIGNED'] ?? '0', '0') ?>
           <span class="dv-r-desc">Show devices that are not part of the array or a pool</span>
@@ -423,14 +445,14 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         <div class="dv-r-label">Missing disks</div>
         <div class="dv-r-field">
           <?= $toggleShow('SHOW_MISSING_DISKS', $cfg['SHOW_MISSING_DISKS'] ?? '1', '1') ?>
-          <span class="dv-r-desc">Show disks that are configured but not currently installed (disconnected or removed), labelled "Not installed". Leave on to catch a failed or unplugged disk; hide only if you have an intentionally empty slot</span>
+          <span class="dv-r-desc">Show disks that are configured but not currently installed (disconnected or removed), labelled "NOT INSTALLED or MISSING". Leave on to catch a failed or unplugged disk; hide only if you have an intentionally empty slot</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Enable indicator</div>
+        <div class="dv-r-label">Header indicator</div>
         <div class="dv-r-field">
           <?= $toggle('HEADER_SHOW_BADGE', $cfg['HEADER_SHOW_BADGE'], '1') ?>
-          <span class="dv-r-desc">Show a status icon in the Unraid header summarising disk temperature, SMART health, and utilisation</span>
+          <span class="dv-r-desc">Show a status icon in the Unraid header summarising disk temperature, SMART health, used space and disk errors</span>
         </div>
       </div>
       <div class="dv-r">
@@ -449,41 +471,34 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         <div class="dv-r-label">Highlight pool disks by used %</div>
         <div class="dv-r-field">
           <?= $toggle('POOL_HIGHLIGHT_USED', $cfg['POOL_HIGHLIGHT_USED'] ?? '0', '1') ?>
-          <span class="dv-r-desc">Override the zebra background with amber/red on single-disk pool tiles whose used % crosses the warning or critical threshold</span>
+          <span class="dv-r-desc">Override the zebra background with amber/red on single-disk pool and unassigned tiles whose used % crosses the warning or critical threshold</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show filesystem badge</div>
+        <div class="dv-r-label">Filesystem badge</div>
         <div class="dv-r-field">
           <?= $toggle('SHOW_FS_BADGE', $cfg['SHOW_FS_BADGE'] ?? '1', '1') ?>
-          <span class="dv-r-desc">Display the small FS pill (xfs, btrfs, zfs, mixed) on ARRAY and pool aggregate rows</span>
+          <span class="dv-r-desc">Adds the FS column with the small pill (xfs, btrfs, zfs, vfat, mixed) on the ARRAY, multi-disk pool, single-disk pool and BOOT rows. Off removes the column entirely</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show disk errors</div>
-        <div class="dv-r-field">
-          <?= $toggle('SHOW_DISK_ERRORS', $cfg['SHOW_DISK_ERRORS'] ?? '1', '1') ?>
-          <span class="dv-r-desc">Show the warning triangle on section headers and tint the Unraid header disk icon when a pool member has BTRFS/ZFS errors</span>
-        </div>
-      </div>
-      <div class="dv-r">
-        <div class="dv-r-label">Show section indicators</div>
+        <div class="dv-r-label">Status bar</div>
         <div class="dv-r-field">
           <?= $toggle('SHOW_SECTION_INDICATORS', $cfg['SHOW_SECTION_INDICATORS'] ?? '1', '1') ?>
-          <span class="dv-r-desc">Show small icons with disk counts next to each section header (ARRAY, CACHE, RAID, POOL) for errors, high temperature, and bad health</span>
+          <span class="dv-r-desc">Sits under the header buttons. Four symbols sit there permanently, dimmed while everything is fine, and light up with a disk count when errors, temperature, SMART health or used space cross a threshold. Hover one for the list, warnings in amber and critical in red</span>
         </div>
       </div>
       <div class="dv-r">
-        <div class="dv-r-label">Show used column</div>
+        <div class="dv-r-label">Used column</div>
         <div class="dv-r-field">
           <?= $toggle('SHOW_USED_COLUMN', $cfg['SHOW_USED_COLUMN'] ?? '1', '1') ?>
-          <span class="dv-r-desc">Show the absolute used size (in bytes) next to the percentage in the USED column</span>
+          <span class="dv-r-desc">Show the used size next to the percentage in the USED column, formatted the same way as the disk size</span>
         </div>
       </div>
       <div class="dv-r">
         <div class="dv-r-label">Disk activity bar</div>
         <div class="dv-r-field">
-          <?= $toggle('SHOW_ACTIVITY', $cfg['SHOW_ACTIVITY'] ?? '0', '0') ?>
+          <?= $toggle('SHOW_ACTIVITY', $cfg['SHOW_ACTIVITY'] ?? '1', '1') ?>
           <span class="dv-r-desc">Show a thin disk-activity bar under the read/write speeds, filled to how busy each disk is. SSD and NVMe drives stay blue; spinning drives go green, then amber and red as they get busier. The Speed column widens slightly to fit the i/o percentage</span>
         </div>
       </div>
@@ -509,7 +524,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         <div class="dv-r-label">Decimal in used %</div>
         <div class="dv-r-field">
           <?= $toggle('SHOW_DECIMAL_PCT', $cfg['SHOW_DECIMAL_PCT'] ?? '1', '1') ?>
-          <span class="dv-r-desc">Show one decimal place in the used percentage column ("65.4%" instead of "65%"). Useful on multi-TB drives where 1% spans over 100 GB</span>
+          <span class="dv-r-desc">Show two decimal places in the used percentage column ("65.43%" instead of "65%"). Useful on multi-TB drives where 1% spans over 100 GB</span>
         </div>
       </div>
       <div class="dv-r">
@@ -564,7 +579,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
       <span class="dv-sec-arrow">&#9650;</span>
     </div>
     <div class="dv-sec-bd">
-      <div class="dv-vis-intro">Choose which unassigned devices and single-disk pools appear on the widget. This list is separate from the Tool page, so you can hide a device here without hiding it on the Tool page. Each device is matched by its stable id, so it stays hidden after a reboot or a reconnect. Array disks, parity, multi-disk pool members and the boot device are never listed here, so a disk that matters for your array or pool cannot be hidden by mistake.</div>
+      <div class="dv-r-desc dv-r-desc--warn dv-r-desc--block"><i class="fa fa-info-circle" aria-hidden="true"></i><span>Pick which unassigned devices and single-disk pools show on the widget. Matched by stable id, so a hidden device stays hidden after a reboot or a reconnect. <b>The Tool page keeps its own separate list.</b> Array, parity, pool members and boot are never listed</span></div>
       <?= $dvRenderVis('HIDDEN_DEVICES', $cfg['HIDDEN_DEVICES'] ?? '') ?>
     </div>
   </div>
@@ -601,7 +616,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
           <div class="dv-r-label">Allow spin actions</div>
           <div class="dv-r-field">
             <?= $toggle('TOOL_ENABLE_SPIN_BUTTON', $cfg['TOOL_ENABLE_SPIN_BUTTON'] ?? '1', '1') ?>
-            <span class="dv-r-warn">When enabled, the bolt icon becomes clickable on single-disk pool and unassigned devices to spin them up or down. ARRAY members and multi-disk pool members are always protected.</span>
+            <span class="dv-r-desc dv-r-desc--warn"><i class="fa fa-info-circle" aria-hidden="true"></i>Makes the bolt icon clickable on single-disk pools and unassigned devices, so you can spin them up or down. <b>ARRAY and multi-disk pool members stay protected</b></span>
           </div>
         </div>
       </div>
@@ -626,32 +641,32 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
               <option value="default" <?= $toolFontSize === 'default' ? 'selected' : '' ?>>Default</option>
               <option value="large"   <?= $toolFontSize === 'large'   ? 'selected' : '' ?>>Large</option>
             </select>
-            <span class="dv-r-desc">Text size for the disk rows on the tool page. Small and Large shift the disk-info text about 5% smaller or larger than Default</span>
+            <span class="dv-r-desc">Text size for the disk rows on the tool page. Small and Large shift the disk-info text about 8% smaller or larger than Default</span>
           </div>
         </div>
         <div class="dv-r">
-          <div class="dv-r-label">Show array section</div>
+          <div class="dv-r-label">Array section</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_ARRAY', $cfg['TOOL_SHOW_ARRAY'], '1') ?>
             <span class="dv-r-desc">Display parity and data disks</span>
           </div>
         </div>
         <div class="dv-r">
-          <div class="dv-r-label">Show raid groups</div>
+          <div class="dv-r-label">RAID groups</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_CACHE', $cfg['TOOL_SHOW_CACHE'], '1') ?>
             <span class="dv-r-desc">Display multi-disk pool and RAID groups (cache, mirror, raidz, etc)</span>
           </div>
         </div>
         <div class="dv-r">
-          <div class="dv-r-label">Show pool section</div>
+          <div class="dv-r-label">Pool section</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_POOLS', $cfg['TOOL_SHOW_POOLS'], '1') ?>
             <span class="dv-r-desc">Display single-disk pool combined under POOL</span>
           </div>
         </div>
         <div class="dv-r">
-          <div class="dv-r-label">Show unassigned section</div>
+          <div class="dv-r-label">Unassigned section</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_UNASSIGNED', $cfg['TOOL_SHOW_UNASSIGNED'] ?? '0', '0') ?>
             <span class="dv-r-desc">Show devices that are not part of the array or a pool</span>
@@ -665,25 +680,34 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
           </div>
         </div>
         <div class="dv-r">
+          <div class="dv-r-label">Status bar</div>
+          <div class="dv-r-field">
+            <?= $toggleShow('TOOL_SHOW_SECTION_INDICATORS', $cfg['TOOL_SHOW_SECTION_INDICATORS'] ?? '1', '1') ?>
+            <span class="dv-r-desc">Sits under the header buttons. Four symbols sit there permanently, dimmed while everything is fine, and light up with a disk count when errors, temperature, SMART health or used space cross a threshold. Hover one for the list, warnings in amber and critical in red</span>
+          </div>
+        </div>
+        <div class="dv-r">
           <div class="dv-r-label">Missing disks</div>
           <div class="dv-r-field">
             <?= $toggleShow('TOOL_SHOW_MISSING_DISKS', $cfg['TOOL_SHOW_MISSING_DISKS'] ?? '1', '1') ?>
-            <span class="dv-r-desc">Show disks that are configured but not currently installed (disconnected or removed), labelled "Not installed". Leave on to catch a failed or unplugged disk; hide only if you have an intentionally empty slot</span>
+            <span class="dv-r-desc">Show disks that are configured but not currently installed (disconnected or removed), labelled "NOT INSTALLED or MISSING". Leave on to catch a failed or unplugged disk; hide only if you have an intentionally empty slot</span>
           </div>
         </div>
 
         <div class="<?= $headerBlockCls ?>" id="dvtHeaderBlock">
           <div class="dv-dimmed-note">
-            <i class="fa <?= $widget_active ? 'fa-lock' : 'fa-unlock' ?>" aria-hidden="true"></i>
-            <?= $widget_active
-                ? 'The header indicator is managed by the dashboard widget. These options unlock here only if the widget is not in use.'
-                : 'The dashboard widget is not active, so these header indicator options are managed here.' ?>
+            <span class="dv-r-desc dv-r-desc--warn">
+              <i class="fa <?= $widget_active ? 'fa-lock' : 'fa-unlock' ?>" aria-hidden="true"></i>
+              <?= $widget_active
+                  ? 'The header indicator is managed by the dashboard widget. <b>These options unlock here only if the widget is not in use</b>'
+                  : 'The dashboard widget is not active, so <b>these header indicator options are managed here</b>' ?>
+            </span>
           </div>
           <div class="dv-r">
-            <div class="dv-r-label">Enable indicator</div>
+            <div class="dv-r-label">Header indicator</div>
             <div class="dv-r-field">
               <?= $toggle('TOOL_HEADER_SHOW_BADGE', $cfg['TOOL_HEADER_SHOW_BADGE'], '1') ?>
-              <span class="dv-r-desc">Show a status icon in the Unraid header summarising disk temperature, SMART health, and utilisation</span>
+              <span class="dv-r-desc">Show a status icon in the Unraid header summarising disk temperature, SMART health, used space and disk errors</span>
             </div>
           </div>
           <div class="dv-r">
@@ -701,10 +725,10 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         </div>
 
         <div class="dv-r">
-          <div class="dv-r-label">Show used column</div>
+          <div class="dv-r-label">Used column</div>
           <div class="dv-r-field">
             <?= $toggle('TOOL_SHOW_USED_COLUMN', $cfg['TOOL_SHOW_USED_COLUMN'] ?? '1', '1') ?>
-            <span class="dv-r-desc">Show the absolute used size (in bytes) next to the percentage in the USED column</span>
+            <span class="dv-r-desc">Show the used size next to the percentage in the USED column, formatted the same way as the disk size</span>
           </div>
         </div>
         <div class="dv-r">
@@ -736,7 +760,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
           <div class="dv-r-label">Decimal in used %</div>
           <div class="dv-r-field">
             <?= $toggle('TOOL_SHOW_DECIMAL_PCT', $cfg['TOOL_SHOW_DECIMAL_PCT'] ?? '1', '1') ?>
-            <span class="dv-r-desc">Show one decimal place in the used percentage column ("65.4%" instead of "65%")</span>
+            <span class="dv-r-desc">Show two decimal places in the used percentage column ("65.43%" instead of "65%")</span>
           </div>
         </div>
         <div class="dv-r">
@@ -789,13 +813,16 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         <span class="dv-sec-arrow">&#9650;</span>
       </div>
       <div class="dv-sec-bd">
-        <div class="dv-vis-intro">Choose which unassigned devices and single-disk pools appear on the Tool page. This list is separate from the widget, so you can hide a device here without hiding it on the widget. Each device is matched by its stable id, so it stays hidden after a reboot or a reconnect. Array disks, parity, multi-disk pool members and the boot device are never listed here, so a disk that matters for your array or pool cannot be hidden by mistake.</div>
+        <div class="dv-r-desc dv-r-desc--warn dv-r-desc--block"><i class="fa fa-info-circle" aria-hidden="true"></i><span>Pick which unassigned devices and single-disk pools show on the Tool page. Matched by stable id, so a hidden device stays hidden after a reboot or a reconnect. <b>The widget keeps its own separate list.</b> Array, parity, pool members and boot are never listed</span></div>
         <?= $dvRenderVis('TOOL_HIDDEN_DEVICES', $cfg['TOOL_HIDDEN_DEVICES'] ?? '') ?>
       </div>
     </div>
   </div>
 
   <div class="dv-actions-bar">
+    <?php if ($dv_save_error !== ''): ?>
+      <div class="dv-save-error" role="alert"><i class="fa fa-exclamation-triangle" aria-hidden="true"></i> <?= htmlspecialchars($dv_save_error, ENT_QUOTES) ?></div>
+    <?php endif; ?>
     <button type="submit" name="#apply" value="apply" id="dvApplyBtn" class="dv-action-btn dv-action-btn--apply" title="Save settings">
       <i class="fa fa-check" aria-hidden="true"></i> Apply
     </button>
@@ -817,9 +844,33 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
     <span class="dv-footer-sep" aria-hidden="true"></span>
     <a href="#" id="dvCreditsLink" class="dv-footer-link">Credits</a>
   </div>
-  <span class="dv-version-badge">v<?= htmlspecialchars((string)$plugin_version) ?></span>
+  <span class="dv-version-badge">v<?= htmlspecialchars((string)$plugin_version, ENT_QUOTES) ?></span>
 </div>
 
+<?php
+$_dvPluginVer = '';
+
+$_dvVersionFile = '/usr/local/emhttp/plugins/diskviewer/VERSION';
+if (is_readable($_dvVersionFile)) {
+    $_dvRead = trim((string)@file_get_contents($_dvVersionFile));
+    if ($_dvRead !== '') {
+        $_dvPluginVer = $_dvRead;
+    }
+}
+
+if ($_dvPluginVer === '') {
+    $_dvPkgs = @glob('/var/log/packages/diskviewer-*');
+    if (is_array($_dvPkgs) && !empty($_dvPkgs)) {
+        usort($_dvPkgs, function($a, $b) {
+            return @filemtime($b) - @filemtime($a);
+        });
+        $_dvBase = basename($_dvPkgs[0]);
+        if (preg_match('/^diskviewer-([^-]+(?:-[^-]+)?)/', $_dvBase, $_dvM)) {
+            $_dvPluginVer = $_dvM[1];
+        }
+    }
+}
+?>
 <div id="dvCreditsModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.72);align-items:center;justify-content:center;">
   <div class="dv-credits-modal-box dv-credits-modal-v2">
     <div class="dv-credits-grid">
@@ -836,32 +887,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
       <div class="dv-credits-right">
         <div class="dv-credits-title-row">
           <span class="dv-credits-title">Disk Viewer</span>
-          <span class="dv-credits-version">v<?php
-            $_dvPluginVer = '';
-
-            $_dvVersionFile = '/usr/local/emhttp/plugins/diskviewer/VERSION';
-            if (is_readable($_dvVersionFile)) {
-                $_dvRead = trim((string)@file_get_contents($_dvVersionFile));
-                if ($_dvRead !== '') {
-                    $_dvPluginVer = $_dvRead;
-                }
-            }
-
-            if ($_dvPluginVer === '') {
-                $_dvPkgs = @glob('/var/log/packages/diskviewer-*');
-                if (is_array($_dvPkgs) && !empty($_dvPkgs)) {
-                    usort($_dvPkgs, function($a, $b) {
-                        return @filemtime($b) - @filemtime($a);
-                    });
-                    $_dvBase = basename($_dvPkgs[0]);
-                    if (preg_match('/^diskviewer-([^-]+(?:-[^-]+)?)/', $_dvBase, $_dvM)) {
-                        $_dvPluginVer = $_dvM[1];
-                    }
-                }
-            }
-
-            echo htmlspecialchars($_dvPluginVer ?: '');
-          ?></span>
+          <span class="dv-credits-suite">part of VIEWERS Suite</span>
         </div>
         <div class="dv-credits-desc">A real-time disk monitor for your Unraid array, cache, pool and unassigned devices.</div>
         <div class="dv-credits-links">
@@ -875,7 +901,12 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
       </div>
     </div>
     <div class="dv-credits-footer">
-      <span class="dv-credits-copy">Copyright &copy; 2026 Disk Viewer - Lazaros Chalkidis</span>
+      <div class="dv-credits-footer-left">
+        <?php if ($_dvPluginVer !== ''): ?>
+          <span class="dv-credits-version">v<?= htmlspecialchars($_dvPluginVer, ENT_QUOTES) ?></span>
+        <?php endif; ?>
+        <span class="dv-credits-copy">Copyright &copy; 2026 Disk Viewer - Lazaros Chalkidis</span>
+      </div>
       <button type="button" id="dvCreditsOkBtn" class="dv-credits-ok-btn">OK</button>
     </div>
   </div>
@@ -974,10 +1005,9 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         HEADER_CLICK_ACTION:  'main',
         POOL_HIGHLIGHT_USED:  '0',
         SHOW_FS_BADGE:        '1',
-        SHOW_DISK_ERRORS:     '1',
         SHOW_DECIMAL_PCT:     '1',
         SHOW_USED_COLUMN:     '1',
-        SHOW_ACTIVITY:        '0',
+        SHOW_ACTIVITY:        '1',
         ACTIVITY_WARN_PCT:    '95',
         ACTIVITY_CRIT_PCT:    '98',
         SHOW_ID_TOOLTIP:      '1',
@@ -1005,6 +1035,7 @@ $dvRenderVis = function(string $field, $hiddenRaw) use ($dvHideable) {
         TOOL_SHOW_ID_TOOLTIP:      '1',
         TOOL_SHOW_MISSING_DISKS:   '1',
         TOOL_SHOW_BOOT_DEVICE:     '0',
+        TOOL_SHOW_SECTION_INDICATORS: '1',
         TOOL_FONT_SIZE:            'default',
         TOOL_SPACE_SEVERITY_MODE:  'inherit',
         TOOL_SPACE_WARNING_PCT:    '70',

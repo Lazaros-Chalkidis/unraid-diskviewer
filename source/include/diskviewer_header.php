@@ -8,16 +8,31 @@
 header('Content-Type: application/json');
 header('Cache-Control: no-cache');
 
+require_once __DIR__ . '/diskviewer_api.php';
+
 $cfg = @parse_ini_file('/boot/config/plugins/diskviewer/diskviewer.cfg') ?: [];
+
+// with no widget on the dashboard the tool tab owns these two, which is what its settings say
+$k = DiskViewerEndpoint::widgetActive() ? '' : 'TOOL_';
 
 // whitelist: this value becomes a location.href in the js, don't let it be anything else
 $clickAllowed = ['main', 'widget', 'tool', 'settings'];
-$clickAction  = (string)($cfg['HEADER_CLICK_ACTION'] ?? 'main');
+$clickAction  = (string)($cfg[$k . 'HEADER_CLICK_ACTION'] ?? $cfg['HEADER_CLICK_ACTION'] ?? 'main');
 if (!in_array($clickAction, $clickAllowed, true)) $clickAction = 'main';
 
 // badge turned off, hand back an all-off payload and bail
-if (((string)($cfg['HEADER_SHOW_BADGE'] ?? '1')) === '0') {
-    echo '{"count":0,"names":[],"temp_severity":"off","temp_blink":false,"health_severity":"off","util_severity":"off","errors_severity":"off","disk_issues":[],"click_action":"' . $clickAction . '"}';
+if (((string)($cfg[$k . 'HEADER_SHOW_BADGE'] ?? $cfg['HEADER_SHOW_BADGE'] ?? '1')) === '0') {
+    echo json_encode([
+        'count'           => 0,
+        'names'           => [],
+        'temp_severity'   => 'off',
+        'temp_blink'      => false,
+        'health_severity' => 'off',
+        'util_severity'   => 'off',
+        'errors_severity' => 'off',
+        'disk_issues'     => [],
+        'click_action'    => $clickAction,
+    ], JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -63,7 +78,6 @@ $issues = $readIssues($issuesFile);
 // cache older than 2 min (or missing), rebuild it inline rather than serve stale markers
 $age = is_file($countFile) ? (time() - (int)filemtime($countFile)) : 9999;
 if ($age > 120) {
-    require_once __DIR__ . '/diskviewer_api.php';
     $model  = DiskViewerEndpoint::buildModel();
     DiskViewerEndpoint::writeHeaderCache($model);
     $count  = (int)$model['critical_count'];

@@ -27,6 +27,7 @@
   --dv-label-bg:       rgba(0,0,0,.15);
 
   --dv-accent:         #f47d42;
+  --dv-accent-text:    #f47d42;
   --dv-accent-dim:     rgba(244,125,66,.12);
   --dv-accent-border:  rgba(244,125,66,.45);
 
@@ -40,6 +41,7 @@
 
   --dv-green:          #4caf50;
   --dv-blue:           #4a90e2;
+  --dv-blue-hover:     #6bb3ff;
 }
 
 .dv-light {
@@ -63,6 +65,8 @@
   --dv-row-odd:        #f0f1f3;
   --dv-label-bg:       rgba(0,0,0,.04);
 
+  /* the brand orange drops to 2.4:1 on a light background, so text gets its own shade */
+  --dv-accent-text:    #ad4d16;
   --dv-tog-off-track:  rgba(0,0,0,.12);
   --dv-tog-off-thumb:  rgba(0,0,0,.30);
 
@@ -72,6 +76,7 @@
 
   --dv-green:          #2e7d32;
   --dv-blue:           #1976d2;
+  --dv-blue-hover:     #0d47a1;
 }
 
 .dv-theme-azure {
@@ -81,6 +86,7 @@
   --dv-row-even:       #f9fbfd;
   --dv-row-odd:        #f0f4f8;
   --dv-blue:           #1565c0;
+  --dv-blue-hover:     #0b3c78;
 }
 
 .dv-theme-gray {
@@ -261,17 +267,29 @@
   line-height: 1.3;
 }
 
+/* a boxed note, the vertical padding fits inside the row so nothing gets taller */
 .dv-r-desc--warn {
-  color: #ffb300;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  border-left: 3px solid #ffb300;
+  background: rgba(255,179,0,.10);
+  color: var(--dv-c-text);
 }
+.dv-r-desc--warn .fa,
+.dv-r-desc--warn b { color: #ffb300; }
+.dv-r-desc--warn .fa { flex: none; font-size: 12.5px; }
+.dv-r-desc--warn b   { font-weight: 600; }
 
-.dv-r-warn {
-  font-size: 11px;
-  color: var(--dv-accent);
-  font-weight: 500;
+.dv-r-desc--block {
+  display: flex;
+  align-items: flex-start;
+  margin: 12px 16px 2px;
 }
+.dv-r-desc--block .fa { margin-top: 1px; }
 
-/* on/off switches */
 .dv-toggle {
   position: relative;
   display: inline-flex;
@@ -415,6 +433,18 @@
   padding: 12px 16px 6px;
 }
 
+.dv-save-error {
+  flex: 1 0 100%;
+  text-align: center;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border: 1px solid rgba(226,75,74,.45);
+  background: rgba(226,75,74,.12);
+  color: #e24b4a;
+  border-radius: 3px;
+  font-size: .85em;
+}
+
 .dv-action-btn {
   display: inline-flex !important;
   align-items: center !important;
@@ -462,7 +492,7 @@
 .dv-action-btn--reset {
   background: rgba(244,125,66,.12) !important;
   border-color: rgba(244,125,66,.3) !important;
-  color: #f47d42 !important;
+  color: var(--dv-accent-text) !important;
 }
 
 .dv-action-btn--reset:hover {
@@ -513,7 +543,7 @@
 
 .dv-footer-link:hover,
 .dv-footer-link:focus {
-  color: #6bb3ff;
+  color: var(--dv-blue-hover);
   text-decoration: none !important;
   outline: none;
 }
@@ -534,7 +564,7 @@
   border: 1px solid var(--dv-accent-border);
   border-radius: 3px;
   padding: 0 6px;
-  color: var(--dv-accent);
+  color: var(--dv-accent-text);
   line-height: 1.6;
 }
 
@@ -597,7 +627,7 @@
 }
 .dv-credits-role {
   font-size: 9px !important;
-  color: #f47d42;
+  color: var(--dv-accent-text);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   margin-top: 4px;
@@ -611,10 +641,16 @@
 }
 .dv-credits-title-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   margin-bottom: 4px;
   flex-wrap: wrap;
+}
+.dv-credits-suite {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255,255,255,.38);
+  letter-spacing: .02em;
 }
 .dv-credits-title {
   font-size: 16px;
@@ -623,14 +659,13 @@
 }
 .dv-credits-version {
   background: rgba(244,125,66,.12);
-  color: #f47d42;
+  color: var(--dv-accent-text);
   font-size: 9px;
   font-family: 'JetBrains Mono', Consolas, monospace;
   padding: 1px 6px;
   border-radius: 3px;
   border: 1px solid rgba(244,125,66,.45);
 }
-.dv-credits-version:empty { display: none; }
 .dv-credits-desc {
   font-size: 11px;
   color: rgba(255,255,255,.60);
@@ -670,7 +705,7 @@
   transform: scale(.99);
 }
 .dv-credits-link .fa { font-size: 13px; color: rgba(255,255,255,.60); }
-.dv-credits-link:hover .fa { color: #f47d42; }
+.dv-credits-link:hover .fa { color: var(--dv-accent-text); }
 .dv-credits-link-ext {
   font-size: 9px !important;
   margin-left: auto;
@@ -686,6 +721,12 @@
   justify-content: space-between;
   flex-shrink: 0;
   gap: 12px;
+}
+.dv-credits-footer-left {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 .dv-credits-copy {
   font-size: 10px;
@@ -729,11 +770,20 @@
   color: rgba(0,0,0,.85);
 }
 .dv-light .dv-credits-link .fa { color: rgba(0,0,0,.55); }
+/* the base hover forces white, which vanishes on a light background */
+.dv-light .dv-credits-link:hover,
+.dv-light .dv-credits-link:focus { color: rgba(0,0,0,.85) !important; }
 .dv-light .dv-credits-footer {
   background: #f4f5f7;
   border-top-color: rgba(0,0,0,.10);
 }
+.dv-light .dv-r-desc--warn   { color: var(--dv-c-text); background: rgba(147,103,0,.09); border-left-color: #896000; }
+.dv-light .dv-r-desc--warn .fa,
+.dv-light .dv-r-desc--warn b { color: #896000; }
+
 .dv-light .dv-credits-copy { color: rgba(0,0,0,.55); }
+.dv-light .dv-credits-suite { color: rgba(0,0,0,.45); }
+.dv-light .dv-credits-avatar-wrap { background: #e4e4e4; }
 
 @media (max-width: 1400px) { .diskviewer-settings { width: 78%; } }
 
@@ -893,20 +943,19 @@
   pointer-events: auto;
   border-style: solid;
 }
+/* same boxed note as the row hints, centred because it explains the whole block below it */
 .dv-dimmed-note {
-  font-size: 1.05rem;
-  color: var(--dv-c-text);
-  font-weight: 500;
-  padding: .25rem 0 .8rem;
   display: flex;
-  align-items: center;
-  gap: .4rem;
+  justify-content: center;
+  padding: .25rem 0 .8rem;
 }
-.dv-dimmed-note .fa { font-size: .95em; }
+.dv-dimmed-note .dv-r-desc--warn { align-items: flex-start; }
+.dv-dimmed-note .fa { margin-top: 1px; }
 
+/* firefox needs textfield, appearance:none from the base rule is not enough */
 .diskviewer-settings .dv-input--num {
-  -moz-appearance: textfield;
-  appearance: textfield;
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
 }
 .diskviewer-settings .dv-input--num::-webkit-outer-spin-button,
 .diskviewer-settings .dv-input--num::-webkit-inner-spin-button {
@@ -916,12 +965,6 @@
 
 
 /* device visibility list */
-.dv-vis-intro {
-  padding: 12px 16px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--dv-blue);
-}
 .dv-vis-bar {
   display: flex;
   align-items: center;

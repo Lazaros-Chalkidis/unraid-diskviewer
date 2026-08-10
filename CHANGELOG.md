@@ -1,6 +1,28 @@
 
 # Disk Viewer
 
+## Version 2026.08.10
+
+### Fixed
+- Settings were lost on every update. Everything on the Tool tab, plus font size, hidden devices and the space thresholds, went back to default. Your settings now survive an update, and uninstalling leaves them alone.
+- On the white and azure themes several tooltips showed dark text on a dark background and could not be read. The identification tooltip, the section warnings and the credits links are all readable now.
+- The widget forced its dashboard column wider than the other two. It now takes the same width, and both the widget and the Tool page adapt to the space they actually have instead of the size of the browser window.
+- The Speed column flickered between the speed and idle on disks that work in bursts, so you could not read the values. It now holds the last reading for a few seconds.
+- The boot device showed no filesystem on the widget. An internal boot pool that Unraid reports without a filesystem type now reads it from the mounted pool.
+- Firefox drew its own up and down arrows inside the number fields in settings.
+- A disk label containing HTML could break the dashboard page.
+
+### New Features
+- A status bar under the header buttons, on the widget and on the Tool page. Four symbols for errors, temperature, SMART and used space sit there dimmed while everything is fine, and light up with a disk count when something crosses a threshold. Hover one for the list of disks. This replaces the small icons that used to sit next to each section header.
+- The widget has a new FS badge.
+
+### Improvements
+- The USED and Speed columns now share the width evenly. USED used to take all the spare room.
+- The USED bar fades from light to full colour, so how full a disk is reads faster.
+- Disk activity is on by default on the widget.
+- The read and write arrows in the Speed column are easier to see, and the icons in the Unraid header are sharper.
+- Settings page: shorter labels and notes that match the rest of the suite.
+
 ## Version 2026.07.25
 
 ### Fixed

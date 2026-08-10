@@ -63,6 +63,8 @@ else
     CHANGES_BLOCK="### ${VERSION}
 ${CHANGES_TEXT}"
 fi
+# a stray ]]> in the changelog would close the CDATA block early and break the plg
+CHANGES_BLOCK="$(printf '%s\n' "$CHANGES_BLOCK" | sed 's/]]>/]]\&gt;/g')"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 echo "=============================================="
@@ -77,6 +79,7 @@ mkdir -p "${PACKAGE_DIR_TEMP}" "${PACKAGE_DIR_FINAL}"
 PLUGIN_DEST="${PACKAGE_DIR_TEMP}/usr/local/emhttp/plugins/${PLUGIN_NAME}"
 mkdir -p "${PLUGIN_DEST}"
 cp -R source/* "${PLUGIN_DEST}/"
+find "${PLUGIN_DEST}" \( -name '.DS_Store' -o -name '__MACOSX' -o -name '._*' \) -exec rm -rf {} + 2>/dev/null
 
 # write the build version to a VERSION file. settings reads this first for the footer/credits, so it matches the running build even if the .plg metadata is stale
 echo "${VERSION}" > "${PLUGIN_DEST}/VERSION"
@@ -128,16 +131,56 @@ b64_nolf() {
 
 # ── Default config (written to flash on first install only) ───────────────────
 read -r -d '' DEFAULT_CFG << 'CFGEOF'
+DV_ACTIVE_TAB="widget"
 REFRESH_ENABLED="1"
 REFRESH_INTERVAL="20"
 DRAG_STEP_ROWS="1"
-SHOW_UNASSIGNED="0"
+ENABLE_SPIN_BUTTON="1"
 SHOW_ARRAY="1"
 SHOW_CACHE="1"
-DEFAULT_EXPAND_ROWS="0"
+SHOW_POOLS="1"
+SHOW_UNASSIGNED="0"
+SHOW_BOOT_DEVICE="0"
+SHOW_MISSING_DISKS="1"
+SHOW_SECTION_INDICATORS="1"
+SHOW_FS_BADGE="1"
+SHOW_DECIMAL_PCT="1"
+SHOW_USED_COLUMN="1"
+SHOW_ID_TOOLTIP="1"
+SHOW_ACTIVITY="1"
+ACTIVITY_WARN_PCT="95"
+ACTIVITY_CRIT_PCT="98"
+POOL_HIGHLIGHT_USED="0"
+FONT_SIZE="default"
+SPACE_SEVERITY_MODE="inherit"
+SPACE_WARNING_PCT="70"
+SPACE_CRITICAL_PCT="90"
+HIDDEN_DEVICES=""
 HEADER_SHOW_BADGE="1"
 HEADER_CLICK_ACTION="main"
-ENABLE_SPIN_BUTTON="1"
+TOOL_REFRESH_ENABLED="1"
+TOOL_REFRESH_INTERVAL="10"
+TOOL_ENABLE_SPIN_BUTTON="1"
+TOOL_SHOW_ARRAY="1"
+TOOL_SHOW_CACHE="1"
+TOOL_SHOW_POOLS="1"
+TOOL_SHOW_UNASSIGNED="0"
+TOOL_SHOW_BOOT_DEVICE="0"
+TOOL_SHOW_SECTION_INDICATORS="1"
+TOOL_SHOW_MISSING_DISKS="1"
+TOOL_SHOW_DECIMAL_PCT="1"
+TOOL_SHOW_USED_COLUMN="1"
+TOOL_SHOW_ID_TOOLTIP="1"
+TOOL_SHOW_ACTIVITY="1"
+TOOL_ACTIVITY_WARN_PCT="95"
+TOOL_ACTIVITY_CRIT_PCT="98"
+TOOL_FONT_SIZE="default"
+TOOL_SPACE_SEVERITY_MODE="inherit"
+TOOL_SPACE_WARNING_PCT="70"
+TOOL_SPACE_CRITICAL_PCT="90"
+TOOL_HIDDEN_DEVICES=""
+TOOL_HEADER_SHOW_BADGE="1"
+TOOL_HEADER_CLICK_ACTION="main"
 CFGEOF
 
 # ── Shared PLG sections ───────────────────────────────────────────────────────
@@ -188,12 +231,18 @@ echo ""'
 
 PLG_REMOVE_SCRIPT='removepkg &name;-&version;
 rm -rf /usr/local/emhttp/plugins/&name;
-rm -rf /boot/config/plugins/&name;
 rm -rf /tmp/diskviewer_cache
+
+# diskviewer.cfg stays, a reinstall should find the settings where the user left them
+rm -f /boot/config/plugins/&name;/smart_attrs.json
+rm -f /boot/config/plugins/&name;/&name;.cfg.bak
+rm -f /boot/config/plugins/&name;/&name;-*.txz
+rm -f /boot/config/plugins/&name;/&name;-*.txz.b64
 
 echo ""
 echo "----------------------------------------------------"
 echo " &name; has been removed."
+echo " Your settings were kept at /boot/config/plugins/&name;"
 echo "----------------------------------------------------"
 echo ""'
 
