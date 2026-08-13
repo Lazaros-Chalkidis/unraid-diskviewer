@@ -134,10 +134,12 @@
     var GAUGE_SVG = '<svg width="13" height="13" viewBox="3.5 2 17 17" fill="currentColor" aria-hidden="true"><path d="M12 4a8 8 0 0 0-8 8 8 8 0 0 0 1.6 4.8l1.6-1.2A6 6 0 0 1 6 12a6 6 0 0 1 12 0 6 6 0 0 1-1.2 3.6l1.6 1.2A8 8 0 0 0 20 12a8 8 0 0 0-8-8zm0 3.5-3 6.5a3.3 3.3 0 0 0 6 0l-3-6.5z"/></svg>';
 
     // built from model.disk_issues so the strip and the navbar badge cannot disagree
+    var THUMB_DOWN_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23 3h-4v12h4V3zM1 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/></svg>';
+
     var STATUS_AXES = [
         { key: 'errors', title: 'Disk errors', icon: function(){ return WARN_TRIANGLE_SVG; }, label: 'Errors' },
         { key: 'temp',   title: 'Temperature', icon: function(){ return THERMO_SVG; },       label: 'Temperature' },
-        { key: 'health', title: 'SMART',       icon: function(){ return THUMB_SVG; },        label: 'SMART health' },
+        { key: 'health', title: 'SMART',       icon: function(){ return THUMB_DOWN_SVG; },   label: 'SMART health' },
         { key: 'used',   title: 'Used space',  icon: function(){ return GAUGE_SVG; },        label: 'Used space' }
     ];
 
@@ -167,9 +169,7 @@
             var n  = d ? (d.warn.length + d.crit.length) : 0;
 
             if (!d || n === 0) {
-                // health reads as a verdict, not an alarm, so its thumb stays lit green instead of going dim
-                var okCls = ax.key === 'health' ? 'dv-status-item--ok' : 'dv-status-item--off';
-                html += '<span class="dv-status-item ' + okCls + '" title="' + escapeHtml(ax.label) + ': OK">'
+                html += '<span class="dv-status-item dv-status-item--off" title="' + escapeHtml(ax.label) + ': OK">'
                       + ax.icon() + '</span>';
                 continue;
             }
@@ -180,9 +180,7 @@
             for (var c = 0; c < d.crit.length; c++) tip += '<span class="dv-toast-item dv-toast-item--crit">' + escapeHtml(d.crit[c]) + '</span>';
             for (var w = 0; w < d.warn.length; w++) tip += '<span class="dv-toast-item dv-toast-item--warn">' + escapeHtml(d.warn[w]) + '</span>';
 
-            // a failing thumb points down, same as in the disk rows
-            var flip = (ax.key === 'health') ? ' dv-status-item--flip' : '';
-            html += '<span class="dv-status-item dv-status-item--' + (d.worst === 'critical' ? 'crit' : 'warn') + blink + flip + '">'
+            html += '<span class="dv-status-item dv-status-item--' + (d.worst === 'critical' ? 'crit' : 'warn') + blink + '">'
                   + ax.icon()
                   + '<span class="dv-status-n">' + n + '</span>'
                   + '<span class="dv-row-toast dv-row-toast--' + (d.worst === 'critical' ? 'crit' : 'warn') + '">' + tip + '</span>'

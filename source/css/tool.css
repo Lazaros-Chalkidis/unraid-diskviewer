@@ -702,12 +702,9 @@
 .dvt-status-item svg { width: 11px; height: 11px; }
 
 .dvt-status-item--off  { color: var(--dvt-status-dim); }
-.dvt-status-item--ok   { color: var(--dvt-ok); }
 .dvt-status-item--warn { color: var(--dvt-warn-text); }
 .dvt-status-item--crit { color: var(--dvt-crit-text); }
 
-.dvt-status-item--flip.dvt-status-item--warn svg,
-.dvt-status-item--flip.dvt-status-item--crit svg { transform: rotate(180deg); }
 
 @keyframes dvt-status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 .dvt-status-item--blink { animation: dvt-status-pulse 1.1s ease-in-out infinite; }

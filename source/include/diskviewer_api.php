@@ -1032,7 +1032,7 @@ final class DiskViewerEndpoint
         return $out;
     }
 
-    private static function classify(array $d, array $poolNames, array $bootPools = [], array $bootDevices = []): array
+    private static function classify(array $d, array $poolNames, array $bootPools = []): array
     {
         $name = (string)($d['name'] ?? '');
         $type = strtolower((string)($d['type'] ?? ''));
@@ -1072,13 +1072,8 @@ final class DiskViewerEndpoint
             return ['kind' => 'boot', 'group' => 'boot', 'is_parity' => false, 'boot_pool' => $bp];
         }
 
-        // a second entry for a physical disk that is already a boot member (the small bootable partition): hide it so the boot pool is not listed twice
-        $dev = trim((string)($d['device'] ?? ''));
-        if ($dev !== '' && in_array($dev, $bootDevices, true)) {
-            return ['kind' => 'skip', 'group' => '', 'is_parity' => false];
-        }
-
-        // a cache pool flagged bootPool=dedicated is the boot pool shown elsewhere, so hide its cache view (unraid hides it too)
+        // only a dedicated boot pool has no data partition. shared means the disk carries both
+        // and unraid lists them separately, so sharing the device is not a reason to hide anything
         $bp = preg_replace('/\d+$/', '', $name);
         if ($bp !== '' && in_array($bp, $bootPools, true)) {
             return ['kind' => 'skip', 'group' => '', 'is_parity' => false];
@@ -1108,22 +1103,13 @@ final class DiskViewerEndpoint
         $poolNames = self::listPools();
         $bootPools = self::dedicatedBootPools($disks);
 
-        // physical devices that belong to the internal boot pool (type=Boot), used to hide duplicate partition entries on the same disks
-        $bootDevices = [];
-        foreach ($disks as $bd) {
-            if (is_array($bd) && strtolower((string)($bd['type'] ?? '')) === 'boot') {
-                $bdev = trim((string)($bd['device'] ?? ''));
-                if ($bdev !== '') $bootDevices[] = $bdev;
-            }
-        }
-
         $devices = [];
 
         $classMap    = [];
         $memberCount = [];
         foreach ($disks as $key => $d) {
             if (!is_array($d)) continue;
-            $c = self::classify($d, $poolNames, $bootPools, $bootDevices);
+            $c = self::classify($d, $poolNames, $bootPools);
             $classMap[$key] = $c;
             if ($c['kind'] === 'skip') continue;
             $memberCount[$c['group']] = ($memberCount[$c['group']] ?? 0) + 1;

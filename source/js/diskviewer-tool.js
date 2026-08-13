@@ -188,10 +188,12 @@
     var GAUGE_SVG  = '<svg width="11" height="11" viewBox="3.5 2 17 17" fill="currentColor" aria-hidden="true"><path d="M12 4a8 8 0 0 0-8 8 8 8 0 0 0 1.6 4.8l1.6-1.2A6 6 0 0 1 6 12a6 6 0 0 1 12 0 6 6 0 0 1-1.2 3.6l1.6 1.2A8 8 0 0 0 20 12a8 8 0 0 0-8-8zm0 3.5-3 6.5a3.3 3.3 0 0 0 6 0l-3-6.5z"/></svg>';
 
     // built from model.disk_issues, same source as the widget strip
+    var THUMB_DOWN_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23 3h-4v12h4V3zM1 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2z"/></svg>';
+
     var STATUS_AXES = [
         { key: 'errors', title: 'Disk errors', icon: WARN_TRIANGLE_SVG, label: 'Errors' },
         { key: 'temp',   title: 'Temperature', icon: THERMO_SVG,        label: 'Temperature' },
-        { key: 'health', title: 'SMART',       icon: THUMB_SVG,         label: 'SMART health' },
+        { key: 'health', title: 'SMART',       icon: THUMB_DOWN_SVG,    label: 'SMART health' },
         { key: 'used',   title: 'Used space',  icon: GAUGE_SVG,         label: 'Used space' }
     ];
 
@@ -220,21 +222,18 @@
             var n  = d ? (d.warn.length + d.crit.length) : 0;
 
             if (!d || n === 0) {
-                // health reads as a verdict, not an alarm, so its thumb stays lit green instead of going dim
-                var okCls = ax.key === 'health' ? 'dvt-status-item--ok' : 'dvt-status-item--off';
-                html += '<span class="dvt-status-item ' + okCls + '" title="' + esc(ax.label) + ': OK">' + ax.icon + '</span>';
+                html += '<span class="dvt-status-item dvt-status-item--off" title="' + esc(ax.label) + ': OK">' + ax.icon + '</span>';
                 continue;
             }
 
             var blink = (ax.key === 'temp' && model && model.temp_blink) ? ' dvt-status-item--blink' : '';
-            var flip  = (ax.key === 'health') ? ' dvt-status-item--flip' : '';
             var worst = d.worst === 'critical' ? 'crit' : 'warn';
 
             var tip = '<span class="dvt-tip-title">' + esc(ax.title) + '</span>';
             for (var cI = 0; cI < d.crit.length; cI++) tip += '<span class="dvt-tip-item dvt-tip-item--crit">' + esc(d.crit[cI]) + '</span>';
             for (var wI = 0; wI < d.warn.length; wI++) tip += '<span class="dvt-tip-item dvt-tip-item--warn">' + esc(d.warn[wI]) + '</span>';
 
-            html += '<span class="dvt-status-item dvt-status-item--' + worst + blink + flip + '">'
+            html += '<span class="dvt-status-item dvt-status-item--' + worst + blink + '">'
                   + ax.icon + '<span class="dvt-status-n">' + n + '</span>'
                   + '<span class="dvt-status-tip dvt-status-tip--' + worst + '">' + tip + '</span></span>';
         }

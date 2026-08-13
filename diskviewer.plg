@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.08.10">
+ <!ENTITY version   "2026.08.13">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "7bc33d373f9dbfd940c1a2322796d59d">
+ <!ENTITY md5       "5ea68164f480b9345a4b3a471754d052">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -28,9 +28,20 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 
 # Disk Viewer
 
+## Version 2026.08.13
+
+### Fixed
+- On Unraid 7.3 with a shared internal boot pool, the data partition did not show up. The plugin hid anything sitting on the same disk as the boot partition. It now follows Unraid and hides it only when the whole disk is dedicated to boot.
+- Several settings descriptions did not match what the plugin actually does.
+- The status bar on the Tool page looked flat next to the one on the widget.
+
+### Improvements
+- The SMART symbol in the status bar is now a thumbs down that stays off while every disk is healthy, and lights up with the number of affected disks. Hover it for the list.
+
 ## Version 2026.08.10
 
 ### Fixed
+- Reduced writes to the USB flash drive.
 - Settings were lost on every update. Everything on the Tool tab, plus font size, hidden devices and the space thresholds, went back to default. Your settings now survive an update, and uninstalling leaves them alone.
 - On the white and azure themes several tooltips showed dark text on a dark background and could not be read. The identification tooltip, the section warnings and the credits links are all readable now.
 - The widget forced its dashboard column wider than the other two. It now takes the same width, and both the widget and the Tool page adapt to the space they actually have instead of the size of the browser window.
@@ -41,7 +52,7 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 
 ### New Features
 - A status bar under the header buttons, on the widget and on the Tool page. Four symbols for errors, temperature, SMART and used space sit there dimmed while everything is fine, and light up with a disk count when something crosses a threshold. Hover one for the list of disks. This replaces the small icons that used to sit next to each section header.
-- The widget has a new FS badge.
+- The FS badge now has its own column and covers pool disks and the boot device too.
 
 ### Improvements
 - The USED and Speed columns now share the width evenly. USED used to take all the spare room.

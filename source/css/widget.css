@@ -300,11 +300,8 @@
 .dv-status-item svg { width: 11px; height: 11px; }
 
 .dv-status-item--off  { color: var(--dv-status-dim); }
-.dv-status-item--ok   { color: var(--dv-ok); }
 .dv-status-item--warn { color: var(--dv-warn-text); }
 .dv-status-item--crit { color: var(--dv-crit-text); }
-.dv-status-item--flip.dv-status-item--warn svg,
-.dv-status-item--flip.dv-status-item--crit svg { transform: rotate(180deg); }
 
 .dv-status-n {
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
