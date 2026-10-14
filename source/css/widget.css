@@ -701,7 +701,6 @@
 
 .dv-name--missing { color: var(--dv-c-text-muted); }
 .dv-missing-label {
-  margin-left: 14px;
   font-size: calc(8.5px * var(--dv-fs, 1.05));
   font-weight: 600;
   letter-spacing: .04em;
@@ -781,8 +780,6 @@
   text-overflow: ellipsis;
 }
 
-.dv-col-name > .dv-missing-label { flex: 0 0 auto; }
-
 /* its own column, so the pill no longer eats into the name */
 .dv-col-fs {
   display: flex;
@@ -796,13 +793,6 @@
 .dv-hide-fscol .dv-colhd-fs,
 .dv-hide-fscol .dv-col-fs { display: none; }
 
-.dv-col-name--missing {
-  overflow: visible;
-  text-overflow: clip;
-  position: relative;
-  z-index: 2;
-}
-
 .dv-col-size,
 .dv-col-free {
   font-family: monospace, ui-monospace, SFMono-Regular, Menlo, Consolas;
@@ -811,6 +801,12 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* a missing disk has no numbers, so the label may run over the blank free and used cells */
+.dv-col-size--missing {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .dv-col-free { color: var(--dv-c-text); padding-right: 10px; }

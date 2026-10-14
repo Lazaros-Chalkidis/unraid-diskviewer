@@ -1,4 +1,4 @@
-Menu="SystemInformation"
+Menu="ViewersSuite"
 Name="Disk Viewer"
 Icon="img/diskviewer.png"
 Type="xmenu"

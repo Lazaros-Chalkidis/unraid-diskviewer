@@ -778,8 +778,7 @@
         var nameTip  = diskIdent(tile);
         var nameCell = '<span class="dvt-name' + (notInstalled ? ' dvt-name--missing' : '') + '"'
                      + (nameTip ? ' data-dvt-ident="' + esc(nameTip) + '"' : '')
-                     + '>' + name + '</span>'
-                     + (notInstalled ? ' <span class="dvt-missing-label">NOT INSTALLED or MISSING</span>' : '');
+                     + '>' + name + '</span>';
         var size = (tile.size > 0) ? formatBytes(tile.size) : NA;
         var free = collapse ? '' : (tile.size > 0 ? formatBytes(tile.free, 1, true) : NA);
 
@@ -987,7 +986,9 @@
         };
 
         if (notInstalled) {
-            cells.fs = cells.size = cells.free = cells.used = '';
+            // the fs pill now sits next to the name, so the label moves to the empty size/free run like the widget
+            cells.size = '<span class="dvt-missing-label">NOT INSTALLED or MISSING</span>';
+            cells.free = cells.used = '';
             cells.speed = cells.temp = cells.health = '';
             cells.age = cells.realloc = cells.pending = cells.crc = '';
             cells.written = cells.link = '';
@@ -1005,7 +1006,8 @@
         var tds = '';
         for (var c = 0; c < COLS.length; c++) {
             var col = COLS[c];
-            tds += '<td class="' + col.cls + '">' + cells[col.key] + '</td>';
+            var tdCls = (notInstalled && col.key === 'size') ? 'dvt-tbl__missing' : col.cls;
+            tds += '<td class="' + tdCls + '">' + cells[col.key] + '</td>';
         }
         return '<tr class="' + rowCls + '" data-dvt-row="' + esc(tile.name || '')
              + '" data-dvt-section="' + esc(secId || '') + '"'

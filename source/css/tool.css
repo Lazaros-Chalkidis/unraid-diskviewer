@@ -333,7 +333,6 @@
 .dvt-sub-missing { color: var(--dvt-warn-text); }
 
 .dvt-missing-label {
-  margin-left: 14px;
   font-size: .75em;
   font-weight: 600;
   letter-spacing: .04em;
@@ -496,7 +495,8 @@
 .dvt-tbl__row--member td  { background: color-mix(in srgb, var(--dvt-member) 10%, transparent); color: var(--dvt-text-mid); }
 .dvt-tbl__name { font-weight: 500; }
 
-.dvt-tbl__row--missing .dvt-tbl__name {
+/* a missing disk has no numbers, so the label may run over the blank free and used cells */
+.dvt-tbl td.dvt-tbl__missing {
   overflow: visible;
   text-overflow: clip;
   position: relative;

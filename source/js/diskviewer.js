@@ -556,8 +556,11 @@
         var nameTip  = diskIdent(row);
         var nameHtml = '<span class="dv-name' + (notInstalled ? ' dv-name--missing' : '') + '"'
                      + (nameTip ? ' data-dv-ident="' + escapeHtml(nameTip) + '"' : '')
-                     + '>' + nameEsc + '</span>'
-                     + (notInstalled ? ' <span class="dv-missing-label">NOT INSTALLED or MISSING</span>' : '');
+                     + '>' + nameEsc + '</span>';
+        // the name column is too narrow for both at dashboard widths, so the label takes the empty size/free run
+        var sizeHtml = notInstalled
+            ? '<span class="dv-col-size dv-col-size--missing"><span class="dv-missing-label">NOT INSTALLED or MISSING</span></span>'
+            : '<span class="dv-col-size">' + sizeText + '</span>';
         // a single boot device has no summary row of its own, but BOOT still names a filesystem like ARRAY does
         var wantsFs = showFsBadge && (isSummary || isBootRow || secId === 'pools');
         var fsHtml  = (wantsFs && row.fs)
@@ -575,9 +578,9 @@
 
         return '<div class="' + cls + '" data-name="' + escapeHtml(row.name || '') + '" data-severity="' + severity + '"' + (isSummary ? ' data-is-summary="1"' : '') + (notInstalled ? ' data-dv-missing="1"' : '') + '>' +
             '<span class="dv-col-bolt">' + boltEl + '</span>' +
-            '<div class="dv-col-name' + (notInstalled ? ' dv-col-name--missing' : '') + '">' + nameHtml + '</div>' +
+            '<div class="dv-col-name">' + nameHtml + '</div>' +
             '<span class="dv-col-fs">' + fsHtml + '</span>' +
-            '<span class="dv-col-size">' + sizeText + '</span>' +
+            sizeHtml +
             '<span class="dv-col-free">' + freeText + '</span>' +
             usedCellHtml +
             '<span class="dv-col-speed-wrap">' + speedHtml + '</span>' +

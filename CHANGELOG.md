@@ -1,6 +1,12 @@
 
 # Disk Viewer
 
+## Version 2026.10.14
+
+### Fixed
+- On the widget, a disk that is not installed lost its name: the "NOT INSTALLED or MISSING" label pushed the name out of the Disk column and ran over the FS badge. The name and the FS badge now stay where they are on every row, and the label sits in the empty space to their right.
+- On the Tool page a disk that is not installed now shows its FS badge too, with the label in the same place as on the widget.
+
 ## Version 2026.08.13
 
 ### Fixed
