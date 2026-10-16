@@ -1825,6 +1825,14 @@ final class DiskViewerEndpoint
 
         @file_put_contents(self::HEADER_ISSUES_FILE, json_encode($model['disk_issues'] ?? [], JSON_UNESCAPED_SLASHES));
     }
+    static function extractRawById($out) {
+        $rawById = [];
+        foreach (preg_split('/\r?\n/', $out) as $line) {
+            if (!preg_match('/^\s*(\d+)\s+\S+\s+0x[0-9a-f]+\s+.*?(\d[\d,]*)\s*(?:\(.*\))?\s*$/i', $line, $m)) continue;
+            $rawById[(int)$m[1]] = (int)str_replace(',', '', $m[2]);
+        }
+        return $rawById;
+    }
 
     private static function parseSmartctl(string $device): ?array
     {
@@ -1880,11 +1888,8 @@ final class DiskViewerEndpoint
             return $attrs;
         }
 
-        $rawById = [];
-        foreach (preg_split('/\r?\n/', $out) as $line) {
-            if (!preg_match('/^\s*(\d+)\s+\S+\s+0x[0-9a-f]+\s+.*?(\d[\d,]*)\s*$/i', $line, $m)) continue;
-            $rawById[(int)$m[1]] = (int)str_replace(',', '', $m[2]);
-        }
+        $rawById = extractRawById($out);
+
         if (isset($rawById[9]))   $attrs['age_hours'] = $rawById[9];
         if (isset($rawById[5]))   $attrs['realloc']   = $rawById[5];
         if (isset($rawById[197])) $attrs['pending']   = $rawById[197];
