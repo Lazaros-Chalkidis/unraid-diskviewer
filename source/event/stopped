@@ -5,5 +5,8 @@
 # License: GPLv3
 # =========================================================================
 
+# save the smart readings to flash for the next boot
+php -r "require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php'; DiskViewerEndpoint::flushSmartCache();" >/dev/null 2>&1
+
 # clear the cache on array stop
 rm -f /tmp/diskviewer_cache/state.json /tmp/diskviewer_cache/header_count /tmp/diskviewer_cache/header_names 2>/dev/null

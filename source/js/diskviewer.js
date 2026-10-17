@@ -296,7 +296,7 @@
 
         if (spun && speed > 0) {
             var isRead = (speedDir === 'r');
-            var arrow  = isRead ? SPD_DOWN : SPD_UP;
+            var arrow  = isRead ? SPD_UP : SPD_DOWN;
 
             var dirCls = isRead ? 'dv-col-speed--r' : 'dv-col-speed--w';
             return '<span class="dv-col-speed ' + dirCls + '">' + arrow
@@ -350,7 +350,7 @@
         var pct    = hasPct ? Math.max(0, Math.min(100, +o.activity)) : 0;
         var isRead = (String(o.speedDir || '') === 'r');
         var speedHtml = '<span class="dv-col-speed ' + (isRead ? 'dv-col-speed--r' : 'dv-col-speed--w') + '">'
-                      + (isRead ? SPD_DOWN : SPD_UP)
+                      + (isRead ? SPD_UP : SPD_DOWN)
                       + '<span class="dv-col-speed-num">' + formatBytes(speed) + '/s</span></span>';
         return '<div class="dv-col-act">'
              + '<div class="dv-act-line">' + speedHtml
@@ -379,7 +379,7 @@
                 if (numEl && numEl.textContent !== numTxt) numEl.textContent = numTxt;
             } else {
                 var wantSpeed = '<span class="dv-col-speed ' + wantCls + '">'
-                              + (isRead ? SPD_DOWN : SPD_UP)
+                              + (isRead ? SPD_UP : SPD_DOWN)
                               + '<span class="dv-col-speed-num">' + numTxt + '</span></span>';
                 if (speedEl) speedEl.outerHTML = wantSpeed;
                 else line.insertAdjacentHTML('afterbegin', wantSpeed);

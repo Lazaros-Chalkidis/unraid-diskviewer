@@ -14,4 +14,6 @@
     mkdir -p /tmp/diskviewer_cache
     chmod 755 /tmp/diskviewer_cache
     php -r "require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php'; DiskViewerEndpoint::writeHeaderCache(DiskViewerEndpoint::buildModel());" >/dev/null 2>&1
+    # every disk is awake right after a start, the best moment to fill the smart cache
+    php -r "require_once '/usr/local/emhttp/plugins/diskviewer/include/diskviewer_api.php'; DiskViewerEndpoint::collectSmart();" >/dev/null 2>&1
 ) &

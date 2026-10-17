@@ -221,6 +221,10 @@ if mountpoint -q /mnt/user 2>/dev/null; then
     php -r "require_once '\''/usr/local/emhttp/plugins/&name;/include/diskviewer_api.php'\''; DiskViewerEndpoint::writeHeaderCache(DiskViewerEndpoint::buildModel());" >/dev/null 2>/dev/null
 fi
 
+# Background SMART collector, scheduled through update_cron like every other plugin.
+# External script: the deferred call needs characters that cannot sit in the PLG XML body.
+/usr/local/emhttp/plugins/&name;/scripts/cron_register.sh
+
 echo ""
 echo "----------------------------------------------------"
 echo " &name; (&branch; build) installed successfully."
@@ -235,6 +239,8 @@ rm -rf /tmp/diskviewer_cache
 
 # diskviewer.cfg stays, a reinstall should find the settings where the user left them
 rm -f /boot/config/plugins/&name;/smart_attrs.json
+# the collector schedule goes with the plugin; the manager runs update_cron after this script and skips us by then
+rm -f /boot/config/plugins/&name;/&name;.cron
 rm -f /boot/config/plugins/&name;/&name;.cfg.bak
 rm -f /boot/config/plugins/&name;/&name;-*.txz
 rm -f /boot/config/plugins/&name;/&name;-*.txz.b64

@@ -1,6 +1,19 @@
 
 # Disk Viewer
 
+## Version 2026.10.17
+
+### Fixed
+- Seagate drives showed no Age on the Tool page. smartctl prints their power-on hours as "23266 (48 159 0)" and the parser expected a bare number at the end of the line. Drives that print the hours as "30447h+18m+42.213s" are covered too. Thanks to nielsdraaisma for tracking this down (PR #4).
+- The Tool page showed "sleep" in the SMART columns of every disk that happened to be asleep, and kept showing it, because SMART was only read while the Tool page was open. A background task now reads SMART from the disks that are awake every 15 minutes, never spinning one up, so Age, Written, Realloc, Pending, CRC, Link and Verdict stay filled while a disk sleeps. Temperature still shows sleep, a stored reading would be wrong.
+- A plugin update no longer throws away the stored SMART readings.
+- A disk that had just woken up could show n/a in the SMART columns for up to 15 minutes, because a read that found it asleep was not retried before then. Once the disk is up it is retried within a minute.
+- The Written column treated every drive's lifetime-writes attribute as 512-byte sectors. Intel, Kioxia, Kingston, SanDisk and similar SSDs count in 32 MiB or GiB units and showed a tiny wrong figure, and Crucial and Micron drives, which report it under another attribute, showed n/a. Each known format now gets its unit, and an unknown one stays n/a.
+
+### Improvements
+- The Speed arrows now follow the disk: a red arrow pointing down is data written to the disk, a green arrow pointing up is data read from it. They used to point the other way round.
+- The SMART cache lives in RAM and is copied to the flash drive only when the array stops or a disk is read for the first time, instead of on every change.
+
 ## Version 2026.10.14
 
 ### Fixed

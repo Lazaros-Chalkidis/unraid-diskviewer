@@ -2,12 +2,12 @@
 <!DOCTYPE PLUGIN [
  <!ENTITY name      "diskviewer">
  <!ENTITY author    "Lazaros Chalkidis">
- <!ENTITY version   "2026.10.14">
+ <!ENTITY version   "2026.10.17">
  <!ENTITY branch    "main">
  <!ENTITY gitURL    "https://github.com/Lazaros-Chalkidis/unraid-diskviewer">
  <!ENTITY pluginURL "&gitURL;/releases/download/&version;/&name;-&version;.txz">
  <!ENTITY selfURL   "&gitURL;/raw/&branch;/&name;.plg">
- <!ENTITY md5       "ca80db2d6d24662a4a694ea965e76abb">
+ <!ENTITY md5       "daee1df78fb12fd1c3c453223fa36c6f">
  <!ENTITY launch    "Settings/DiskViewerSettings">
 ]>
 
@@ -27,6 +27,19 @@ A compact dashboard widget that replaces Unraid's per-pool disk widgets with a s
 <![CDATA[
 
 # Disk Viewer
+
+## Version 2026.10.17
+
+### Fixed
+- Seagate drives showed no Age on the Tool page. smartctl prints their power-on hours as "23266 (48 159 0)" and the parser expected a bare number at the end of the line. Drives that print the hours as "30447h+18m+42.213s" are covered too. Thanks to nielsdraaisma for tracking this down (PR #4).
+- The Tool page showed "sleep" in the SMART columns of every disk that happened to be asleep, and kept showing it, because SMART was only read while the Tool page was open. A background task now reads SMART from the disks that are awake every 15 minutes, never spinning one up, so Age, Written, Realloc, Pending, CRC, Link and Verdict stay filled while a disk sleeps. Temperature still shows sleep, a stored reading would be wrong.
+- A plugin update no longer throws away the stored SMART readings.
+- A disk that had just woken up could show n/a in the SMART columns for up to 15 minutes, because a read that found it asleep was not retried before then. Once the disk is up it is retried within a minute.
+- The Written column treated every drive's lifetime-writes attribute as 512-byte sectors. Intel, Kioxia, Kingston, SanDisk and similar SSDs count in 32 MiB or GiB units and showed a tiny wrong figure, and Crucial and Micron drives, which report it under another attribute, showed n/a. Each known format now gets its unit, and an unknown one stays n/a.
+
+### Improvements
+- The Speed arrows now follow the disk: a red arrow pointing down is data written to the disk, a green arrow pointing up is data read from it. They used to point the other way round.
+- The SMART cache lives in RAM and is copied to the flash drive only when the array stops or a disk is read for the first time, instead of on every change.
 
 ## Version 2026.10.14
 
@@ -371,6 +384,10 @@ if mountpoint -q /mnt/user 2>/dev/null; then
     php -r "require_once '/usr/local/emhttp/plugins/&name;/include/diskviewer_api.php'; DiskViewerEndpoint::writeHeaderCache(DiskViewerEndpoint::buildModel());" >/dev/null 2>/dev/null
 fi
 
+# Background SMART collector, scheduled through update_cron like every other plugin.
+# External script: the deferred call needs characters that cannot sit in the PLG XML body.
+/usr/local/emhttp/plugins/&name;/scripts/cron_register.sh
+
 echo ""
 echo "----------------------------------------------------"
 echo " &name; (&branch; build) installed successfully."
@@ -389,6 +406,8 @@ rm -rf /tmp/diskviewer_cache
 
 # diskviewer.cfg stays, a reinstall should find the settings where the user left them
 rm -f /boot/config/plugins/&name;/smart_attrs.json
+# the collector schedule goes with the plugin; the manager runs update_cron after this script and skips us by then
+rm -f /boot/config/plugins/&name;/&name;.cron
 rm -f /boot/config/plugins/&name;/&name;.cfg.bak
 rm -f /boot/config/plugins/&name;/&name;-*.txz
 rm -f /boot/config/plugins/&name;/&name;-*.txz.b64

@@ -663,7 +663,7 @@
         if (!spun)     return muted(SLEEP_HTML);
         if (bps <= 0)  return muted('idle');
         var isRead = (dir || '') === 'r';
-        var arrow = isRead ? SPD_DOWN : SPD_UP;
+        var arrow = isRead ? SPD_UP : SPD_DOWN;
         var cls = isRead ? 'dvt-speed--r' : 'dvt-speed--w';
         return '<span class="dvt-speed ' + cls + '">' + arrow
              + '<span class="dvt-speed-num">' + formatBytes(bps) + '/s</span></span>';

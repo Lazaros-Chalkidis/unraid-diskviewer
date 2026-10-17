@@ -1,0 +1,2 @@
+# Disk Viewer: read SMART from the disks that are awake, never spins one up
+*/15 * * * * /usr/bin/php /usr/local/emhttp/plugins/diskviewer/scripts/smart_collect.php &> /dev/null

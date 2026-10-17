@@ -34,10 +34,12 @@ final class DiskViewerEndpoint
     private const HEARTBEAT_FILE        = '/tmp/diskviewer_cache/widget_heartbeat';
     private const WIDGET_HEARTBEAT_TTL  = 172800;
 
-    private const SMART_ATTRS_CACHE     = '/boot/config/plugins/diskviewer/smart_attrs.json';
+    private const SMART_ATTRS_CACHE     = '/tmp/diskviewer_cache/smart_attrs.json';
+    // the flash copy seeds the ram cache after a boot, written only on array stop or when a disk is read for the first time
+    private const SMART_ATTRS_FLASH     = '/boot/config/plugins/diskviewer/smart_attrs.json';
     private const SMART_ATTRS_TTL       = 3600;
     private const SMART_MISS_TTL        = 900;
-    private const SMART_ATTRS_VER       = 2;  // bump when parseSmartctl gains fields
+    private const SMART_ATTRS_VER       = 4;  // bump when parseSmartctl changes what it stores, so the cache is rebuilt once
     private const SCRUB_CACHE           = '/tmp/diskviewer_cache/scrub_status.json';
     private const ACTIVITY_SNAP_FILE    = '/tmp/diskviewer_cache/activity_snap.json';
     private const SCRUB_TTL             = 3600;
@@ -792,7 +794,8 @@ final class DiskViewerEndpoint
             ];
         }
 
-        $smartMap = self::smartAttrsForDevices($diskList);
+        $awakeU   = array_column(array_filter($plan, static fn(array $p): bool => !empty($p['mounted'])), 'path');
+        $smartMap = self::smartAttrsForDevices($diskList, $awakeU);
 
         $out = [];
         foreach ($plan as $p) {
@@ -1826,6 +1829,21 @@ final class DiskViewerEndpoint
         @file_put_contents(self::HEADER_ISSUES_FILE, json_encode($model['disk_issues'] ?? [], JSON_UNESCAPED_SLASHES));
     }
 
+    // bytes per raw unit of a host-writes attribute, by the name smartctl's drivedb gives it; 0 for anything else
+    private static function writesUnit(string $name): int
+    {
+        $n = strtolower($name);
+        // samsung, seagate, wd gold, crucial (246), micron (246)
+        if ($n === 'total_lbas_written' || $n === 'total_host_sector_writes') return 512;
+        // intel, kioxia, silicon motion
+        if ($n === 'host_writes_32mib') return 32 * 1048576;
+        // phison, sandforce, sandisk, wd blue, sk hynix
+        if (preg_match('/^(host|total|lifetime)_writes_(gib|gb|mib)$/', $n, $m)) {
+            return $m[2] === 'gib' ? 1073741824 : ($m[2] === 'gb' ? 1000000000 : 1048576);
+        }
+        return 0;
+    }
+
     private static function parseSmartctl(string $device): ?array
     {
         $dev = $device;
@@ -1880,19 +1898,26 @@ final class DiskViewerEndpoint
             return $attrs;
         }
 
-        $rawById = [];
+        $rawById  = [];
+        $nameById = [];
         foreach (preg_split('/\r?\n/', $out) as $line) {
-            if (!preg_match('/^\s*(\d+)\s+\S+\s+0x[0-9a-f]+\s+.*?(\d[\d,]*)\s*$/i', $line, $m)) continue;
-            $rawById[(int)$m[1]] = (int)str_replace(',', '', $m[2]);
+            // seagate prints the hours as "23266 (48 159 0)" and hitachi as "30447h+18m+42.213s", so the number is not always last
+            if (!preg_match('/^\s*(\d+)\s+(\S+)\s+0x[0-9a-f]+\s+.*?(\d[\d,]*)(?:h\+\S*|\s*\(.*\))?\s*$/i', $line, $m)) continue;
+            $rawById[(int)$m[1]]  = (int)str_replace(',', '', $m[3]);
+            $nameById[(int)$m[1]] = $m[2];
         }
         if (isset($rawById[9]))   $attrs['age_hours'] = $rawById[9];
         if (isset($rawById[5]))   $attrs['realloc']   = $rawById[5];
         if (isset($rawById[197])) $attrs['pending']   = $rawById[197];
         if (isset($rawById[199])) $attrs['crc']       = $rawById[199];  // 5 realloc, 197 pending, 199 crc, 9 hours
-        if (isset($rawById[241])) {
-            // usually 512-byte lbas; cap absurd values
-            $wr = $rawById[241] * 512;
+        // host writes sit under different ids, names and units per maker; a name we do not know stays n/a instead of a wrong number
+        foreach ([241, 246, 225] as $id) {
+            if (!isset($rawById[$id])) continue;
+            $unit = self::writesUnit($nameById[$id] ?? '');
+            if ($unit === 0) continue;
+            $wr = $rawById[$id] * $unit;
             if ($wr > 0 && $wr < 5.0e15) $attrs['written'] = $wr;  // 5 PB ceiling, well above any real consumer/prosumer ssd
+            break;
         }
 
         // current below max means a bad cable or backplane
@@ -2119,46 +2144,55 @@ final class DiskViewerEndpoint
         return $set ?: null;
     }
 
-    private static function smartAttrsForDevices(array $devices): array
+    // $awake lists the devices the caller knows are spun up: a miss or stale entry of those is retried after a minute instead of waiting out its ttl
+    private static function smartAttrsForDevices(array $devices, array $awake = []): array
     {
         $now = time();
+        $awakeMap = array_fill_keys($awake, true);
         $cache = [];
         $raw = @file_get_contents(self::SMART_ATTRS_CACHE);
+        // nothing in ram after a boot, the flash copy carries the last readings over
+        if (!is_string($raw) || $raw === '') $raw = @file_get_contents(self::SMART_ATTRS_FLASH);
         if (is_string($raw) && $raw !== '') {
             $decoded = json_decode($raw, true);
-            if (is_array($decoded)) {
-                // drop old-shaped cache so new fields fill on the next poll
-                if ((int)($decoded['_ver'] ?? 0) === self::SMART_ATTRS_VER && isset($decoded['d']) && is_array($decoded['d'])) {
-                    $cache = $decoded['d'];
+            if (is_array($decoded) && isset($decoded['d']) && is_array($decoded['d'])) {
+                $cache = $decoded['d'];
+                // an older parser's readings stay as last known, expiring them gets a fresh read as soon as the disk is awake
+                if ((int)($decoded['_ver'] ?? 0) !== self::SMART_ATTRS_VER) {
+                    foreach ($cache as &$e) { if (is_array($e)) $e['ts'] = 0; }
+                    unset($e);
                 }
             }
         }
 
-        $result = [];
-        $dirty = false;
+        $result  = [];
+        $dirty   = false;
+        $learned = false;
+        // the counters hold while a disk sleeps, the temperature does not
+        $stale = static fn(array $a): array => array_replace($a, ['temp' => null]);
         foreach (array_unique($devices) as $dev) {
             if ($dev === '') continue;
             $entry = $cache[$dev] ?? null;
             $ttl   = (is_array($entry) && !empty($entry['miss'])) ? self::SMART_MISS_TTL : self::SMART_ATTRS_TTL;
+            if (isset($awakeMap[$dev]) && is_array($entry) && (!empty($entry['miss']) || !empty($entry['stale']))) $ttl = 60;
             if (is_array($entry) && isset($entry['ts']) && ($now - (int)$entry['ts']) < $ttl) {
-                $result[$dev] = $entry['attrs'] ?? null;
+                $a = $entry['attrs'] ?? null;
+                $result[$dev] = (is_array($a) && !empty($entry['stale'])) ? $stale($a) : $a;
                 continue;
             }
+            $prev  = (is_array($entry) && isset($entry['attrs']) && is_array($entry['attrs'])) ? $entry['attrs'] : null;
             $attrs = self::parseSmartctl($dev);
             if ($attrs === null) {
-
-                $prev = (is_array($entry) && isset($entry['attrs']) && is_array($entry['attrs'])) ? $entry['attrs'] : null;
                 if ($prev !== null) {
-
                     $cache[$dev]  = ['ts' => $now, 'attrs' => $prev, 'stale' => true];
-                    $result[$dev] = $prev;
+                    $result[$dev] = $stale($prev);
                 } else {
-
                     // without its own ttl a drive that reports nothing gets re-read on every poll
                     $cache[$dev]  = ['ts' => $now, 'attrs' => null, 'miss' => true];
                     $result[$dev] = null;
                 }
             } else {
+                if ($prev === null) $learned = true;
                 $cache[$dev]  = ['ts' => $now, 'attrs' => $attrs];
                 $result[$dev] = $attrs;
             }
@@ -2166,17 +2200,37 @@ final class DiskViewerEndpoint
         }
 
         if ($dirty) {
-            // otherwise a swapped-out disk sits in the flash file forever
+            // otherwise a swapped-out disk sits in the cache forever
             foreach ($cache as $dev => $entry) {
                 if (!is_array($entry) || ($now - (int)($entry['ts'] ?? 0)) > 2592000) unset($cache[$dev]);
             }
             $payload = (string)json_encode(['_ver' => self::SMART_ATTRS_VER, 'd' => $cache], JSON_UNESCAPED_SLASHES);
-            // this file lives on the flash stick
             if ($payload !== '' && $payload !== $raw) {
                 self::atomicWrite(self::SMART_ATTRS_CACHE, $payload);
+                // a disk read for the first time is worth a flash write, routine refreshes wait for the array stop
+                if ($learned) self::flushSmartCache();
             }
         }
         return $result;
+    }
+
+    // ram copy to flash when it differs: array stop, and the first reading of a disk
+    public static function flushSmartCache(): void
+    {
+        $ram = @file_get_contents(self::SMART_ATTRS_CACHE);
+        if (!is_string($ram) || $ram === '') return;
+        if ($ram === @file_get_contents(self::SMART_ATTRS_FLASH)) return;
+        self::atomicWrite(self::SMART_ATTRS_FLASH, $ram);
+    }
+
+    // cron entry: read smart from the disks that happen to be awake, so the tool has numbers without spinning anything up
+    public static function collectSmart(): void
+    {
+        $awake = [];
+        foreach (self::devices() as $d) {
+            if (!empty($d['spun']) && !empty($d['device']) && empty($d['not_installed'])) $awake[] = (string)$d['device'];
+        }
+        if ($awake) self::smartAttrsForDevices($awake, $awake);
     }
 
     private static function smartVerdict(?array $a): array
@@ -2409,8 +2463,9 @@ final class DiskViewerEndpoint
                     $model = self::buildModel();
                     self::$toolMode = false;
 
-                    $devList = [];
-                    $poolMap = [];
+                    $devList   = [];
+                    $awakeList = [];
+                    $poolMap   = [];
                     foreach (($model['sections'] ?? []) as $sec) {
                         foreach (($sec['tiles'] ?? []) as $t) {
                             if (!empty($t['is_summary'])) {
@@ -2422,7 +2477,10 @@ final class DiskViewerEndpoint
                                 continue;
                             }
                             $dev = (string)($t['device'] ?? '');
-                            if ($dev !== '') $devList[] = $dev;
+                            if ($dev !== '') {
+                                $devList[] = $dev;
+                                if (!empty($t['spun'])) $awakeList[] = $dev;
+                            }
 
                             if (empty($t['is_parity']) && empty($t['is_pool_member'])) {
                                 $fs = strtolower((string)($t['fs'] ?? ''));
@@ -2432,7 +2490,7 @@ final class DiskViewerEndpoint
                             }
                         }
                     }
-                    $smartMap = self::smartAttrsForDevices($devList);
+                    $smartMap = self::smartAttrsForDevices($devList, $awakeList);
                     $scrubMap = self::scrubStatusForPools($poolMap);
                     $schedMap = self::scrubScheduleForPools($poolMap);
 
